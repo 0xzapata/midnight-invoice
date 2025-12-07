@@ -1,0 +1,42 @@
+export interface LineItem {
+  id: string;
+  description: string;
+  quantity: number;
+  price: number;
+}
+
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  issueDate: string;
+  dueDate: string;
+  fromName: string;
+  fromAddress: string;
+  fromEmail: string;
+  toName: string;
+  toAddress: string;
+  toEmail: string;
+  lineItems: LineItem[];
+  taxRate: number;
+  notes: string;
+  paymentDetails: string;
+  currency: string;
+  createdAt: string;
+}
+
+export interface InvoiceFormData {
+  invoiceNumber: string;
+  issueDate: string;
+  dueDate: string;
+  fromName: string;
+  fromAddress: string;
+  fromEmail: string;
+  toName: string;
+  toAddress: string;
+  toEmail: string;
+  lineItems: LineItem[];
+  taxRate: number;
+  notes: string;
+  paymentDetails: string;
+  currency: string;
+}
