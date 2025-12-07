@@ -7,6 +7,7 @@ import { useInvoices } from '@/hooks/useInvoices';
 import { Invoice } from '@/types/invoice';
 import { formatDate } from '@/lib/invoice-utils';
 import { Spinner } from '@/components/ui/spinner';
+import { env } from '@/env';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ const Index = () => {
   };
 
   const handleLoadSession = (invoice: Invoice) => {
-    navigate(`/create?id=${invoice.id}`, { viewTransition: true });
+    navigate(`/create/${invoice.id}`, { viewTransition: true });
   };
 
   return (
@@ -32,7 +33,7 @@ const Index = () => {
             <div className="w-8 h-8 bg-primary/10 flex items-center justify-center">
               <FileText className="w-4 h-4 text-primary" />
             </div>
-            <h1 className="text-sm font-semibold text-foreground">Invoice Generator</h1>
+            <h1 className="text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
           </div>
           <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
             <Plus className="w-4 h-4 mr-2" />

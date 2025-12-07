@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Download, Save, ArrowLeft } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -12,18 +12,17 @@ import { toast } from 'sonner';
 
 export default function CreateInvoice() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { id: urlId } = useParams();
   
   // Get or generate invoice ID from URL
-  const urlId = searchParams.get('id');
   const [invoiceId] = useState(() => urlId || crypto.randomUUID());
   
   // Redirect to include ID in URL if not present
   useEffect(() => {
     if (!urlId) {
-      setSearchParams({ id: invoiceId }, { replace: true });
+      navigate(`/create/${invoiceId}`, { replace: true });
     }
-  }, [urlId, invoiceId, setSearchParams]);
+  }, [urlId, invoiceId, navigate]);
   
   const {
     saveInvoice,
