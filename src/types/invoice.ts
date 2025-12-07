@@ -8,8 +8,9 @@ export interface LineItem {
 export interface Invoice {
   id: string;
   invoiceNumber: string;
+  invoiceName?: string;
   issueDate: string;
-  dueDate: string;
+  dueDate?: string;
   fromName: string;
   fromAddress: string;
   fromEmail: string;
@@ -26,8 +27,9 @@ export interface Invoice {
 
 export interface InvoiceFormData {
   invoiceNumber: string;
+  invoiceName?: string;
   issueDate: string;
-  dueDate: string;
+  dueDate?: string;
   fromName: string;
   fromAddress: string;
   fromEmail: string;

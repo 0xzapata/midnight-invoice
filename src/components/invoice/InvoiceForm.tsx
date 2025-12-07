@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { InvoiceFormData, LineItem } from '@/types/invoice';
+import { InvoiceFormData } from '@/types/invoice';
 
 interface InvoiceFormProps {
   initialData?: Partial<InvoiceFormData>;
@@ -14,11 +14,12 @@ interface InvoiceFormProps {
 }
 
 export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: InvoiceFormProps) {
-  const { register, control, watch, setValue } = useForm<InvoiceFormData>({
+  const { register, control, watch, setValue, reset } = useForm<InvoiceFormData>({
     defaultValues: {
       invoiceNumber,
+      invoiceName: '',
       issueDate: new Date().toISOString().split('T')[0],
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      dueDate: '',
       fromName: '',
       fromAddress: '',
       fromEmail: '',
@@ -49,12 +50,49 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
     setValue('invoiceNumber', invoiceNumber);
   }, [invoiceNumber, setValue]);
 
+  // Reset form when initialData changes (for loading sessions)
+  useEffect(() => {
+    if (initialData) {
+      reset({
+        invoiceNumber,
+        invoiceName: '',
+        issueDate: new Date().toISOString().split('T')[0],
+        dueDate: '',
+        fromName: '',
+        fromAddress: '',
+        fromEmail: '',
+        toName: '',
+        toAddress: '',
+        toEmail: '',
+        lineItems: [{ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 }],
+        taxRate: 0,
+        notes: '',
+        paymentDetails: '',
+        currency: 'USD',
+        ...initialData,
+      });
+    }
+  }, [initialData, reset, invoiceNumber]);
+
   const addLineItem = () => {
     append({ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 });
   };
 
   return (
     <div className="space-y-6">
+      {/* Invoice Name */}
+      <div className="space-y-2">
+        <Label htmlFor="invoiceName" className="text-xs text-muted-foreground">
+          Invoice Name (optional - auto-generated if empty)
+        </Label>
+        <Input
+          id="invoiceName"
+          placeholder="e.g. Project Alpha Invoice"
+          {...register('invoiceName')}
+          className="bg-secondary border-border"
+        />
+      </div>
+
       {/* Invoice Details */}
       <div className="space-y-4">
         <h3 className="text-sm font-medium text-foreground">Invoice Details</h3>
@@ -66,7 +104,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
             <Input
               id="invoiceNumber"
               {...register('invoiceNumber')}
-              className="font-mono bg-secondary border-border"
+              className="bg-secondary border-border"
             />
           </div>
           <div className="space-y-2">
@@ -77,18 +115,18 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
               id="issueDate"
               type="date"
               {...register('issueDate')}
-              className="font-mono bg-secondary border-border"
+              className="bg-secondary border-border"
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="dueDate" className="text-xs text-muted-foreground">
-              Due Date
+              Due Date (optional)
             </Label>
             <Input
               id="dueDate"
               type="date"
               {...register('dueDate')}
-              className="font-mono bg-secondary border-border"
+              className="bg-secondary border-border"
             />
           </div>
         </div>
@@ -195,7 +233,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
         </div>
         <div className="space-y-3">
           {fields.map((field, index) => (
-            <div key={field.id} className="grid grid-cols-12 gap-2 items-start">
+            <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
               <div className="col-span-6 space-y-1">
                 {index === 0 && (
                   <Label className="text-[10px] text-muted-foreground">Description</Label>
@@ -214,7 +252,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
                   type="number"
                   min="1"
                   {...register(`lineItems.${index}.quantity`, { valueAsNumber: true })}
-                  className="bg-secondary border-border text-sm font-mono text-right"
+                  className="bg-secondary border-border text-sm text-right"
                 />
               </div>
               <div className="col-span-3 space-y-1">
@@ -226,10 +264,10 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
                   min="0"
                   step="0.01"
                   {...register(`lineItems.${index}.price`, { valueAsNumber: true })}
-                  className="bg-secondary border-border text-sm font-mono text-right"
+                  className="bg-secondary border-border text-sm text-right"
                 />
               </div>
-              <div className="col-span-1 flex items-end justify-end">
+              <div className="col-span-1 flex items-center justify-end">
                 {index === 0 && <div className="h-[22px]" />}
                 <Button
                   type="button"
@@ -256,11 +294,12 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
           <select
             id="currency"
             {...register('currency')}
-            className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-10 w-full border border-border bg-secondary px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="USD">USD ($)</option>
             <option value="EUR">EUR (€)</option>
             <option value="GBP">GBP (£)</option>
+            <option value="PHP">PHP (₱)</option>
             <option value="CAD">CAD ($)</option>
             <option value="AUD">AUD ($)</option>
           </select>
@@ -276,7 +315,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
             max="100"
             step="0.1"
             {...register('taxRate', { valueAsNumber: true })}
-            className="bg-secondary border-border font-mono"
+            className="bg-secondary border-border"
           />
         </div>
       </div>

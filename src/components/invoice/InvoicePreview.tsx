@@ -18,7 +18,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
     return (
       <div
         ref={ref}
-        className="bg-card border border-border rounded-lg p-8 min-h-[800px] invoice-shadow fade-in"
+        className="bg-card border border-border p-8 min-h-[800px] invoice-shadow fade-in"
         style={{ width: '100%', maxWidth: '595px' }}
       >
         {/* Header */}
@@ -27,9 +27,14 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
               Invoice
             </p>
-            <p className="font-mono text-lg font-semibold text-foreground">
+            <p className="text-lg font-semibold text-foreground">
               {data.invoiceNumber || 'INV-0001'}
             </p>
+            {data.invoiceName && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {data.invoiceName}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <div className="flex gap-8">
@@ -37,18 +42,20 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
                   Issue Date
                 </p>
-                <p className="font-mono text-sm text-foreground">
+                <p className="text-sm text-foreground">
                   {formatDate(data.issueDate)}
                 </p>
               </div>
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
-                  Due Date
-                </p>
-                <p className="font-mono text-sm text-foreground">
-                  {formatDate(data.dueDate)}
-                </p>
-              </div>
+              {data.dueDate && (
+                <div>
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
+                    Due Date
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {formatDate(data.dueDate)}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -105,13 +112,13 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
               <p className="col-span-6 text-sm text-foreground">
                 {item.description || 'Item description'}
               </p>
-              <p className="col-span-2 text-sm font-mono text-foreground text-right">
+              <p className="col-span-2 text-sm text-foreground text-right">
                 {item.quantity}
               </p>
-              <p className="col-span-2 text-sm font-mono text-foreground text-right">
+              <p className="col-span-2 text-sm text-foreground text-right">
                 {formatCurrency(item.price, data.currency)}
               </p>
-              <p className="col-span-2 text-sm font-mono text-foreground text-right">
+              <p className="col-span-2 text-sm text-foreground text-right">
                 {formatCurrency(item.quantity * item.price, data.currency)}
               </p>
             </div>
@@ -123,21 +130,21 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
           <div className="w-64 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-mono text-foreground">
+              <span className="text-foreground">
                 {formatCurrency(subtotal, data.currency)}
               </span>
             </div>
             {data.taxRate > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Tax ({data.taxRate}%)</span>
-                <span className="font-mono text-foreground">
+                <span className="text-foreground">
                   {formatCurrency(tax, data.currency)}
                 </span>
               </div>
             )}
             <div className="flex justify-between text-base pt-2 border-t border-border">
               <span className="font-medium text-foreground">Total</span>
-              <span className="font-mono font-semibold text-primary">
+              <span className="font-semibold text-primary">
                 {formatCurrency(total, data.currency)}
               </span>
             </div>
