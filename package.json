@@ -1,7 +1,22 @@
 {
-  "name": "vite_react_shadcn_ts",
-  "private": true,
-  "version": "0.0.0",
+  "name": "midnight-invoice",
+  "private": false,
+  "version": "1.0.0",
+  "description": "A modern, dark-themed invoice generator built with React 19, TypeScript, and Tailwind CSS.",
+  "author": "0xzapata",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xzapata/midnight-invoice.git"
+  },
+  "keywords": [
+    "react",
+    "invoice",
+    "typescript",
+    "tailwindcss",
+    "shadcn-ui",
+    "invoice-generator"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",

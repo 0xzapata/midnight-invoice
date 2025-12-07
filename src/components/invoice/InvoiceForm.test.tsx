@@ -100,6 +100,35 @@ describe('InvoiceForm', () => {
     expect(screen.getByDisplayValue('123 Main St')).toBeInTheDocument();
   });
 
+  it('updates form when initialData changes', () => {
+    const { rerender } = render(
+      <InvoiceForm
+        invoiceNumber="INV-0001"
+        onFormChange={mockOnFormChange}
+        initialData={{
+          invoiceNumber: 'INV-0001',
+          fromName: 'Original Name',
+        }}
+      />
+    );
+
+    expect(screen.getByDisplayValue('Original Name')).toBeInTheDocument();
+
+    // Rerender with new data simulating "Load Session"
+    rerender(
+      <InvoiceForm
+        invoiceNumber="INV-0002"
+        onFormChange={mockOnFormChange}
+        initialData={{
+          invoiceNumber: 'INV-0002',
+          fromName: 'New Name',
+        }}
+      />
+    );
+
+    expect(screen.getByDisplayValue('New Name')).toBeInTheDocument();
+  });
+
   it('displays currency selector with default USD', () => {
     render(
       <InvoiceForm

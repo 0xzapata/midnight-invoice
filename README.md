@@ -35,7 +35,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/0xzapata/midnight-invoice.git
 cd midnight-invoice
 
 # Install dependencies

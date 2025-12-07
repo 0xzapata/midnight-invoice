@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { InvoicePreview } from './InvoicePreview';
 import { InvoiceFormData } from '@/types/invoice';
 
@@ -197,5 +197,21 @@ describe('InvoicePreview', () => {
 
     // Should show Euro formatting - €100.00 appears multiple times
     expect(screen.getAllByText('€100.00').length).toBeGreaterThan(0);
+  });
+
+  it('calls onDuplicate when duplicate button is clicked', () => {
+    const handleDuplicate = vi.fn();
+    render(<InvoicePreview data={createMockInvoiceData()} onDuplicate={handleDuplicate} />);
+
+    const duplicateButton = screen.getByText('Duplicate');
+    expect(duplicateButton).toBeInTheDocument();
+    
+    fireEvent.click(duplicateButton);
+    expect(handleDuplicate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render duplicate button when onDuplicate is not provided', () => {
+    render(<InvoicePreview data={createMockInvoiceData()} />);
+    expect(screen.queryByText('Duplicate')).not.toBeInTheDocument();
   });
 });
