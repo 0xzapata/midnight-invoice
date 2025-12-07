@@ -32,24 +32,29 @@ export function useInvoices() {
   const [invoices, setInvoices] = useState<Invoice[]>(() => loadInvoices());
   const [isLoading, setIsLoading] = useState(false);
 
-  const saveInvoice = useCallback((formData: InvoiceFormData): Invoice => {
+  const saveInvoice = useCallback((formData: InvoiceFormData, id?: string): Invoice => {
     const invoiceName = formData.invoiceName || generateCreativeSessionName();
-    
+
     const newInvoice: Invoice = {
       ...formData,
       invoiceName,
-      id: crypto.randomUUID(),
+      id: id || crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
 
     setInvoices((prev) => {
-      const updated = [newInvoice, ...prev];
+      // Check if we're updating an existing invoice
+      const existingIndex = prev.findIndex(inv => inv.id === newInvoice.id);
+      let updated: Invoice[];
+      if (existingIndex >= 0) {
+        updated = [...prev];
+        updated[existingIndex] = newInvoice;
+      } else {
+        updated = [newInvoice, ...prev];
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
-
-    // Clear draft after saving
-    clearDraft();
 
     return newInvoice;
   }, []);
@@ -74,13 +79,13 @@ export function useInvoices() {
     return `INV-${String(maxNum + 1).padStart(4, '0')}`;
   }, [invoices]);
 
-  // Draft management
-  const saveDraft = useCallback((formData: InvoiceFormData) => {
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
+  // Draft management - per-invoice ID
+  const saveDraft = useCallback((id: string, formData: InvoiceFormData) => {
+    localStorage.setItem(`invoice_draft_${id}`, JSON.stringify(formData));
   }, []);
 
-  const loadDraft = useCallback((): InvoiceFormData | null => {
-    const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
+  const loadDraft = useCallback((id: string): InvoiceFormData | null => {
+    const stored = localStorage.getItem(`invoice_draft_${id}`);
     if (stored) {
       try {
         return JSON.parse(stored);
@@ -91,8 +96,12 @@ export function useInvoices() {
     return null;
   }, []);
 
-  const clearDraft = useCallback(() => {
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
+  const clearDraft = useCallback((id: string) => {
+    localStorage.removeItem(`invoice_draft_${id}`);
+  }, []);
+
+  const refreshInvoices = useCallback(() => {
+    setInvoices(loadInvoices());
   }, []);
 
   return {
@@ -105,5 +114,6 @@ export function useInvoices() {
     saveDraft,
     loadDraft,
     clearDraft,
+    refreshInvoices,
   };
 }

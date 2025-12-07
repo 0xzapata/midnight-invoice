@@ -23,8 +23,30 @@ export default function ViewInvoice() {
     try {
       const canvas = await html2canvas(invoiceRef.current, {
         scale: 2,
-        backgroundColor: '#0f0f0f',
+        backgroundColor: '#ffffff',
         useCORS: true,
+        onclone: (clonedDoc, element) => {
+          // Remove dark mode from body to force light CSS variables
+          clonedDoc.body.classList.remove('dark');
+          
+          // Force the element itself to use light colors
+          element.style.backgroundColor = '#ffffff';
+          element.style.color = '#000000';
+          element.style.boxShadow = 'none';
+          
+          // Force all descendant elements to use black text
+          const allChildren = element.querySelectorAll('*');
+          allChildren.forEach((child) => {
+            const htmlChild = child as HTMLElement;
+            // Force text color to black
+            htmlChild.style.color = '#000000';
+            // Force border colors to be visible
+            const computedStyle = clonedDoc.defaultView?.getComputedStyle(htmlChild);
+            if (computedStyle && computedStyle.borderWidth !== '0px') {
+              htmlChild.style.borderColor = '#cccccc';
+            }
+          });
+        }
       });
 
       const imgData = canvas.toDataURL('image/png');

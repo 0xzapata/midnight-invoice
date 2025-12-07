@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -41,14 +41,17 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
   });
 
   const watchedData = watch();
+  const prevDataRef = useRef<string>('');
 
   useEffect(() => {
-    onFormChange(watchedData);
+    // Only call onFormChange if the serialized data has actually changed
+    const serialized = JSON.stringify(watchedData);
+    if (serialized !== prevDataRef.current) {
+      prevDataRef.current = serialized;
+      onFormChange(watchedData);
+    }
   }, [watchedData, onFormChange]);
 
-  useEffect(() => {
-    setValue('invoiceNumber', invoiceNumber);
-  }, [invoiceNumber, setValue]);
 
   // Reset form when initialData changes (for loading sessions)
   useEffect(() => {
@@ -72,7 +75,8 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
         ...initialData,
       });
     }
-  }, [initialData, reset, invoiceNumber]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialData, reset]);
 
   const addLineItem = () => {
     append({ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 });

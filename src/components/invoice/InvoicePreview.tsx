@@ -9,10 +9,10 @@ interface InvoicePreviewProps {
 export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
   ({ data }, ref) => {
     const subtotal = data.lineItems.reduce(
-      (sum, item) => sum + item.quantity * item.price,
+      (sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.price) || 0),
       0
     );
-    const tax = subtotal * (data.taxRate / 100);
+    const tax = subtotal * ((Number(data.taxRate) || 0) / 100);
     const total = subtotal + tax;
 
     return (
@@ -104,25 +104,29 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
               Total
             </p>
           </div>
-          {data.lineItems.map((item) => (
-            <div
-              key={item.id}
-              className="grid grid-cols-12 gap-4 py-3 border-b border-border/50"
-            >
-              <p className="col-span-6 text-sm text-foreground">
-                {item.description || 'Item description'}
-              </p>
-              <p className="col-span-2 text-sm text-foreground text-right">
-                {item.quantity}
-              </p>
-              <p className="col-span-2 text-sm text-foreground text-right">
-                {formatCurrency(item.price, data.currency)}
-              </p>
-              <p className="col-span-2 text-sm text-foreground text-right">
-                {formatCurrency(item.quantity * item.price, data.currency)}
-              </p>
-            </div>
-          ))}
+          {data.lineItems.map((item) => {
+            const qty = Number(item.quantity) || 0;
+            const price = Number(item.price) || 0;
+            return (
+              <div
+                key={item.id}
+                className="grid grid-cols-12 gap-4 py-3 border-b border-border/50"
+              >
+                <p className="col-span-6 text-sm text-foreground">
+                  {item.description || 'Item description'}
+                </p>
+                <p className="col-span-2 text-sm text-foreground text-right">
+                  {qty}
+                </p>
+                <p className="col-span-2 text-sm text-foreground text-right">
+                  {formatCurrency(price, data.currency)}
+                </p>
+                <p className="col-span-2 text-sm text-foreground text-right">
+                  {formatCurrency(qty * price, data.currency)}
+                </p>
+              </div>
+            );
+          })}
         </div>
 
         {/* Summary */}

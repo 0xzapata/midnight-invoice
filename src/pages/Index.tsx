@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, FileText, History, Clock, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,18 +6,46 @@ import { InvoiceList } from '@/components/invoice/InvoiceList';
 import { useInvoices } from '@/hooks/useInvoices';
 import { Invoice } from '@/types/invoice';
 import { formatDate } from '@/lib/invoice-utils';
+import { Spinner } from '@/components/ui/spinner';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { invoices, deleteInvoice, isLoading } = useInvoices();
+  const { invoices, deleteInvoice, isLoading, refreshInvoices } = useInvoices();
   const [activeTab, setActiveTab] = useState<'invoices' | 'sessions'>('invoices');
 
+  // Refresh invoices from localStorage when component mounts
+  useEffect(() => {
+    refreshInvoices();
+  }, [refreshInvoices]);
+
+  // Listen for storage events to refresh when localStorage changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      refreshInvoices();
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [refreshInvoices]);
+
+  // Also refresh when window gains focus (in case localStorage was updated)
+  useEffect(() => {
+    const handleFocus = () => {
+      refreshInvoices();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [refreshInvoices]);
+
   const handleViewInvoice = (invoice: Invoice) => {
-    navigate(`/invoice/${invoice.id}`);
+    navigate(`/invoice/${invoice.id}`, { viewTransition: true });
   };
 
   const handleLoadSession = (invoice: Invoice) => {
-    navigate(`/create?session=${invoice.id}`);
+    navigate(`/create?id=${invoice.id}`, { viewTransition: true });
   };
 
   return (
@@ -31,7 +59,7 @@ const Index = () => {
             </div>
             <h1 className="text-sm font-semibold text-foreground">Invoice Generator</h1>
           </div>
-          <Button size="sm" onClick={() => navigate('/create')}>
+          <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
             <Plus className="w-4 h-4 mr-2" />
             New Invoice
           </Button>
@@ -80,7 +108,7 @@ const Index = () => {
 
               {isLoading ? (
                 <div className="flex items-center justify-center py-16">
-                  <div className="w-6 h-6 border-2 border-primary border-t-transparent animate-spin" />
+                  <Spinner size="lg" />
                 </div>
               ) : (
                 <InvoiceList
@@ -92,7 +120,7 @@ const Index = () => {
 
               {invoices.length === 0 && !isLoading && (
                 <div className="mt-8 flex justify-center">
-                  <Button size="lg" onClick={() => navigate('/create')} className="h-12 px-8">
+                  <Button size="lg" onClick={() => navigate('/create', { viewTransition: true })} className="h-12 px-8">
                     <Plus className="w-5 h-5 mr-2" />
                     Create Your First Invoice
                   </Button>
@@ -112,7 +140,7 @@ const Index = () => {
 
               {isLoading ? (
                 <div className="flex items-center justify-center py-16">
-                  <div className="w-6 h-6 border-2 border-primary border-t-transparent animate-spin" />
+                  <Spinner size="lg" />
                 </div>
               ) : invoices.length === 0 ? (
                 <div className="text-center py-16">
