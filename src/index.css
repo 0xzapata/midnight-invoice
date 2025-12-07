@@ -232,3 +232,39 @@
     opacity: 1;
   }
 }
+
+/* Print Styles */
+@media print {
+
+  * {
+    color: black !important;
+  }
+
+  /* Remove browser default headers and footers */
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Remove invoice border and shadow for print */
+  .invoice-shadow {
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Scale up the invoice to fill more of the page */
+  main {
+    transform: scale(1.15);
+    transform-origin: top center;
+  }
+
+  /* Ensure clean print layout */
+  .container {
+    padding: 0 !important;
+  }
+}

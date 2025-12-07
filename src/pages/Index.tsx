@@ -24,6 +24,22 @@ const Index = () => {
     navigate(`/create/${invoice.id}`, { viewTransition: true });
   };
 
+  const handleDuplicateInvoice = (invoice: Invoice) => {
+    // Generate new ID for the duplicated invoice
+    const newId = crypto.randomUUID();
+    
+    // Create a new invoice with copied data
+    const { id, createdAt, invoiceNumber, ...invoiceData } = invoice;
+    const duplicateData = {
+      ...invoiceData,
+      issueDate: new Date().toISOString().split('T')[0], // Set to today
+      dueDate: '', // Clear due date
+    };
+    
+    // Navigate to create page with the new ID
+    navigate(`/create/${newId}`, { viewTransition: true });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -91,6 +107,7 @@ const Index = () => {
                   invoices={invoices}
                   onView={handleViewInvoice}
                   onLoadSession={handleLoadSession}
+                  onDuplicate={handleDuplicateInvoice}
                   onDelete={deleteInvoice}
                 />
               )}

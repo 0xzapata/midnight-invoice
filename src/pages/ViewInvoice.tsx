@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Download, ArrowLeft, Trash2 } from 'lucide-react';
+import { Download, ArrowLeft, Trash2, Copy, Printer } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,10 @@ export default function ViewInvoice() {
 
   // We need to wait for invoices to load
   const invoice = invoices.length > 0 ? getInvoice(id || '') : undefined;
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   const handleDownload = async () => {
     if (!invoiceRef.current || !invoice) return;
@@ -72,6 +76,17 @@ export default function ViewInvoice() {
     navigate('/');
   };
 
+  const handleDuplicate = () => {
+    if (!invoice) return;
+    
+    // Generate new ID for the duplicated invoice
+    const newId = crypto.randomUUID();
+    
+    // Navigate to create page with the new ID
+    // CreateInvoice will handle loading the data via getInvoice
+    navigate(`/create/${newId}`, { viewTransition: true });
+  };
+
   if (!invoice) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -88,7 +103,7 @@ export default function ViewInvoice() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="print:hidden sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center justify-between">
           <div className="flex items-center gap-4">
             <Button
@@ -113,6 +128,14 @@ export default function ViewInvoice() {
               <Trash2 className="w-4 h-4 mr-2" />
               Delete
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrint}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print
+            </Button>
             <Button size="sm" onClick={handleDownload}>
               <Download className="w-4 h-4 mr-2" />
               Download PDF
@@ -124,7 +147,7 @@ export default function ViewInvoice() {
       {/* Main Content */}
       <main className="container py-8">
         <div className="flex justify-center">
-          <InvoicePreview ref={invoiceRef} data={invoice} />
+          <InvoicePreview ref={invoiceRef} data={invoice} onDuplicate={handleDuplicate} />
         </div>
       </main>
     </div>

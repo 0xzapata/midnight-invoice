@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Download, Save, ArrowLeft } from 'lucide-react';
+import { Download, Save, ArrowLeft, Copy } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { Button } from '@/components/ui/button';
@@ -145,6 +145,26 @@ export default function CreateInvoice() {
     }
   };
 
+  const handleDuplicate = () => {
+    // Generate new ID for the duplicated invoice
+    const newId = crypto.randomUUID();
+    
+    // Prepare duplicate data (reset dates)
+    const duplicateData: InvoiceFormData = {
+      ...formData,
+      invoiceNumber: getNextInvoiceNumber, // Will get fresh number
+      issueDate: new Date().toISOString().split('T')[0], // Set to today
+      dueDate: '', // Clear due date
+    };
+    
+    // Save as draft with new ID
+    saveDraft(newId, duplicateData);
+    
+    // Navigate to create page with the new ID
+    toast.success('Invoice duplicated');
+    navigate(`/create/${newId}`, { viewTransition: true, replace: true });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -162,6 +182,10 @@ export default function CreateInvoice() {
             <Button variant="outline" size="sm" onClick={handleDownload}>
               <Download className="w-4 h-4 mr-2" />
               Download PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleDuplicate}>
+              <Copy className="w-4 h-4 mr-2" />
+              Duplicate
             </Button>
             <Button size="sm" onClick={handleSave}>
               <Save className="w-4 h-4 mr-2" />

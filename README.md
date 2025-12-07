@@ -2,7 +2,7 @@
 
 A modern, dark-themed invoice generator built with React 19, TypeScript, and Tailwind CSS.
 
-![Invoice Generator](https://img.shields.io/badge/React-19-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Midnight Invoice](https://img.shields.io/badge/React-19-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
