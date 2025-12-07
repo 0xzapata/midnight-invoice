@@ -31,7 +31,7 @@ const Index = () => {
         <div className="container flex h-14 items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-primary/10 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-primary" />
+              <img src="/favicon.svg" alt={`${env.VITE_APP_NAME} Logo`} className="w-4 h-4 text-primary" />
             </div>
             <h1 className="text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
           </div>
@@ -90,6 +90,7 @@ const Index = () => {
                 <InvoiceList
                   invoices={invoices}
                   onView={handleViewInvoice}
+                  onLoadSession={handleLoadSession}
                   onDelete={deleteInvoice}
                 />
               )}

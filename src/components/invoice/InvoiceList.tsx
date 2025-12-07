@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import { FileText, Trash2, Eye } from 'lucide-react';
+import { FileText, Trash2, Eye, Pencil } from 'lucide-react';
 import { Invoice } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/invoice-utils';
@@ -7,10 +7,11 @@ import { formatCurrency } from '@/lib/invoice-utils';
 interface InvoiceListProps {
   invoices: Invoice[];
   onView: (invoice: Invoice) => void;
+  onLoadSession: (invoice: Invoice) => void;
   onDelete: (id: string) => void;
 }
 
-export function InvoiceList({ invoices, onView, onDelete }: InvoiceListProps) {
+export function InvoiceList({ invoices, onView, onLoadSession, onDelete }: InvoiceListProps) {
   if (invoices.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -60,8 +61,18 @@ export function InvoiceList({ invoices, onView, onDelete }: InvoiceListProps) {
                 <Button
                   variant="ghost"
                   size="icon"
+                  onClick={() => onLoadSession(invoice)}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  title="Load Session"
+                >
+                  <Pencil className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => onView(invoice)}
-                  className="h-8 w-8"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  title="View Invoice"
                 >
                   <Eye className="w-4 h-4" />
                 </Button>
@@ -70,6 +81,7 @@ export function InvoiceList({ invoices, onView, onDelete }: InvoiceListProps) {
                   size="icon"
                   onClick={() => onDelete(invoice.id)}
                   className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  title="Delete Invoice"
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
