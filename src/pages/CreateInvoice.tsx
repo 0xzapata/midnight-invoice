@@ -92,11 +92,7 @@ export default function CreateInvoice() {
     saveInvoice(formData, invoiceId);
     clearDraft(invoiceId);
     toast.success('Invoice saved successfully');
-    // Small delay to ensure localStorage write completes before navigation
-    setTimeout(() => {
-      window.dispatchEvent(new Event('storage'));
-      navigate('/', { viewTransition: true });
-    }, 50);
+    navigate('/', { viewTransition: true });
   };
 
   const handleDownload = async () => {
@@ -143,11 +139,7 @@ export default function CreateInvoice() {
       saveInvoice(formData, invoiceId);
       clearDraft(invoiceId);
       toast.success('PDF downloaded and invoice saved');
-      // Small delay to ensure localStorage write completes before navigation
-      setTimeout(() => {
-        window.dispatchEvent(new Event('storage'));
-        navigate('/', { viewTransition: true });
-      }, 50);
+      navigate('/', { viewTransition: true });
     } catch (error) {
       console.error('Failed to generate PDF:', error);
       toast.error('Failed to generate PDF');

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, FileText, History, Clock, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,35 +10,10 @@ import { Spinner } from '@/components/ui/spinner';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { invoices, deleteInvoice, isLoading, refreshInvoices } = useInvoices();
+  const { invoices, deleteInvoice, isLoading } = useInvoices();
   const [activeTab, setActiveTab] = useState<'invoices' | 'sessions'>('invoices');
 
-  // Refresh invoices from localStorage when component mounts
-  useEffect(() => {
-    refreshInvoices();
-  }, [refreshInvoices]);
-
-  // Listen for storage events to refresh when localStorage changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      refreshInvoices();
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, [refreshInvoices]);
-
-  // Also refresh when window gains focus (in case localStorage was updated)
-  useEffect(() => {
-    const handleFocus = () => {
-      refreshInvoices();
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [refreshInvoices]);
+  // Zustand handles state synchronization automatically - no useEffect needed
 
   const handleViewInvoice = (invoice: Invoice) => {
     navigate(`/invoice/${invoice.id}`, { viewTransition: true });

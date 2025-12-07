@@ -1,6 +1,7 @@
-import { forwardRef } from 'react';
+import { forwardRef, useMemo } from 'react';
 import { InvoiceFormData } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/lib/invoice-utils';
+import { sanitizeInvoiceData } from '@/lib/sanitize';
 
 interface InvoicePreviewProps {
   data: InvoiceFormData;
@@ -8,11 +9,14 @@ interface InvoicePreviewProps {
 
 export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
   ({ data }, ref) => {
-    const subtotal = data.lineItems.reduce(
-      (sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.price) || 0),
+    // Sanitize all input data for safe rendering
+    const safeData = useMemo(() => sanitizeInvoiceData(data), [data]);
+
+    const subtotal = safeData.lineItems.reduce(
+      (sum, item) => sum + item.quantity * item.price,
       0
     );
-    const tax = subtotal * ((Number(data.taxRate) || 0) / 100);
+    const tax = subtotal * (safeData.taxRate / 100);
     const total = subtotal + tax;
 
     return (
@@ -28,11 +32,11 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
               Invoice
             </p>
             <p className="text-lg font-semibold text-foreground">
-              {data.invoiceNumber || 'INV-0001'}
+              {safeData.invoiceNumber || 'INV-0001'}
             </p>
-            {data.invoiceName && (
+            {safeData.invoiceName && (
               <p className="text-sm text-muted-foreground mt-1">
-                {data.invoiceName}
+                {safeData.invoiceName}
               </p>
             )}
           </div>
@@ -43,16 +47,16 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
                   Issue Date
                 </p>
                 <p className="text-sm text-foreground">
-                  {formatDate(data.issueDate)}
+                  {formatDate(safeData.issueDate)}
                 </p>
               </div>
-              {data.dueDate && (
+              {safeData.dueDate && (
                 <div>
                   <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
                     Due Date
                   </p>
                   <p className="text-sm text-foreground">
-                    {formatDate(data.dueDate)}
+                    {formatDate(safeData.dueDate)}
                   </p>
                 </div>
               )}
@@ -67,11 +71,11 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
               From
             </p>
             <div className="text-sm space-y-0.5">
-              <p className="font-medium text-foreground">{data.fromName || 'Your Name'}</p>
+              <p className="font-medium text-foreground">{safeData.fromName || 'Your Name'}</p>
               <p className="text-muted-foreground whitespace-pre-line">
-                {data.fromAddress || 'Your Address'}
+                {safeData.fromAddress || 'Your Address'}
               </p>
-              <p className="text-muted-foreground">{data.fromEmail}</p>
+              <p className="text-muted-foreground">{safeData.fromEmail}</p>
             </div>
           </div>
           <div>
@@ -79,11 +83,11 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
               Bill To
             </p>
             <div className="text-sm space-y-0.5">
-              <p className="font-medium text-foreground">{data.toName || 'Client Name'}</p>
+              <p className="font-medium text-foreground">{safeData.toName || 'Client Name'}</p>
               <p className="text-muted-foreground whitespace-pre-line">
-                {data.toAddress || 'Client Address'}
+                {safeData.toAddress || 'Client Address'}
               </p>
-              <p className="text-muted-foreground">{data.toEmail}</p>
+              <p className="text-muted-foreground">{safeData.toEmail}</p>
             </div>
           </div>
         </div>
@@ -104,29 +108,25 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
               Total
             </p>
           </div>
-          {data.lineItems.map((item) => {
-            const qty = Number(item.quantity) || 0;
-            const price = Number(item.price) || 0;
-            return (
-              <div
-                key={item.id}
-                className="grid grid-cols-12 gap-4 py-3 border-b border-border/50"
-              >
-                <p className="col-span-6 text-sm text-foreground">
-                  {item.description || 'Item description'}
-                </p>
-                <p className="col-span-2 text-sm text-foreground text-right">
-                  {qty}
-                </p>
-                <p className="col-span-2 text-sm text-foreground text-right">
-                  {formatCurrency(price, data.currency)}
-                </p>
-                <p className="col-span-2 text-sm text-foreground text-right">
-                  {formatCurrency(qty * price, data.currency)}
-                </p>
-              </div>
-            );
-          })}
+          {safeData.lineItems.map((item) => (
+            <div
+              key={item.id}
+              className="grid grid-cols-12 gap-4 py-3 border-b border-border/50"
+            >
+              <p className="col-span-6 text-sm text-foreground">
+                {item.description || 'Item description'}
+              </p>
+              <p className="col-span-2 text-sm text-foreground text-right">
+                {item.quantity}
+              </p>
+              <p className="col-span-2 text-sm text-foreground text-right">
+                {formatCurrency(item.price, safeData.currency)}
+              </p>
+              <p className="col-span-2 text-sm text-foreground text-right">
+                {formatCurrency(item.quantity * item.price, safeData.currency)}
+              </p>
+            </div>
+          ))}
         </div>
 
         {/* Summary */}
@@ -135,21 +135,21 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Subtotal</span>
               <span className="text-foreground">
-                {formatCurrency(subtotal, data.currency)}
+                {formatCurrency(subtotal, safeData.currency)}
               </span>
             </div>
-            {data.taxRate > 0 && (
+            {safeData.taxRate > 0 && (
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Tax ({data.taxRate}%)</span>
+                <span className="text-muted-foreground">Tax ({safeData.taxRate}%)</span>
                 <span className="text-foreground">
-                  {formatCurrency(tax, data.currency)}
+                  {formatCurrency(tax, safeData.currency)}
                 </span>
               </div>
             )}
             <div className="flex justify-between text-base pt-2 border-t border-border">
               <span className="font-medium text-foreground">Total</span>
               <span className="font-semibold text-primary">
-                {formatCurrency(total, data.currency)}
+                {formatCurrency(total, safeData.currency)}
               </span>
             </div>
           </div>
@@ -157,23 +157,23 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
 
         {/* Footer */}
         <div className="grid grid-cols-2 gap-8 mt-auto">
-          {data.paymentDetails && (
+          {safeData.paymentDetails && (
             <div>
               <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
                 Payment Details
               </p>
               <p className="text-sm text-muted-foreground whitespace-pre-line">
-                {data.paymentDetails}
+                {safeData.paymentDetails}
               </p>
             </div>
           )}
-          {data.notes && (
+          {safeData.notes && (
             <div>
               <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
                 Notes
               </p>
               <p className="text-sm text-muted-foreground whitespace-pre-line">
-                {data.notes}
+                {safeData.notes}
               </p>
             </div>
           )}
