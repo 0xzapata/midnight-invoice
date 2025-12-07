@@ -1,73 +1,161 @@
-# Welcome to your Lovable project
+# Midnight Invoice
 
-## Project info
+A modern, dark-themed invoice generator built with React 19, TypeScript, and Tailwind CSS.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+![Invoice Generator](https://img.shields.io/badge/React-19-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-## How can I edit this code?
+## Features
 
-There are several ways of editing your application.
+- 📝 Create and edit professional invoices
+- 💾 Auto-save drafts to localStorage
+- 📄 Export to PDF
+- 🌙 Dark mode design
+- 💱 Multi-currency support (USD, EUR, GBP, PHP, CAD, AUD)
+- 📱 Responsive layout
+- 🔒 Input sanitization for security
 
-**Use Lovable**
+## Tech Stack
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+- **Framework**: React 19 with TypeScript
+- **Build Tool**: Vite
+- **Styling**: Tailwind CSS
+- **UI Components**: shadcn/ui
+- **State Management**: Zustand with persist middleware
+- **Form Handling**: React Hook Form
+- **PDF Generation**: html2canvas + jsPDF
+- **Testing**: Vitest + React Testing Library
 
-Changes made via Lovable will be committed automatically to this repo.
+## Getting Started
 
-**Use your preferred IDE**
+### Prerequisites
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+- [Bun](https://bun.sh/) (recommended) or Node.js 18+
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Installation
 
-Follow these steps:
+```bash
+# Clone the repository
+git clone <repository-url>
+cd midnight-invoice
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Install dependencies
+bun install
 ```
 
-**Edit a file directly in GitHub**
+### Development
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+# Start the development server
+bun run dev
+```
 
-**Use GitHub Codespaces**
+The app will be available at `http://localhost:5173`
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Building for Production
 
-## What technologies are used for this project?
+```bash
+# Create production build
+bun run build
 
-This project is built with:
+# Preview production build
+bun run preview
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Testing
 
-## How can I deploy this project?
+```bash
+# Run tests in watch mode
+bun run test
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+# Run tests once
+bun run test:run
 
-## Can I connect a custom domain to my Lovable project?
+# Run tests with coverage
+bun run test:coverage
+```
 
-Yes, you can!
+### Linting
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+```bash
+bun run lint
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Project Structure
+
+```
+src/
+├── components/
+│   ├── invoice/           # Invoice-related components
+│   │   ├── InvoiceForm.tsx
+│   │   ├── InvoicePreview.tsx
+│   │   └── InvoiceList.tsx
+│   └── ui/                # shadcn/ui components
+├── hooks/
+│   └── useInvoices.ts     # Invoice management hook
+├── lib/
+│   ├── invoice-utils.ts   # Currency/date formatting
+│   ├── sanitize.ts        # Input sanitization
+│   └── utils.ts           # General utilities
+├── pages/
+│   ├── Index.tsx          # Dashboard
+│   ├── CreateInvoice.tsx  # Create/edit invoice
+│   └── ViewInvoice.tsx    # View saved invoice
+├── stores/
+│   └── useInvoiceStore.ts # Zustand store
+├── test/
+│   └── setup.ts           # Test configuration
+└── types/
+    └── invoice.ts         # TypeScript interfaces
+```
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `bun run dev` | Start development server |
+| `bun run build` | Build for production |
+| `bun run preview` | Preview production build |
+| `bun run lint` | Run ESLint |
+| `bun run test` | Run tests in watch mode |
+| `bun run test:run` | Run tests once |
+| `bun run test:coverage` | Run tests with coverage report |
+
+## State Management
+
+The app uses [Zustand](https://github.com/pmndrs/zustand) for state management with the `persist` middleware for automatic localStorage synchronization.
+
+```typescript
+// Access the store directly
+import { useInvoiceStore } from '@/stores/useInvoiceStore';
+
+const invoices = useInvoiceStore((state) => state.invoices);
+const saveInvoice = useInvoiceStore((state) => state.saveInvoice);
+
+// Or use the hook wrapper for backwards compatibility
+import { useInvoices } from '@/hooks/useInvoices';
+
+const { invoices, saveInvoice, deleteInvoice } = useInvoices();
+```
+
+## Security
+
+All user input is sanitized before rendering to prevent XSS attacks:
+
+```typescript
+import { sanitizeInvoiceData } from '@/lib/sanitize';
+
+// Sanitize all invoice fields before rendering
+const safeData = sanitizeInvoiceData(formData);
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License.

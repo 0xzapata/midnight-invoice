@@ -1,10 +1,22 @@
 import { InvoiceFormData, LineItem } from '@/types/invoice';
 
 /**
- * Sanitize text input for safe rendering in PDFs
- * - Removes potential script injections (HTML tags)
- * - Escapes HTML entities
- * - Normalizes whitespace (preserves line breaks)
+ * Sanitizes text input for safe rendering in PDFs and HTML.
+ *
+ * Performs the following transformations:
+ * - Removes all HTML tags (prevents XSS)
+ * - Escapes HTML entities (&, <, >, ", ')
+ * - Normalizes consecutive spaces/tabs to single space
+ * - Preserves line breaks for multiline content
+ * - Trims leading/trailing whitespace
+ *
+ * @param input - The text string to sanitize
+ * @returns Sanitized text string, or empty string if input is falsy
+ *
+ * @example
+ * sanitizeText('<script>alert("xss")</script>Hello')  // 'Hello'
+ * sanitizeText('Hello & Goodbye')                     // 'Hello &amp; Goodbye'
+ * sanitizeText('  Multiple   spaces  ')               // 'Multiple spaces'
  */
 export function sanitizeText(input: string): string {
     if (!input) return '';
@@ -24,8 +36,22 @@ export function sanitizeText(input: string): string {
 }
 
 /**
- * Sanitize numeric input
- * Returns 0 if invalid, NaN, or not finite
+ * Sanitizes numeric input, ensuring a valid finite number.
+ *
+ * Handles various edge cases:
+ * - Returns 0 for undefined, null, NaN, or Infinity
+ * - Parses string inputs to numbers
+ * - Returns the number as-is if already valid
+ *
+ * @param input - The value to sanitize (number, string, undefined, or null)
+ * @returns A valid finite number, or 0 if invalid
+ *
+ * @example
+ * sanitizeNumber(42)           // 42
+ * sanitizeNumber('3.14')       // 3.14
+ * sanitizeNumber(NaN)          // 0
+ * sanitizeNumber(undefined)    // 0
+ * sanitizeNumber(Infinity)     // 0
  */
 export function sanitizeNumber(input: number | string | undefined | null): number {
     if (input === undefined || input === null) return 0;
@@ -34,7 +60,19 @@ export function sanitizeNumber(input: number | string | undefined | null): numbe
 }
 
 /**
- * Sanitize a single line item
+ * Sanitizes a single invoice line item.
+ *
+ * @param item - The line item to sanitize
+ * @returns A new line item object with sanitized values
+ *
+ * @example
+ * sanitizeLineItem({
+ *   id: '1',
+ *   description: '<b>Service</b>',
+ *   quantity: NaN,
+ *   price: 100
+ * })
+ * // Returns: { id: '1', description: 'Service', quantity: 0, price: 100 }
  */
 export function sanitizeLineItem(item: LineItem): LineItem {
     return {
@@ -46,8 +84,23 @@ export function sanitizeLineItem(item: LineItem): LineItem {
 }
 
 /**
- * Sanitize an entire invoice form data object
- * Safe for rendering in PDFs and preventing XSS
+ * Sanitizes an entire invoice form data object.
+ *
+ * Applies appropriate sanitization to each field:
+ * - Text fields: HTML stripped, entities escaped
+ * - Numeric fields: Converted to valid numbers
+ * - Date/currency fields: Passed through unchanged (already validated)
+ *
+ * Use this before rendering invoice data in PDFs or HTML to prevent XSS
+ * attacks and ensure data integrity.
+ *
+ * @param data - The invoice form data to sanitize
+ * @returns A new object with all fields sanitized
+ *
+ * @example
+ * const safeData = sanitizeInvoiceData(formData);
+ * // All text fields are now XSS-safe
+ * // All numeric fields are guaranteed to be valid numbers
  */
 export function sanitizeInvoiceData(data: InvoiceFormData): InvoiceFormData {
     return {
@@ -68,3 +121,4 @@ export function sanitizeInvoiceData(data: InvoiceFormData): InvoiceFormData {
         currency: data.currency, // Currency codes are from a select, safe
     };
 }
+
