@@ -23,7 +23,7 @@
     --border: 0 0% 90%;
     --input: 0 0% 90%;
     --ring: 160 84% 39%;
-    --radius: 0.5rem;
+    --radius: 0;
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 0 0% 26%;
     --sidebar-primary: 0 0% 10%;
@@ -78,11 +78,11 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'DM Mono', monospace;
   }
 
-  .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
   }
 }
 
