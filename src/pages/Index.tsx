@@ -6,18 +6,38 @@ import { InvoiceList } from '@/components/invoice/InvoiceList';
 import { useInvoices } from '@/hooks/useInvoices';
 import { Invoice } from '@/types/invoice';
 import { formatDate } from '@/lib/invoice-utils';
+import { Spinner } from '@/components/ui/spinner';
+import { env } from '@/env';
 
 const Index = () => {
   const navigate = useNavigate();
   const { invoices, deleteInvoice, isLoading } = useInvoices();
   const [activeTab, setActiveTab] = useState<'invoices' | 'sessions'>('invoices');
 
+  // Zustand handles state synchronization automatically - no useEffect needed
+
   const handleViewInvoice = (invoice: Invoice) => {
-    navigate(`/invoice/${invoice.id}`);
+    navigate(`/invoice/${invoice.id}`, { viewTransition: true });
   };
 
   const handleLoadSession = (invoice: Invoice) => {
-    navigate(`/create?session=${invoice.id}`);
+    navigate(`/create/${invoice.id}`, { viewTransition: true });
+  };
+
+  const handleDuplicateInvoice = (invoice: Invoice) => {
+    // Generate new ID for the duplicated invoice
+    const newId = crypto.randomUUID();
+    
+    // Create a new invoice with copied data
+    const { id, createdAt, invoiceNumber, ...invoiceData } = invoice;
+    const duplicateData = {
+      ...invoiceData,
+      issueDate: new Date().toISOString().split('T')[0], // Set to today
+      dueDate: '', // Clear due date
+    };
+    
+    // Navigate to create page with the new ID
+    navigate(`/create/${newId}`, { viewTransition: true });
   };
 
   return (
@@ -27,11 +47,11 @@ const Index = () => {
         <div className="container flex h-14 items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-primary/10 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-primary" />
+              <img src="/favicon.svg" alt={`${env.VITE_APP_NAME} Logo`} className="w-4 h-4 text-primary" />
             </div>
-            <h1 className="text-sm font-semibold text-foreground">Invoice Generator</h1>
+            <h1 className="text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
           </div>
-          <Button size="sm" onClick={() => navigate('/create')}>
+          <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
             <Plus className="w-4 h-4 mr-2" />
             New Invoice
           </Button>
@@ -80,19 +100,21 @@ const Index = () => {
 
               {isLoading ? (
                 <div className="flex items-center justify-center py-16">
-                  <div className="w-6 h-6 border-2 border-primary border-t-transparent animate-spin" />
+                  <Spinner size="lg" />
                 </div>
               ) : (
                 <InvoiceList
                   invoices={invoices}
                   onView={handleViewInvoice}
+                  onLoadSession={handleLoadSession}
+                  onDuplicate={handleDuplicateInvoice}
                   onDelete={deleteInvoice}
                 />
               )}
 
               {invoices.length === 0 && !isLoading && (
                 <div className="mt-8 flex justify-center">
-                  <Button size="lg" onClick={() => navigate('/create')} className="h-12 px-8">
+                  <Button size="lg" onClick={() => navigate('/create', { viewTransition: true })} className="h-12 px-8">
                     <Plus className="w-5 h-5 mr-2" />
                     Create Your First Invoice
                   </Button>
@@ -112,7 +134,7 @@ const Index = () => {
 
               {isLoading ? (
                 <div className="flex items-center justify-center py-16">
-                  <div className="w-6 h-6 border-2 border-primary border-t-transparent animate-spin" />
+                  <Spinner size="lg" />
                 </div>
               ) : invoices.length === 0 ? (
                 <div className="text-center py-16">

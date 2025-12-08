@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Download, Save, ArrowLeft } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Download, Save, ArrowLeft, Copy } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { Button } from '@/components/ui/button';
@@ -12,8 +12,17 @@ import { toast } from 'sonner';
 
 export default function CreateInvoice() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get('session');
+  const { id: urlId } = useParams();
+  
+  // Get or generate invoice ID from URL
+  const [invoiceId] = useState(() => urlId || crypto.randomUUID());
+  
+  // Redirect to include ID in URL if not present
+  useEffect(() => {
+    if (!urlId) {
+      navigate(`/create/${invoiceId}`, { replace: true });
+    }
+  }, [urlId, invoiceId, navigate]);
   
   const {
     saveInvoice,
@@ -26,25 +35,25 @@ export default function CreateInvoice() {
   
   const invoiceRef = useRef<HTMLDivElement>(null);
   
-  // Load initial data from session or draft
+  // Load initial data from existing invoice or draft
   const getInitialData = useCallback((): Partial<InvoiceFormData> => {
-    if (sessionId) {
-      const session = getInvoice(sessionId);
-      if (session) {
-        const { id, createdAt, ...formData } = session;
-        return formData;
-      }
+    // First check if this ID exists as a saved invoice
+    const existingInvoice = getInvoice(invoiceId);
+    if (existingInvoice) {
+      const { id, createdAt, ...formData } = existingInvoice;
+      return formData;
     }
     
-    const draft = loadDraft();
+    // Then check for a draft with this ID
+    const draft = loadDraft(invoiceId);
     if (draft) {
       return draft;
     }
     
     return {};
-  }, [sessionId, getInvoice, loadDraft]);
+  }, [invoiceId, getInvoice, loadDraft]);
 
-  const [initialData, setInitialData] = useState<Partial<InvoiceFormData>>(() => getInitialData());
+  const [initialData] = useState<Partial<InvoiceFormData>>(() => getInitialData());
   
   const [formData, setFormData] = useState<InvoiceFormData>(() => ({
     invoiceNumber: getNextInvoiceNumber,
@@ -70,28 +79,19 @@ export default function CreateInvoice() {
     ...getInitialData(),
   }));
 
-  // Auto-save draft on form change
+  // Auto-save draft on form change (using invoice ID)
   const handleFormChange = useCallback((data: InvoiceFormData) => {
     setFormData(data);
-    saveDraft(data);
-  }, [saveDraft]);
+    saveDraft(invoiceId, data);
+  }, [saveDraft, invoiceId]);
 
-  // Load session data when sessionId changes
-  useEffect(() => {
-    if (sessionId) {
-      const session = getInvoice(sessionId);
-      if (session) {
-        const { id, createdAt, ...formData } = session;
-        setInitialData(formData);
-      }
-    }
-  }, [sessionId, getInvoice]);
+  const isEditing = !!getInvoice(invoiceId);
 
   const handleSave = () => {
-    saveInvoice(formData);
-    clearDraft();
+    saveInvoice(formData, invoiceId);
+    clearDraft(invoiceId);
     toast.success('Invoice saved successfully');
-    navigate('/');
+    navigate('/', { viewTransition: true });
   };
 
   const handleDownload = async () => {
@@ -99,9 +99,32 @@ export default function CreateInvoice() {
     try {
       const canvas = await html2canvas(invoiceRef.current, {
         scale: 2,
-        backgroundColor: '#0f0f0f',
-        useCORS: true
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        onclone: (clonedDoc, element) => {
+          // Remove dark mode from body to force light CSS variables
+          clonedDoc.body.classList.remove('dark');
+          
+          // Force the element itself to use light colors
+          element.style.backgroundColor = '#ffffff';
+          element.style.color = '#000000';
+          element.style.boxShadow = 'none';
+          
+          // Force all descendant elements to use black text
+          const allChildren = element.querySelectorAll('*');
+          allChildren.forEach((child) => {
+            const htmlChild = child as HTMLElement;
+            // Force text color to black
+            htmlChild.style.color = '#000000';
+            // Force border colors to be visible
+            const computedStyle = clonedDoc.defaultView?.getComputedStyle(htmlChild);
+            if (computedStyle && computedStyle.borderWidth !== '0px') {
+              htmlChild.style.borderColor = '#cccccc';
+            }
+          });
+        }
       });
+      
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -111,15 +134,35 @@ export default function CreateInvoice() {
       pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
       pdf.save(`${formData.invoiceNumber || 'invoice'}.pdf`);
       
-      // Save invoice to session history after download
-      saveInvoice(formData);
-      clearDraft();
+      // Save invoice to session history after successful PDF generation
+      saveInvoice(formData, invoiceId);
+      clearDraft(invoiceId);
       toast.success('PDF downloaded and invoice saved');
-      navigate('/');
+      navigate('/', { viewTransition: true });
     } catch (error) {
       console.error('Failed to generate PDF:', error);
       toast.error('Failed to generate PDF');
     }
+  };
+
+  const handleDuplicate = () => {
+    // Generate new ID for the duplicated invoice
+    const newId = crypto.randomUUID();
+    
+    // Prepare duplicate data (reset dates)
+    const duplicateData: InvoiceFormData = {
+      ...formData,
+      invoiceNumber: getNextInvoiceNumber, // Will get fresh number
+      issueDate: new Date().toISOString().split('T')[0], // Set to today
+      dueDate: '', // Clear due date
+    };
+    
+    // Save as draft with new ID
+    saveDraft(newId, duplicateData);
+    
+    // Navigate to create page with the new ID
+    toast.success('Invoice duplicated');
+    navigate(`/create/${newId}`, { viewTransition: true, replace: true });
   };
 
   return (
@@ -128,17 +171,21 @@ export default function CreateInvoice() {
       <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="h-8 w-8">
+            <Button variant="ghost" size="icon" onClick={() => navigate('/', { viewTransition: true })} className="h-8 w-8">
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <h1 className="text-sm font-medium text-foreground">
-              {sessionId ? 'Edit Invoice' : 'Create Invoice'}
+              {isEditing ? 'Edit Invoice' : 'Create Invoice'}
             </h1>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleDownload}>
               <Download className="w-4 h-4 mr-2" />
               Download PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleDuplicate}>
+              <Copy className="w-4 h-4 mr-2" />
+              Duplicate
             </Button>
             <Button size="sm" onClick={handleSave}>
               <Save className="w-4 h-4 mr-2" />
@@ -156,7 +203,7 @@ export default function CreateInvoice() {
             <div className="sticky top-24">
               <div className="bg-card border border-border p-6">
                 <InvoiceForm 
-                  key={sessionId || 'new'}
+                  key={invoiceId}
                   invoiceNumber={formData.invoiceNumber} 
                   onFormChange={handleFormChange}
                   initialData={initialData}

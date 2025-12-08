@@ -19,6 +19,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/create" element={<CreateInvoice />} />
+          <Route path="/create/:id" element={<CreateInvoice />} />
           <Route path="/invoice/:id" element={<ViewInvoice />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

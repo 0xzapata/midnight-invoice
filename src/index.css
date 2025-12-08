@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'PitchSansWeb-Medium';
+  src: url('/fonts/PitchSansWeb-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -78,6 +86,15 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: 'PitchSansWeb-Medium', sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: 'DM Mono', monospace;
   }
 
@@ -88,9 +105,9 @@
 
 @layer utilities {
   .invoice-shadow {
-    box-shadow: 0 0 0 1px hsl(var(--border)), 
-                0 4px 6px -1px rgba(0, 0, 0, 0.3),
-                0 2px 4px -2px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 0 1px hsl(var(--border)),
+      0 4px 6px -1px rgba(0, 0, 0, 0.3),
+      0 2px 4px -2px rgba(0, 0, 0, 0.3);
   }
 
   .fade-in {
@@ -102,6 +119,7 @@
       opacity: 0;
       transform: translateY(4px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -117,9 +135,136 @@
       opacity: 0;
       transform: translateY(20px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  /* Pulsing lightning animation - gray to green */
+  .animate-pulse-lightning {
+    animation: pulseLightning 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pulseLightning {
+
+    0%,
+    100% {
+      color: hsl(0, 0%, 40%);
+      filter: drop-shadow(0 0 0 transparent);
+    }
+
+    50% {
+      color: hsl(var(--primary));
+      filter: drop-shadow(0 0 8px hsl(var(--primary) / 0.6));
+    }
+  }
+}
+
+/* View Transition Animations */
+::view-transition-old(.slide-forward) {
+  animation: slideOutLeft 300ms ease-in-out;
+}
+
+::view-transition-new(.slide-forward) {
+  animation: slideInRight 300ms ease-in-out;
+}
+
+::view-transition-old(.slide-back) {
+  animation: slideOutRight 300ms ease-in-out;
+}
+
+::view-transition-new(.slide-back) {
+  animation: slideInLeft 300ms ease-in-out;
+}
+
+/* Default cross-fade for view transitions */
+::view-transition-old(.cross-fade),
+::view-transition-new(.cross-fade) {
+  animation-duration: 200ms;
+}
+
+@keyframes slideOutLeft {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(-30%);
+    opacity: 0;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(30%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(30%);
+    opacity: 0;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-30%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Print Styles */
+@media print {
+
+  * {
+    color: black !important;
+  }
+
+  /* Remove browser default headers and footers */
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Remove invoice border and shadow for print */
+  .invoice-shadow {
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Scale up the invoice to fill more of the page */
+  main {
+    transform: scale(1.15);
+    transform-origin: top center;
+  }
+
+  /* Ensure clean print layout */
+  .container {
+    padding: 0 !important;
   }
 }

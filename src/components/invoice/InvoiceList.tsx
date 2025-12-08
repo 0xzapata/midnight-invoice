@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import { FileText, Trash2, Eye } from 'lucide-react';
+import { FileText, Trash2, Eye, Pencil, Copy } from 'lucide-react';
 import { Invoice } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/invoice-utils';
@@ -7,10 +7,12 @@ import { formatCurrency } from '@/lib/invoice-utils';
 interface InvoiceListProps {
   invoices: Invoice[];
   onView: (invoice: Invoice) => void;
+  onLoadSession: (invoice: Invoice) => void;
+  onDuplicate: (invoice: Invoice) => void;
   onDelete: (id: string) => void;
 }
 
-export function InvoiceList({ invoices, onView, onDelete }: InvoiceListProps) {
+export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDelete }: InvoiceListProps) {
   if (invoices.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -40,40 +42,58 @@ export function InvoiceList({ invoices, onView, onDelete }: InvoiceListProps) {
             className="group flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors"
           >
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center self-start mt-1">
                 <FileText className="w-5 h-5 text-muted-foreground" />
               </div>
-              <div>
-                <p className="font-mono text-sm font-medium text-foreground">
-                  {invoice.invoiceNumber}
+              <div className="flex flex-col gap-1">
+                <p className="font-medium text-foreground">
+                  {invoice.invoiceName || 'Invoice'}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {invoice.toName || 'No client'} · {format(parseISO(invoice.createdAt), 'MMM dd, yyyy')}
+                  <span className="font-mono">{invoice.invoiceNumber}</span> · {invoice.toName || 'No client'} · {format(parseISO(invoice.createdAt), 'MMM dd, yyyy')}
+                </p>
+                <p className="font-mono text-sm font-medium text-primary">
+                  {formatCurrency(withTax, invoice.currency)}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <p className="font-mono text-sm font-medium text-primary">
-                {formatCurrency(withTax, invoice.currency)}
-              </p>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onView(invoice)}
-                  className="h-8 w-8"
-                >
-                  <Eye className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onDelete(invoice.id)}
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onLoadSession(invoice)}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                title="Load Session"
+              >
+                <Pencil className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onView(invoice)}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                title="View Invoice"
+              >
+                <Eye className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onDuplicate(invoice)}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                title="Duplicate Invoice"
+              >
+                <Copy className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onDelete(invoice.id)}
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                title="Delete Invoice"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
             </div>
           </div>
         );
