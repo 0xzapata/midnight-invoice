@@ -1,11 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Download, Save, ArrowLeft, Copy } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
 import { InvoiceForm } from '@/components/invoice/InvoiceForm';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
+import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { useInvoices } from '@/hooks/useInvoices';
 import { InvoiceFormData } from '@/types/invoice';
 import { toast } from 'sonner';
@@ -95,44 +95,16 @@ export default function CreateInvoice() {
   };
 
   const handleDownload = async () => {
-    if (!invoiceRef.current) return;
     try {
-      const canvas = await html2canvas(invoiceRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        onclone: (clonedDoc, element) => {
-          // Remove dark mode from body to force light CSS variables
-          clonedDoc.body.classList.remove('dark');
-          
-          // Force the element itself to use light colors
-          element.style.backgroundColor = '#ffffff';
-          element.style.color = '#000000';
-          element.style.boxShadow = 'none';
-          
-          // Force all descendant elements to use black text
-          const allChildren = element.querySelectorAll('*');
-          allChildren.forEach((child) => {
-            const htmlChild = child as HTMLElement;
-            // Force text color to black
-            htmlChild.style.color = '#000000';
-            // Force border colors to be visible
-            const computedStyle = clonedDoc.defaultView?.getComputedStyle(htmlChild);
-            if (computedStyle && computedStyle.borderWidth !== '0px') {
-              htmlChild.style.borderColor = '#cccccc';
-            }
-          });
-        }
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: [canvas.width / 2, canvas.height / 2]
-      });
-      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
-      pdf.save(`${formData.invoiceNumber || 'invoice'}.pdf`);
+      const blob = await pdf(<InvoicePDF data={formData} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${formData.invoiceNumber || 'invoice'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
       
       // Save invoice to session history after successful PDF generation
       saveInvoice(formData, invoiceId);

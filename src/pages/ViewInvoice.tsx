@@ -1,10 +1,10 @@
 import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Download, ArrowLeft, Trash2, Copy, Printer } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
+import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { useInvoices } from '@/hooks/useInvoices';
 import { toast } from 'sonner';
 
@@ -22,46 +22,19 @@ export default function ViewInvoice() {
   };
 
   const handleDownload = async () => {
-    if (!invoiceRef.current || !invoice) return;
+    if (!invoice) return;
 
     try {
-      const canvas = await html2canvas(invoiceRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        onclone: (clonedDoc, element) => {
-          // Remove dark mode from body to force light CSS variables
-          clonedDoc.body.classList.remove('dark');
-          
-          // Force the element itself to use light colors
-          element.style.backgroundColor = '#ffffff';
-          element.style.color = '#000000';
-          element.style.boxShadow = 'none';
-          
-          // Force all descendant elements to use black text
-          const allChildren = element.querySelectorAll('*');
-          allChildren.forEach((child) => {
-            const htmlChild = child as HTMLElement;
-            // Force text color to black
-            htmlChild.style.color = '#000000';
-            // Force border colors to be visible
-            const computedStyle = clonedDoc.defaultView?.getComputedStyle(htmlChild);
-            if (computedStyle && computedStyle.borderWidth !== '0px') {
-              htmlChild.style.borderColor = '#cccccc';
-            }
-          });
-        }
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: [canvas.width / 2, canvas.height / 2],
-      });
-
-      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
-      pdf.save(`${invoice.invoiceNumber || 'invoice'}.pdf`);
+      const blob = await pdf(<InvoicePDF data={invoice} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${invoice.invoiceNumber || 'invoice'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
       toast.success('PDF downloaded successfully');
     } catch (error) {
       console.error('Failed to generate PDF:', error);
