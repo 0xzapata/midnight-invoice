@@ -235,6 +235,7 @@ describe('InvoiceForm', () => {
     };
 
     // Correctly mock the selector pattern
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(useSettingsStore).mockImplementation((selector: any) => {
        return selector({ settings: mockSettings });
     });

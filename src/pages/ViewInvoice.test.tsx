@@ -148,10 +148,12 @@ describe('ViewInvoice', () => {
 
   it('renders not found state when invoice does not exist', () => {
     // Override mock for this test
+    // Override mock for this test
     vi.mocked(useInvoices).mockReturnValue({
         getInvoice: vi.fn(),
         deleteInvoice: mockDeleteInvoice,
         invoices: [], // Empty invoices
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
     renderComponent();

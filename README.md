@@ -14,6 +14,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - ⚙️ Comprehensive settings management
 - 📋 Duplicate invoices
 - 📱 Responsive layout
+- ⚡ Installable PWA with offline support
 
 ## Tech Stack
 
