@@ -1,7 +1,15 @@
 @font-face {
-  font-family: 'PitchSansWeb-Medium';
-  src: url('/fonts/PitchSansWeb-Medium.woff2') format('woff2');
-  font-weight: 500;
+  font-family: 'BasierCircle';
+  src: url('/fonts/BasierCircle-Regular.5dbaf4fc.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ProtoMono';
+  src: url('/fonts/ProtoMono-Regular.dc7eb590.woff2') format('woff2');
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
@@ -86,7 +94,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'PitchSansWeb-Medium', sans-serif;
+    font-family: 'BasierCircle', sans-serif;
   }
 
   h1,
@@ -94,8 +102,10 @@
   h3,
   h4,
   h5,
-  h6 {
-    font-family: 'DM Mono', monospace;
+  h6,
+  button,
+  [role="tab"] {
+    font-family: 'ProtoMono', monospace;
   }
 
   input[type="date"]::-webkit-calendar-picker-indicator {

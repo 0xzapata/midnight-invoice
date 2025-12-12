@@ -15,8 +15,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['DM Mono', 'monospace'],
-        mono: ['DM Mono', 'monospace'],
+        sans: ['BasierCircle', 'sans-serif'],
+        mono: ['ProtoMono', 'monospace'],
       },
       colors: {
         border: "hsl(var(--border))",
