@@ -2,6 +2,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InvoiceForm } from './InvoiceForm';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+
+// Mock useSettingsStore with default implementation
+const defaultSettings = {
+  fromName: '',
+  fromEmail: '',
+  fromAddress: '',
+  paymentDetails: '',
+  notes: '',
+  taxRate: 0,
+  currency: 'USD',
+};
+
+vi.mock('@/stores/useSettingsStore', () => ({
+  useSettingsStore: vi.fn((selector) => {
+    const state = { settings: defaultSettings };
+    return selector ? selector(state) : state;
+  }),
+}));
 
 describe('InvoiceForm', () => {
   const mockOnFormChange = vi.fn();
@@ -138,7 +157,7 @@ describe('InvoiceForm', () => {
     );
 
     const currencySelect = screen.getByRole('combobox');
-    expect(currencySelect).toHaveValue('USD');
+    expect(currencySelect).toHaveTextContent('USD - United States Dollar');
   });
 
   it('displays tax rate input', () => {
@@ -202,5 +221,37 @@ describe('InvoiceForm', () => {
       descriptionInputs = screen.getAllByPlaceholderText('Item description');
       expect(descriptionInputs).toHaveLength(1);
     }
+  });
+  it('applies defaults when "Use Defaults" is clicked', async () => {
+    // Mock the store to return our settings when selector is called
+    const mockSettings = {
+      fromName: 'Default Company',
+      fromEmail: 'default@example.com',
+      fromAddress: 'Default Address',
+      paymentDetails: 'Default Payment',
+      notes: 'Default Notes',
+      taxRate: 20,
+      currency: 'EUR',
+    };
+
+    // Correctly mock the selector pattern
+    vi.mocked(useSettingsStore).mockImplementation((selector: any) => {
+       return selector({ settings: mockSettings });
+    });
+
+    const user = userEvent.setup();
+    render(
+      <InvoiceForm
+        invoiceNumber="INV-0001"
+        onFormChange={mockOnFormChange}
+      />
+    );
+
+    const useDefaultsButton = screen.getByRole('button', { name: /use defaults/i });
+    await user.click(useDefaultsButton);
+
+    expect(screen.getByDisplayValue('Default Company')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('default@example.com')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Default Address')).toBeInTheDocument();
   });
 });
