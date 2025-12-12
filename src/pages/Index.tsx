@@ -12,6 +12,7 @@ import { useSettingsStore, DefaultSettings } from '@/stores/useSettingsStore';
 import { CurrencySelector } from '@/components/ui/CurrencySelector';
 import { Invoice } from '@/types/invoice';
 import { Spinner } from '@/components/ui/spinner';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { env } from '@/env';
 
 const Index = () => {
@@ -70,10 +71,13 @@ const Index = () => {
             </div>
             <h1 className="text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
           </div>
-          <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
-            <Plus className="w-4 h-4 mr-2" />
-            New Invoice
-          </Button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
+              <Plus className="w-4 h-4 mr-2" />
+              New Invoice
+            </Button>
+          </div>
         </div>
       </header>
 

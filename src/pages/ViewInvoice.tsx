@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
 import { InvoicePDF } from '@/components/invoice/InvoicePDF';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { useInvoices } from '@/hooks/useInvoices';
 import { toast } from 'sonner';
 
@@ -122,6 +123,7 @@ export default function ViewInvoice() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <AlertDialogTrigger asChild>
                 <Button
