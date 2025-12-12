@@ -72,7 +72,6 @@ const Index = () => {
             <h1 className="text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <ThemeToggle />
             <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
               <Plus className="w-4 h-4 mr-2" />
               New Invoice
@@ -119,6 +118,9 @@ const Index = () => {
               <Sparkles className="w-4 h-4" />
               Coming Soon
             </button>
+            <div className="ml-auto pb-1">
+              <ThemeToggle />
+            </div>
           </div>
 
           {activeTab === 'invoices' && (
