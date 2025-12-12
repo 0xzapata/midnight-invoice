@@ -3,6 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
 import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { useInvoices } from '@/hooks/useInvoices';
@@ -11,8 +22,9 @@ import { toast } from 'sonner';
 export default function ViewInvoice() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getInvoice, deleteInvoice, invoices } = useInvoices();
+  const { getInvoice, deleteInvoice, invoices, saveDraft } = useInvoices();
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // We need to wait for invoices to load
   const invoice = invoices.length > 0 ? getInvoice(id || '') : undefined;
@@ -46,6 +58,7 @@ export default function ViewInvoice() {
     if (!invoice) return;
     deleteInvoice(invoice.id);
     toast.success('Invoice deleted');
+    setDeleteDialogOpen(false);
     navigate('/');
   };
 
@@ -60,8 +73,20 @@ export default function ViewInvoice() {
     // Generate new ID for the duplicated invoice
     const newId = crypto.randomUUID();
     
-    // Navigate to create page with the new ID
-    // CreateInvoice will handle loading the data via getInvoice
+    // Extract invoice data (excluding id, createdAt, invoiceNumber)
+    const { id, createdAt, invoiceNumber, ...invoiceData } = invoice;
+    
+    // Create duplicate data with reset dates and new invoice number
+    const duplicateData = {
+      ...invoiceData,
+      issueDate: new Date().toISOString().split('T')[0], // Set to today
+      dueDate: '', // Clear due date
+    };
+    
+    // Save as draft with new ID before navigating
+    saveDraft(newId, duplicateData);
+    
+    toast.success('Invoice duplicated');
     navigate(`/create/${newId}`, { viewTransition: true });
   };
 
@@ -97,15 +122,36 @@ export default function ViewInvoice() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDelete}
-              className="text-destructive hover:text-destructive"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete
-            </Button>
+            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Invoice?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete invoice <span className="font-mono font-medium">{invoice.invoiceNumber}</span>?
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDelete}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <Button
               variant="outline"
               size="sm"

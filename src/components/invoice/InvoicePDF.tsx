@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
 import { format } from 'date-fns';
 import { InvoiceFormData } from '@/types/invoice';
+import { sanitizeInvoiceData } from '@/lib/sanitize';
 
 // Register fonts
 // Using local Noto Sans Mono font for widely supported currency symbols
@@ -143,11 +145,14 @@ interface InvoicePDFProps {
 }
 
 export const InvoicePDF = ({ data }: InvoicePDFProps) => {
-  const subtotal = data.lineItems.reduce(
+  // Sanitize all input data for safe rendering (consistent with InvoicePreview)
+  const safeData = useMemo(() => sanitizeInvoiceData(data), [data]);
+
+  const subtotal = safeData.lineItems.reduce(
     (sum, item) => sum + item.quantity * item.price,
     0
   );
-  const tax = subtotal * (data.taxRate / 100);
+  const tax = subtotal * (safeData.taxRate / 100);
   const total = subtotal + tax;
 
   return (
@@ -157,19 +162,19 @@ export const InvoicePDF = ({ data }: InvoicePDFProps) => {
         <View style={styles.header}>
           <View style={styles.titleSection}>
             <Text style={styles.label}>Invoice</Text>
-            <Text style={styles.invoiceNumber}>{data.invoiceNumber || 'INV-0001'}</Text>
-            {data.invoiceName && <Text style={styles.invoiceName}>{data.invoiceName}</Text>}
+            <Text style={styles.invoiceNumber}>{safeData.invoiceNumber || 'INV-0001'}</Text>
+            {safeData.invoiceName && <Text style={styles.invoiceName}>{safeData.invoiceName}</Text>}
           </View>
           <View style={styles.dateSection}>
             <View style={styles.row}>
               <View style={{ marginRight: 20 }}>
                 <Text style={styles.label}>Issue Date</Text>
-                <Text>{data.issueDate ? format(new Date(data.issueDate), 'MMM dd, yyyy') : ''}</Text>
+                <Text>{safeData.issueDate ? format(new Date(safeData.issueDate), 'MMM dd, yyyy') : ''}</Text>
               </View>
-              {data.dueDate && (
+              {safeData.dueDate && (
                 <View>
                   <Text style={styles.label}>Due Date</Text>
-                  <Text>{format(new Date(data.dueDate), 'MMM dd, yyyy')}</Text>
+                  <Text>{format(new Date(safeData.dueDate), 'MMM dd, yyyy')}</Text>
                 </View>
               )}
             </View>
@@ -180,15 +185,15 @@ export const InvoicePDF = ({ data }: InvoicePDFProps) => {
         <View style={styles.addressGrid}>
           <View style={styles.addressCol}>
             <Text style={styles.label}>From</Text>
-            <Text style={[styles.text, styles.bold]}>{data.fromName}</Text>
-            <Text style={styles.text}>{data.fromAddress}</Text>
-            <Text style={styles.text}>{data.fromEmail}</Text>
+            <Text style={[styles.text, styles.bold]}>{safeData.fromName}</Text>
+            <Text style={styles.text}>{safeData.fromAddress}</Text>
+            <Text style={styles.text}>{safeData.fromEmail}</Text>
           </View>
           <View style={styles.addressCol}>
             <Text style={styles.label}>Bill To</Text>
-            <Text style={[styles.text, styles.bold]}>{data.toName}</Text>
-            <Text style={styles.text}>{data.toAddress}</Text>
-            <Text style={styles.text}>{data.toEmail}</Text>
+            <Text style={[styles.text, styles.bold]}>{safeData.toName}</Text>
+            <Text style={styles.text}>{safeData.toAddress}</Text>
+            <Text style={styles.text}>{safeData.toEmail}</Text>
           </View>
         </View>
 
@@ -200,15 +205,15 @@ export const InvoicePDF = ({ data }: InvoicePDFProps) => {
             <Text style={[styles.label, styles.colPrice]}>Price</Text>
             <Text style={[styles.label, styles.colTotal]}>Total</Text>
           </View>
-          {data.lineItems.map((item) => (
+          {safeData.lineItems.map((item) => (
             <View key={item.id} style={styles.tableRow}>
               <Text style={[styles.text, styles.colDesc]}>{item.description}</Text>
               <Text style={[styles.text, styles.colQty]}>{item.quantity}</Text>
               <Text style={[styles.text, styles.colPrice]}>
-                {formatCurrency(item.price, data.currency)}
+                {formatCurrency(item.price, safeData.currency)}
               </Text>
               <Text style={[styles.text, styles.colTotal]}>
-                {formatCurrency(item.quantity * item.price, data.currency)}
+                {formatCurrency(item.quantity * item.price, safeData.currency)}
               </Text>
             </View>
           ))}
@@ -218,41 +223,41 @@ export const InvoicePDF = ({ data }: InvoicePDFProps) => {
         <View style={styles.summary}>
           <View style={styles.summaryRow}>
             <Text style={styles.text}>Subtotal</Text>
-            <Text style={styles.text}>{formatCurrency(subtotal, data.currency)}</Text>
+            <Text style={styles.text}>{formatCurrency(subtotal, safeData.currency)}</Text>
           </View>
-          {data.taxRate > 0 && (
+          {safeData.taxRate > 0 && (
             <View style={styles.summaryRow}>
-              <Text style={styles.text}>Tax ({data.taxRate}%)</Text>
-              <Text style={styles.text}>{formatCurrency(tax, data.currency)}</Text>
+              <Text style={styles.text}>Tax ({safeData.taxRate}%)</Text>
+              <Text style={styles.text}>{formatCurrency(tax, safeData.currency)}</Text>
             </View>
           )}
           <View style={styles.totalRow}>
             <Text style={[styles.totalText]}>Total</Text>
-            <Text style={[styles.totalText]}>{formatCurrency(total, data.currency)}</Text>
+            <Text style={[styles.totalText]}>{formatCurrency(total, safeData.currency)}</Text>
           </View>
         </View>
 
         {/* Footer */}
         <View style={styles.footer}>
-          {data.paymentDetails ? (
+          {safeData.paymentDetails ? (
             <View style={styles.footerCol}>
               <Text style={styles.label}>Payment Details</Text>
               <Text 
                 style={styles.text} 
                 hyphenationCallback={(word) => [word]}
               >
-                {data.paymentDetails}
+                {safeData.paymentDetails}
               </Text>
             </View>
           ) : null}
-          {data.notes ? (
+          {safeData.notes ? (
             <View style={styles.footerCol}>
               <Text style={styles.label}>Notes</Text>
               <Text 
                 style={styles.text}
                 hyphenationCallback={(word) => [word]}
               >
-                {data.notes}
+                {safeData.notes}
               </Text>
             </View>
           ) : null}

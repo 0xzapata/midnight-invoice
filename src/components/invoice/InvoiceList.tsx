@@ -1,7 +1,19 @@
+import { useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { FileText, Trash2, Pencil, Copy } from 'lucide-react';
 import { Invoice } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { formatCurrency } from '@/lib/invoice-utils';
 
 interface InvoiceListProps {
@@ -13,6 +25,8 @@ interface InvoiceListProps {
 }
 
 export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDelete }: InvoiceListProps) {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null);
+
   if (invoices.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -77,15 +91,42 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
               >
                 <Copy className="w-4 h-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => { e.stopPropagation(); onDelete(invoice.id); }}
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                title="Delete Invoice"
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              
+              <AlertDialog open={deleteDialogOpen === invoice.id} onOpenChange={(open) => setDeleteDialogOpen(open ? invoice.id : null)}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    title="Delete Invoice"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Invoice?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to delete invoice <span className="font-mono font-medium">{invoice.invoiceNumber}</span>?
+                      This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(invoice.id);
+                        setDeleteDialogOpen(null);
+                      }}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
         );
