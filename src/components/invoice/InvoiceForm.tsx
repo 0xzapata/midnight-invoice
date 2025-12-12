@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { CurrencySelector } from '@/components/ui/CurrencySelector';
 import { InvoiceFormData } from '@/types/invoice';
+import { invoiceFormSchema } from '@/lib/validation';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { toast } from 'sonner';
 
@@ -17,7 +19,9 @@ interface InvoiceFormProps {
 }
 
 export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: InvoiceFormProps) {
-  const { register, control, watch, setValue, reset } = useForm<InvoiceFormData>({
+  const { register, control, watch, setValue, reset, formState: { errors } } = useForm<InvoiceFormData>({
+    resolver: zodResolver(invoiceFormSchema),
+    mode: 'onBlur', // Validate on blur for better UX
     defaultValues: {
       invoiceNumber,
       invoiceName: '',
@@ -129,8 +133,11 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
             <Input
               id="invoiceNumber"
               {...register('invoiceNumber')}
-              className="bg-secondary border-border"
+              className={`bg-secondary border-border ${errors.invoiceNumber ? 'border-destructive' : ''}`}
             />
+            {errors.invoiceNumber && (
+              <p className="text-xs text-destructive">{errors.invoiceNumber.message}</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="issueDate" className="text-xs text-muted-foreground">
@@ -140,8 +147,11 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
               id="issueDate"
               type="date"
               {...register('issueDate')}
-              className="bg-secondary border-border"
+              className={`bg-secondary border-border ${errors.issueDate ? 'border-destructive' : ''}`}
             />
+            {errors.issueDate && (
+              <p className="text-xs text-destructive">{errors.issueDate.message}</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="dueDate" className="text-xs text-muted-foreground">
@@ -183,8 +193,11 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
               id="fromName"
               placeholder="Your name or company"
               {...register('fromName')}
-              className="bg-secondary border-border"
+              className={`bg-secondary border-border ${errors.fromName ? 'border-destructive' : ''}`}
             />
+            {errors.fromName && (
+              <p className="text-xs text-destructive">{errors.fromName.message}</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="fromEmail" className="text-xs text-muted-foreground">
@@ -195,8 +208,11 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
               type="email"
               placeholder="your@email.com"
               {...register('fromEmail')}
-              className="bg-secondary border-border"
+              className={`bg-secondary border-border ${errors.fromEmail ? 'border-destructive' : ''}`}
             />
+            {errors.fromEmail && (
+              <p className="text-xs text-destructive">{errors.fromEmail.message}</p>
+            )}
           </div>
           <div className="col-span-2 space-y-2">
             <Label htmlFor="fromAddress" className="text-xs text-muted-foreground">
@@ -225,8 +241,11 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
               id="toName"
               placeholder="Client name"
               {...register('toName')}
-              className="bg-secondary border-border"
+              className={`bg-secondary border-border ${errors.toName ? 'border-destructive' : ''}`}
             />
+            {errors.toName && (
+              <p className="text-xs text-destructive">{errors.toName.message}</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="toEmail" className="text-xs text-muted-foreground">
@@ -237,8 +256,11 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
               type="email"
               placeholder="client@email.com"
               {...register('toEmail')}
-              className="bg-secondary border-border"
+              className={`bg-secondary border-border ${errors.toEmail ? 'border-destructive' : ''}`}
             />
+            {errors.toEmail && (
+              <p className="text-xs text-destructive">{errors.toEmail.message}</p>
+            )}
           </div>
           <div className="col-span-2 space-y-2">
             <Label htmlFor="toAddress" className="text-xs text-muted-foreground">
@@ -346,8 +368,11 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
             max="100"
             step="0.1"
             {...register('taxRate', { valueAsNumber: true })}
-            className="bg-secondary border-border"
+            className={`bg-secondary border-border ${errors.taxRate ? 'border-destructive' : ''}`}
           />
+          {errors.taxRate && (
+            <p className="text-xs text-destructive">{errors.taxRate.message}</p>
+          )}
         </div>
       </div>
 
