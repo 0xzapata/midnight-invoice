@@ -1,4 +1,12 @@
 @font-face {
+  font-family: 'Noto Sans Mono';
+  src: url('/fonts/NotoSansMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: 'BasierCircle';
   src: url('/fonts/BasierCircle-Regular.5dbaf4fc.woff2') format('woff2');
   font-weight: 400;
@@ -111,6 +119,15 @@
   input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
   }
+}
+
+/* Invoice preview specific font */
+.invoice-preview {
+  font-family: 'Noto Sans Mono', monospace;
+}
+
+.invoice-preview * {
+  font-family: 'Noto Sans Mono', monospace;
 }
 
 @layer utilities {

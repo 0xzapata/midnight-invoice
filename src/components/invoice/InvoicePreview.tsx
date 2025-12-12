@@ -23,7 +23,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
     return (
       <div
         ref={ref}
-        className="bg-card border border-border p-8 min-h-[800px] invoice-shadow fade-in"
+        className="invoice-preview bg-card border border-border p-8 min-h-[800px] invoice-shadow fade-in"
         style={{ width: '100%', maxWidth: '595px' }}
       >
         {/* Header */}
