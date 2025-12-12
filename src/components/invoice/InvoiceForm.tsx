@@ -1,11 +1,15 @@
 import { useEffect, useRef } from 'react';
-import { useForm, useFieldArray } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from '@tanstack/react-form';
 import { Plus, Trash2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+import { 
+  Field, 
+  FieldLabel, 
+  FieldError, 
+  FieldGroup 
+} from '@/components/ui/field';
 import { CurrencySelector } from '@/components/ui/CurrencySelector';
 import { InvoiceFormData } from '@/types/invoice';
 import { invoiceFormSchema } from '@/lib/validation';
@@ -19,9 +23,9 @@ interface InvoiceFormProps {
 }
 
 export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: InvoiceFormProps) {
-  const { register, control, watch, setValue, reset, formState: { errors } } = useForm<InvoiceFormData>({
-    resolver: zodResolver(invoiceFormSchema),
-    mode: 'onBlur', // Validate on blur for better UX
+  const prevDataRef = useRef<string>('');
+  
+  const form = useForm<InvoiceFormData>({
     defaultValues: {
       invoiceNumber,
       invoiceName: '',
@@ -40,54 +44,38 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
       currency: 'USD',
       ...initialData,
     },
+    validators: {
+      onBlur: invoiceFormSchema,
+    },
+    onSubmit: async () => {
+      // Form is controlled, no submit handler needed
+    },
   });
 
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: 'lineItems',
-  });
-
-  const watchedData = watch();
-  const prevDataRef = useRef<string>('');
-
+  // Watch for form changes and notify parent
+  const formState = form.useStore((state) => state.values);
+  
   useEffect(() => {
-    // Only call onFormChange if the serialized data has actually changed
-    const serialized = JSON.stringify(watchedData);
+    const serialized = JSON.stringify(formState);
     if (serialized !== prevDataRef.current) {
       prevDataRef.current = serialized;
-      onFormChange(watchedData);
+      onFormChange(formState);
     }
-  }, [watchedData, onFormChange]);
+  }, [formState, onFormChange]);
 
-
-  // Reset form when initialData changes (for loading sessions)
+  // Reset form when initialData changes
   useEffect(() => {
     if (initialData) {
-      reset({
-        invoiceNumber,
-        invoiceName: '',
-        issueDate: new Date().toISOString().split('T')[0],
-        dueDate: '',
-        fromName: '',
-        fromAddress: '',
-        fromEmail: '',
-        toName: '',
-        toAddress: '',
-        toEmail: '',
-        lineItems: [{ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 }],
-        taxRate: 0,
-        notes: '',
-        paymentDetails: '',
-        currency: 'USD',
-        ...initialData,
+      form.reset();
+      form.setFieldValue('invoiceNumber', invoiceNumber);
+      Object.entries(initialData).forEach(([key, value]) => {
+        if (value !== undefined) {
+          form.setFieldValue(key as keyof InvoiceFormData, value);
+        }
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialData, reset]);
-
-  const addLineItem = () => {
-    append({ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 });
-  };
+  }, [initialData]);
 
   const settings = useSettingsStore((state) => state.settings);
   const hasDefaults = settings.fromName || settings.fromEmail || settings.fromAddress || settings.paymentDetails || settings.notes || settings.taxRate || settings.currency;
@@ -97,73 +85,122 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
       toast.info('No defaults saved. Go to Settings to configure your defaults.');
       return;
     }
-    if (settings.fromName) setValue('fromName', settings.fromName);
-    if (settings.fromEmail) setValue('fromEmail', settings.fromEmail);
-    if (settings.fromAddress) setValue('fromAddress', settings.fromAddress);
-    if (settings.paymentDetails) setValue('paymentDetails', settings.paymentDetails);
-    if (settings.notes) setValue('notes', settings.notes);
-    if (settings.taxRate) setValue('taxRate', settings.taxRate);
-    if (settings.currency) setValue('currency', settings.currency);
+    if (settings.fromName) form.setFieldValue('fromName', settings.fromName);
+    if (settings.fromEmail) form.setFieldValue('fromEmail', settings.fromEmail);
+    if (settings.fromAddress) form.setFieldValue('fromAddress', settings.fromAddress);
+    if (settings.paymentDetails) form.setFieldValue('paymentDetails', settings.paymentDetails);
+    if (settings.notes) form.setFieldValue('notes', settings.notes);
+    if (settings.taxRate) form.setFieldValue('taxRate', settings.taxRate);
+    if (settings.currency) form.setFieldValue('currency', settings.currency);
     toast.success('Defaults applied');
+  };
+
+  const addLineItem = () => {
+    const currentItems = form.getFieldValue('lineItems');
+    form.setFieldValue('lineItems', [
+      ...currentItems,
+      { id: crypto.randomUUID(), description: '', quantity: 1, price: 0 }
+    ]);
+  };
+
+  const removeLineItem = (index: number) => {
+    const currentItems = form.getFieldValue('lineItems');
+    if (currentItems.length > 1) {
+      form.setFieldValue('lineItems', currentItems.filter((_, i) => i !== index));
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* Invoice Name */}
-      <div className="space-y-2">
-        <Label htmlFor="invoiceName" className="text-xs text-muted-foreground">
-          Invoice Name (optional - auto-generated if empty)
-        </Label>
-        <Input
-          id="invoiceName"
-          placeholder="e.g. Project Alpha Invoice"
-          {...register('invoiceName')}
-          className="bg-secondary border-border"
-        />
-      </div>
+      <form.Field name="invoiceName">
+        {(field) => (
+          <Field>
+            <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+              Invoice Name (optional - auto-generated if empty)
+            </FieldLabel>
+            <Input
+              id={field.name}
+              name={field.name}
+              value={field.state.value || ''}
+              onBlur={field.handleBlur}
+              onChange={(e) => field.handleChange(e.target.value)}
+              placeholder="e.g. Project Alpha Invoice"
+              className="bg-secondary border-border"
+            />
+          </Field>
+        )}
+      </form.Field>
 
       {/* Invoice Details */}
       <div className="space-y-4">
         <h3 className="text-sm font-medium text-foreground">Invoice Details</h3>
         <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="invoiceNumber" className="text-xs text-muted-foreground">
-              Invoice Number
-            </Label>
-            <Input
-              id="invoiceNumber"
-              {...register('invoiceNumber')}
-              className={`bg-secondary border-border ${errors.invoiceNumber ? 'border-destructive' : ''}`}
-            />
-            {errors.invoiceNumber && (
-              <p className="text-xs text-destructive">{errors.invoiceNumber.message}</p>
+          <form.Field name="invoiceNumber">
+            {(field) => {
+              const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+              return (
+                <Field data-invalid={isInvalid}>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Invoice Number
+                  </FieldLabel>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    className="bg-secondary border-border"
+                    aria-invalid={isInvalid}
+                  />
+                  {isInvalid && <FieldError errors={field.state.meta.errors as Array<{ message?: string }>} />}
+                </Field>
+              );
+            }}
+          </form.Field>
+          
+          <form.Field name="issueDate">
+            {(field) => {
+              const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+              return (
+                <Field data-invalid={isInvalid}>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Issue Date
+                  </FieldLabel>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    type="date"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    className="bg-secondary border-border"
+                    aria-invalid={isInvalid}
+                  />
+                  {isInvalid && <FieldError errors={field.state.meta.errors as Array<{ message?: string }>} />}
+                </Field>
+              );
+            }}
+          </form.Field>
+          
+          <form.Field name="dueDate">
+            {(field) => (
+              <Field>
+                <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                  Due Date (optional)
+                </FieldLabel>
+                <Input
+                  id={field.name}
+                  name={field.name}
+                  type="date"
+                  value={field.state.value || ''}
+                  onBlur={field.handleBlur}
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  className="bg-secondary border-border"
+                />
+              </Field>
             )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="issueDate" className="text-xs text-muted-foreground">
-              Issue Date
-            </Label>
-            <Input
-              id="issueDate"
-              type="date"
-              {...register('issueDate')}
-              className={`bg-secondary border-border ${errors.issueDate ? 'border-destructive' : ''}`}
-            />
-            {errors.issueDate && (
-              <p className="text-xs text-destructive">{errors.issueDate.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="dueDate" className="text-xs text-muted-foreground">
-              Due Date (optional)
-            </Label>
-            <Input
-              id="dueDate"
-              type="date"
-              {...register('dueDate')}
-              className="bg-secondary border-border"
-            />
-          </div>
+          </form.Field>
         </div>
       </div>
 
@@ -185,46 +222,75 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
           )}
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="fromName" className="text-xs text-muted-foreground">
-              Name / Company
-            </Label>
-            <Input
-              id="fromName"
-              placeholder="Your name or company"
-              {...register('fromName')}
-              className={`bg-secondary border-border ${errors.fromName ? 'border-destructive' : ''}`}
-            />
-            {errors.fromName && (
-              <p className="text-xs text-destructive">{errors.fromName.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="fromEmail" className="text-xs text-muted-foreground">
-              Email
-            </Label>
-            <Input
-              id="fromEmail"
-              type="email"
-              placeholder="your@email.com"
-              {...register('fromEmail')}
-              className={`bg-secondary border-border ${errors.fromEmail ? 'border-destructive' : ''}`}
-            />
-            {errors.fromEmail && (
-              <p className="text-xs text-destructive">{errors.fromEmail.message}</p>
-            )}
-          </div>
-          <div className="col-span-2 space-y-2">
-            <Label htmlFor="fromAddress" className="text-xs text-muted-foreground">
-              Address
-            </Label>
-            <Textarea
-              id="fromAddress"
-              placeholder="Street, City, Country"
-              rows={2}
-              {...register('fromAddress')}
-              className="bg-secondary border-border resize-none"
-            />
+          <form.Field name="fromName">
+            {(field) => {
+              const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+              return (
+                <Field data-invalid={isInvalid}>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Name / Company
+                  </FieldLabel>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="Your name or company"
+                    className="bg-secondary border-border"
+                    aria-invalid={isInvalid}
+                  />
+                  {isInvalid && <FieldError errors={field.state.meta.errors as Array<{ message?: string }>} />}
+                </Field>
+              );
+            }}
+          </form.Field>
+          
+          <form.Field name="fromEmail">
+            {(field) => {
+              const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+              return (
+                <Field data-invalid={isInvalid}>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Email
+                  </FieldLabel>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    type="email"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="your@email.com"
+                    className="bg-secondary border-border"
+                    aria-invalid={isInvalid}
+                  />
+                  {isInvalid && <FieldError errors={field.state.meta.errors as Array<{ message?: string }>} />}
+                </Field>
+              );
+            }}
+          </form.Field>
+          
+          <div className="col-span-2">
+            <form.Field name="fromAddress">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Address
+                  </FieldLabel>
+                  <Textarea
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="Street, City, Country"
+                    rows={2}
+                    className="bg-secondary border-border resize-none"
+                  />
+                </Field>
+              )}
+            </form.Field>
           </div>
         </div>
       </div>
@@ -233,46 +299,75 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
       <div className="space-y-4">
         <h3 className="text-sm font-medium text-foreground">Bill To</h3>
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="toName" className="text-xs text-muted-foreground">
-              Client Name / Company
-            </Label>
-            <Input
-              id="toName"
-              placeholder="Client name"
-              {...register('toName')}
-              className={`bg-secondary border-border ${errors.toName ? 'border-destructive' : ''}`}
-            />
-            {errors.toName && (
-              <p className="text-xs text-destructive">{errors.toName.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="toEmail" className="text-xs text-muted-foreground">
-              Client Email
-            </Label>
-            <Input
-              id="toEmail"
-              type="email"
-              placeholder="client@email.com"
-              {...register('toEmail')}
-              className={`bg-secondary border-border ${errors.toEmail ? 'border-destructive' : ''}`}
-            />
-            {errors.toEmail && (
-              <p className="text-xs text-destructive">{errors.toEmail.message}</p>
-            )}
-          </div>
-          <div className="col-span-2 space-y-2">
-            <Label htmlFor="toAddress" className="text-xs text-muted-foreground">
-              Client Address
-            </Label>
-            <Textarea
-              id="toAddress"
-              placeholder="Street, City, Country"
-              rows={2}
-              {...register('toAddress')}
-              className="bg-secondary border-border resize-none"
-            />
+          <form.Field name="toName">
+            {(field) => {
+              const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+              return (
+                <Field data-invalid={isInvalid}>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Client Name / Company
+                  </FieldLabel>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="Client name"
+                    className="bg-secondary border-border"
+                    aria-invalid={isInvalid}
+                  />
+                  {isInvalid && <FieldError errors={field.state.meta.errors as Array<{ message?: string }>} />}
+                </Field>
+              );
+            }}
+          </form.Field>
+          
+          <form.Field name="toEmail">
+            {(field) => {
+              const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+              return (
+                <Field data-invalid={isInvalid}>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Client Email
+                  </FieldLabel>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    type="email"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="client@email.com"
+                    className="bg-secondary border-border"
+                    aria-invalid={isInvalid}
+                  />
+                  {isInvalid && <FieldError errors={field.state.meta.errors as Array<{ message?: string }>} />}
+                </Field>
+              );
+            }}
+          </form.Field>
+          
+          <div className="col-span-2">
+            <form.Field name="toAddress">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                    Client Address
+                  </FieldLabel>
+                  <Textarea
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="Street, City, Country"
+                    rows={2}
+                    className="bg-secondary border-border resize-none"
+                  />
+                </Field>
+              )}
+            </form.Field>
           </div>
         </div>
       </div>
@@ -293,115 +388,168 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
           </Button>
         </div>
         <div className="space-y-3">
-          {fields.map((field, index) => (
-            <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-6 space-y-1">
-                {index === 0 && (
-                  <Label className="text-[10px] text-muted-foreground">Description</Label>
-                )}
-                <Input
-                  placeholder="Item description"
-                  {...register(`lineItems.${index}.description`)}
-                  className="bg-secondary border-border text-sm"
-                />
-              </div>
-              <div className="col-span-2 space-y-1">
-                {index === 0 && (
-                  <Label className="text-[10px] text-muted-foreground">Qty</Label>
-                )}
-                <Input
-                  type="number"
-                  min="1"
-                  {...register(`lineItems.${index}.quantity`, { valueAsNumber: true })}
-                  className="bg-secondary border-border text-sm text-right"
-                />
-              </div>
-              <div className="col-span-3 space-y-1">
-                {index === 0 && (
-                  <Label className="text-[10px] text-muted-foreground">Price</Label>
-                )}
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  {...register(`lineItems.${index}.price`, { valueAsNumber: true })}
-                  className="bg-secondary border-border text-sm text-right"
-                />
-              </div>
-              <div className="col-span-1 flex items-center justify-end">
-                {index === 0 && <div className="h-[22px]" />}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => fields.length > 1 && remove(index)}
-                  disabled={fields.length === 1}
-                  className="h-9 w-9 text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
+          <form.Field name="lineItems" mode="array">
+            {(field) => (
+              <>
+                {field.state.value.map((item, index) => (
+                  <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-6 space-y-1">
+                      {index === 0 && (
+                        <span className="text-[10px] text-muted-foreground">Description</span>
+                      )}
+                      <form.Field name={`lineItems[${index}].description`}>
+                        {(subField) => (
+                          <Input
+                            placeholder="Item description"
+                            value={subField.state.value as string}
+                            onBlur={subField.handleBlur}
+                            onChange={(e) => subField.handleChange(e.target.value)}
+                            className="bg-secondary border-border text-sm"
+                          />
+                        )}
+                      </form.Field>
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      {index === 0 && (
+                        <span className="text-[10px] text-muted-foreground">Qty</span>
+                      )}
+                      <form.Field name={`lineItems[${index}].quantity`}>
+                        {(subField) => (
+                          <Input
+                            type="number"
+                            min="1"
+                            value={subField.state.value as number}
+                            onBlur={subField.handleBlur}
+                            onChange={(e) => subField.handleChange(Number(e.target.value))}
+                            className="bg-secondary border-border text-sm text-right"
+                          />
+                        )}
+                      </form.Field>
+                    </div>
+                    <div className="col-span-3 space-y-1">
+                      {index === 0 && (
+                        <span className="text-[10px] text-muted-foreground">Price</span>
+                      )}
+                      <form.Field name={`lineItems[${index}].price`}>
+                        {(subField) => (
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={subField.state.value as number}
+                            onBlur={subField.handleBlur}
+                            onChange={(e) => subField.handleChange(Number(e.target.value))}
+                            className="bg-secondary border-border text-sm text-right"
+                          />
+                        )}
+                      </form.Field>
+                    </div>
+                    <div className="col-span-1 flex items-center justify-end">
+                      {index === 0 && <div className="h-[22px]" />}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeLineItem(index)}
+                        disabled={field.state.value.length === 1}
+                        className="h-9 w-9 text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </form.Field>
         </div>
       </div>
 
       {/* Tax & Currency */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="currency" className="text-xs text-muted-foreground">
-            Currency
-          </Label>
-          <CurrencySelector
-            value={watch('currency')}
-            onChange={(value) => setValue('currency', value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="taxRate" className="text-xs text-muted-foreground">
-            Tax Rate (%)
-          </Label>
-          <Input
-            id="taxRate"
-            type="number"
-            min="0"
-            max="100"
-            step="0.1"
-            {...register('taxRate', { valueAsNumber: true })}
-            className={`bg-secondary border-border ${errors.taxRate ? 'border-destructive' : ''}`}
-          />
-          {errors.taxRate && (
-            <p className="text-xs text-destructive">{errors.taxRate.message}</p>
+        <form.Field name="currency">
+          {(field) => (
+            <Field>
+              <FieldLabel className="text-xs text-muted-foreground">
+                Currency
+              </FieldLabel>
+              <CurrencySelector
+                value={field.state.value}
+                onChange={(value) => field.handleChange(value)}
+              />
+            </Field>
           )}
-        </div>
+        </form.Field>
+        
+        <form.Field name="taxRate">
+          {(field) => {
+            const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
+            return (
+              <Field data-invalid={isInvalid}>
+                <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                  Tax Rate (%)
+                </FieldLabel>
+                <Input
+                  id={field.name}
+                  name={field.name}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(e) => field.handleChange(Number(e.target.value))}
+                  className="bg-secondary border-border"
+                  aria-invalid={isInvalid}
+                />
+                {isInvalid && <FieldError errors={field.state.meta.errors as Array<{ message?: string }>} />}
+              </Field>
+            );
+          }}
+        </form.Field>
       </div>
 
       {/* Payment & Notes */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="paymentDetails" className="text-xs text-muted-foreground">
-            Payment Details
-          </Label>
-          <Textarea
-            id="paymentDetails"
-            placeholder="Bank name, account number, etc."
-            rows={3}
-            {...register('paymentDetails')}
-            className="bg-secondary border-border resize-none text-sm"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="notes" className="text-xs text-muted-foreground">
-            Notes
-          </Label>
-          <Textarea
-            id="notes"
-            placeholder="Thank you for your business!"
-            rows={3}
-            {...register('notes')}
-            className="bg-secondary border-border resize-none text-sm"
-          />
-        </div>
+        <form.Field name="paymentDetails">
+          {(field) => (
+            <Field>
+              <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                Payment Details
+              </FieldLabel>
+              <Textarea
+                id={field.name}
+                name={field.name}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
+                placeholder="Bank name, account number, etc."
+                rows={3}
+                className="bg-secondary border-border resize-none text-sm"
+              />
+            </Field>
+          )}
+        </form.Field>
+        
+        <form.Field name="notes">
+          {(field) => (
+            <Field>
+              <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
+                Notes
+              </FieldLabel>
+              <Textarea
+                id={field.name}
+                name={field.name}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
+                placeholder="Thank you for your business!"
+                rows={3}
+                className="bg-secondary border-border resize-none text-sm"
+              />
+            </Field>
+          )}
+        </form.Field>
       </div>
     </div>
   );
