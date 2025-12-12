@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import CreateInvoice from "./pages/CreateInvoice";
 import ViewInvoice from "./pages/ViewInvoice";
 import NotFound from "./pages/NotFound";
+import { Footer } from "@/components/Footer";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ const App = () => (
           <Route path="/invoice/:id" element={<ViewInvoice />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        <Footer />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

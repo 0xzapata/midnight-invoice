@@ -10,9 +10,10 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - 💾 Auto-save drafts to localStorage
 - 📄 Export to PDF
 - 🌙 Dark mode design
-- 💱 Multi-currency support (USD, EUR, GBP, PHP, CAD, AUD)
+- 💱 Multi-currency support (All currencies)
+- ⚙️ Comprehensive settings management
+- 📋 Duplicate invoices
 - 📱 Responsive layout
-- 🔒 Input sanitization for security
 
 ## Tech Stack
 
