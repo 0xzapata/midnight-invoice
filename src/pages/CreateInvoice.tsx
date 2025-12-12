@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Download, Save, ArrowLeft, Copy, Settings } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
@@ -37,8 +37,6 @@ export default function CreateInvoice() {
 
   const settings = useSettingsStore((state) => state.settings);
   const hasDefaults = settings.fromName || settings.fromEmail || settings.fromAddress || settings.paymentDetails || settings.notes || settings.taxRate || settings.currency;
-  
-  const invoiceRef = useRef<HTMLDivElement>(null);
   
   // Load initial data from existing invoice or draft
   const getInitialData = useCallback((): Partial<InvoiceFormData> => {
@@ -212,7 +210,7 @@ export default function CreateInvoice() {
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-4">
                 Preview
               </p>
-              <InvoicePreview ref={invoiceRef} data={formData} />
+              <InvoicePreview data={formData} />
             </div>
           </div>
         </div>

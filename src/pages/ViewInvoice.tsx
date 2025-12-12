@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
@@ -22,8 +22,7 @@ import { toast } from 'sonner';
 export default function ViewInvoice() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getInvoice, deleteInvoice, invoices, saveDraft } = useInvoices();
-  const invoiceRef = useRef<HTMLDivElement>(null);
+  const { getInvoice, deleteInvoice, invoices, saveDraft, getNextInvoiceNumber } = useInvoices();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // We need to wait for invoices to load
@@ -79,6 +78,7 @@ export default function ViewInvoice() {
     // Create duplicate data with reset dates and new invoice number
     const duplicateData = {
       ...invoiceData,
+      invoiceNumber: getNextInvoiceNumber, // Generate new invoice number
       issueDate: new Date().toISOString().split('T')[0], // Set to today
       dueDate: '', // Clear due date
     };
@@ -187,7 +187,7 @@ export default function ViewInvoice() {
       {/* Main Content */}
       <main className="container py-8">
         <div className="flex justify-center">
-          <InvoicePreview ref={invoiceRef} data={invoice} />
+          <InvoicePreview data={invoice} />
         </div>
       </main>
     </div>

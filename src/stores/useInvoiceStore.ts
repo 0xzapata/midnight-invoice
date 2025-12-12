@@ -189,7 +189,11 @@ export const useInvoiceStore = create<InvoiceState>()(
                 invoices: state.invoices,
                 drafts: state.drafts,
             }),
-            onRehydrateStorage: () => (state) => {
+            onRehydrateStorage: () => (state, error) => {
+                if (error) {
+                    console.error('Failed to rehydrate invoice store from localStorage:', error);
+                    // Still set hydrated to true so app doesn't hang
+                }
                 state?.setHasHydrated(true);
             },
         }

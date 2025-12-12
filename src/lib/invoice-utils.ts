@@ -10,13 +10,24 @@ import { format, parseISO } from 'date-fns';
  * @example
  * formatCurrency(1234.5, 'USD') // '$1,234.50'
  * formatCurrency(1000, 'EUR')   // '€1,000.00'
+ * formatCurrency(1000, 'INVALID') // '$1,000.00' (falls back to USD)
  */
 export function formatCurrency(amount: number, currency: string = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+    }).format(amount);
+  } catch (error) {
+    // Fallback to USD if currency code is invalid
+    console.warn(`Invalid currency code: ${currency}, falling back to USD`);
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+    }).format(amount);
+  }
 }
 
 /**
