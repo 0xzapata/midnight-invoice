@@ -117,6 +117,14 @@ export default function ViewInvoice() {
             <Button
               variant="outline"
               size="sm"
+              onClick={handleDuplicate}
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Duplicate
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handlePrint}
             >
               <Printer className="w-4 h-4 mr-2" />
@@ -133,7 +141,7 @@ export default function ViewInvoice() {
       {/* Main Content */}
       <main className="container py-8">
         <div className="flex justify-center">
-          <InvoicePreview ref={invoiceRef} data={invoice} onDuplicate={handleDuplicate} />
+          <InvoicePreview ref={invoiceRef} data={invoice} />
         </div>
       </main>
     </div>

@@ -31,10 +31,7 @@ describe('InvoicePreview', () => {
     expect(screen.getByText('INV-0001')).toBeInTheDocument();
   });
 
-  it('renders invoice name when provided', () => {
-    render(<InvoicePreview data={createMockInvoiceData()} />);
-    expect(screen.getByText('Test Invoice')).toBeInTheDocument();
-  });
+
 
   it('renders from/to information', () => {
     render(<InvoicePreview data={createMockInvoiceData()} />);
@@ -199,19 +196,5 @@ describe('InvoicePreview', () => {
     expect(screen.getAllByText('€100.00').length).toBeGreaterThan(0);
   });
 
-  it('calls onDuplicate when duplicate button is clicked', () => {
-    const handleDuplicate = vi.fn();
-    render(<InvoicePreview data={createMockInvoiceData()} onDuplicate={handleDuplicate} />);
 
-    const duplicateButton = screen.getByText('Duplicate');
-    expect(duplicateButton).toBeInTheDocument();
-    
-    fireEvent.click(duplicateButton);
-    expect(handleDuplicate).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not render duplicate button when onDuplicate is not provided', () => {
-    render(<InvoicePreview data={createMockInvoiceData()} />);
-    expect(screen.queryByText('Duplicate')).not.toBeInTheDocument();
-  });
 });

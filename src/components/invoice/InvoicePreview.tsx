@@ -5,11 +5,10 @@ import { sanitizeInvoiceData } from '@/lib/sanitize';
 
 interface InvoicePreviewProps {
   data: InvoiceFormData;
-  onDuplicate?: () => void;
 }
 
 export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
-  ({ data, onDuplicate }, ref) => {
+  ({ data }, ref) => {
     // Sanitize all input data for safe rendering
     const safeData = useMemo(() => sanitizeInvoiceData(data), [data]);
 
@@ -35,22 +34,6 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
             <p className="text-lg font-semibold text-foreground">
               {safeData.invoiceNumber || 'INV-0001'}
             </p>
-            {safeData.invoiceName && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {safeData.invoiceName}
-              </p>
-            )}
-            {onDuplicate && (
-              <div className="mt-2 print:hidden">
-                <button
-                  onClick={onDuplicate}
-                  className="text-xs text-primary hover:underline"
-                  title="Duplicate this invoice"
-                >
-                  Duplicate
-                </button>
-              </div>
-            )}
           </div>
           <div className="text-right">
             <div className="flex gap-8">
