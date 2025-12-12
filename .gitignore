@@ -28,3 +28,4 @@ docs/
 
 # ignore test coverage
 coverage/
+.vercel
