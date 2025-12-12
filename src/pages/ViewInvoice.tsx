@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Download, ArrowLeft, Trash2, Copy, Printer } from 'lucide-react';
+import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
@@ -47,6 +47,11 @@ export default function ViewInvoice() {
     deleteInvoice(invoice.id);
     toast.success('Invoice deleted');
     navigate('/');
+  };
+
+  const handleEdit = () => {
+    if (!invoice) return;
+    navigate(`/create/${invoice.id}`, { viewTransition: true });
   };
 
   const handleDuplicate = () => {
@@ -100,6 +105,14 @@ export default function ViewInvoice() {
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Delete
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleEdit}
+            >
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit
             </Button>
             <Button
               variant="outline"

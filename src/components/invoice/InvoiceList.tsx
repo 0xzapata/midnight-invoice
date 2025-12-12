@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import { FileText, Trash2, Eye, Pencil, Copy } from 'lucide-react';
+import { FileText, Trash2, Pencil, Copy } from 'lucide-react';
 import { Invoice } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/invoice-utils';
@@ -39,7 +39,8 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
         return (
           <div
             key={invoice.id}
-            className="group flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors"
+            className="group flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors cursor-pointer"
+            onClick={() => onView(invoice)}
           >
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center self-start mt-1">
@@ -61,7 +62,7 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => onLoadSession(invoice)}
+                onClick={(e) => { e.stopPropagation(); onLoadSession(invoice); }}
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 title="Load Session"
               >
@@ -70,16 +71,7 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => onView(invoice)}
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                title="View Invoice"
-              >
-                <Eye className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onDuplicate(invoice)}
+                onClick={(e) => { e.stopPropagation(); onDuplicate(invoice); }}
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 title="Duplicate Invoice"
               >
@@ -88,7 +80,7 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => onDelete(invoice.id)}
+                onClick={(e) => { e.stopPropagation(); onDelete(invoice.id); }}
                 className="h-8 w-8 text-muted-foreground hover:text-destructive"
                 title="Delete Invoice"
               >

@@ -1,12 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Download, Save, ArrowLeft, Copy } from 'lucide-react';
+import { Download, Save, ArrowLeft, Copy, Settings } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
 import { InvoiceForm } from '@/components/invoice/InvoiceForm';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
 import { InvoicePDF } from '@/components/invoice/InvoicePDF';
+import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { useInvoices } from '@/hooks/useInvoices';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { InvoiceFormData } from '@/types/invoice';
 import { toast } from 'sonner';
 
@@ -32,6 +34,9 @@ export default function CreateInvoice() {
     loadDraft,
     clearDraft,
   } = useInvoices();
+
+  const settings = useSettingsStore((state) => state.settings);
+  const hasDefaults = settings.fromName || settings.fromEmail || settings.fromAddress || settings.paymentDetails || settings.notes || settings.taxRate || settings.currency;
   
   const invoiceRef = useRef<HTMLDivElement>(null);
   
@@ -173,6 +178,23 @@ export default function CreateInvoice() {
           {/* Form */}
           <div className="order-2 lg:order-1">
             <div className="sticky top-24">
+              {/* Settings Banner */}
+              {!hasDefaults && !isEditing && (
+                <div className="mb-4 p-4 rounded-lg border border-border bg-card">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                      <Settings className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">Auto-fill your details</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Save your name, address, and payment details to quickly fill new invoices.
+                      </p>
+                    </div>
+                    <SettingsDrawer />
+                  </div>
+                </div>
+              )}
               <div className="bg-card border border-border p-6">
                 <InvoiceForm 
                   key={invoiceId}

@@ -1,11 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { CurrencySelector } from '@/components/ui/CurrencySelector';
 import { InvoiceFormData } from '@/types/invoice';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { toast } from 'sonner';
 
 interface InvoiceFormProps {
   initialData?: Partial<InvoiceFormData>;
@@ -82,6 +85,24 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
     append({ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 });
   };
 
+  const settings = useSettingsStore((state) => state.settings);
+  const hasDefaults = settings.fromName || settings.fromEmail || settings.fromAddress || settings.paymentDetails || settings.notes || settings.taxRate || settings.currency;
+
+  const applyDefaults = () => {
+    if (!hasDefaults) {
+      toast.info('No defaults saved. Go to Settings to configure your defaults.');
+      return;
+    }
+    if (settings.fromName) setValue('fromName', settings.fromName);
+    if (settings.fromEmail) setValue('fromEmail', settings.fromEmail);
+    if (settings.fromAddress) setValue('fromAddress', settings.fromAddress);
+    if (settings.paymentDetails) setValue('paymentDetails', settings.paymentDetails);
+    if (settings.notes) setValue('notes', settings.notes);
+    if (settings.taxRate) setValue('taxRate', settings.taxRate);
+    if (settings.currency) setValue('currency', settings.currency);
+    toast.success('Defaults applied');
+  };
+
   return (
     <div className="space-y-6">
       {/* Invoice Name */}
@@ -138,7 +159,21 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
 
       {/* From */}
       <div className="space-y-4">
-        <h3 className="text-sm font-medium text-foreground">From</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-foreground">From</h3>
+          {hasDefaults && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={applyDefaults}
+              className="h-8 text-xs"
+            >
+              <Settings2 className="w-3 h-3 mr-1" />
+              Use Defaults
+            </Button>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="fromName" className="text-xs text-muted-foreground">
@@ -295,18 +330,10 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
           <Label htmlFor="currency" className="text-xs text-muted-foreground">
             Currency
           </Label>
-          <select
-            id="currency"
-            {...register('currency')}
-            className="flex h-10 w-full border border-border bg-secondary px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="USD">USD ($)</option>
-            <option value="EUR">EUR (€)</option>
-            <option value="GBP">GBP (£)</option>
-            <option value="PHP">PHP (₱)</option>
-            <option value="CAD">CAD ($)</option>
-            <option value="AUD">AUD ($)</option>
-          </select>
+          <CurrencySelector
+            value={watch('currency')}
+            onChange={(value) => setValue('currency', value)}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="taxRate" className="text-xs text-muted-foreground">
