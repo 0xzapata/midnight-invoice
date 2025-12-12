@@ -51,9 +51,9 @@ export function CurrencySelector({ value, onChange, className }: CurrencySelecto
               {currencies.map((currency) => (
                 <CommandItem
                   key={currency.value}
-                  value={currency.value}
-                  onSelect={(currentValue) => {
-                    onChange(currentValue === value ? "" : currentValue);
+                  value={currency.label}
+                  onSelect={() => {
+                    onChange(currency.value === value ? "" : currency.value);
                     setOpen(false);
                   }}
                 >
