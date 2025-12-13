@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2025-12-13
+
+### Added
+- **Storage Versioning**: Implemented robust backward compatibility for local storage with schema migrations.
+- **Development Experience**: Added "DEV" badge and custom favicon for development environment.
+- **Git Hooks**: Added Husky pre-commit hooks to run tests automatically.
+
+### Fixed
+- **Settings**: Fixed missing banner in settings drawer.
+- **Currency Selector**: Fixed display issues (clipping long names) and added fuzzy search.
+- **Create Invoice**: Resolved black screen issue and form validation errors.
+- **Tests**: Fixed failing tests in InvoiceList, InvoiceForm, and ViewInvoice.
+
+### Changed
+- **Dependencies**: Updated various dependencies.
+
 ## [1.0.0] - 2024-12-13
 
 ### Added

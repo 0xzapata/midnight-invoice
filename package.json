@@ -1,7 +1,7 @@
 {
   "name": "midnight-invoice",
   "private": false,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A modern, dark-themed invoice generator built with React 19, TypeScript, and Tailwind CSS.",
   "author": "0xzapata",
   "license": "MIT",
