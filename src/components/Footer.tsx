@@ -6,7 +6,7 @@ export const Footer = () => {
     <footer className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-6">
       <div className="container flex flex-col items-center justify-between gap-4 md:flex-row md:h-14">
         <p className="text-sm text-muted-foreground">
-          Created by <span className="font-semibold text-foreground">migokartel</span>
+          Created by <span role="creator" className="font-semibold text-foreground">migokartel</span>
         </p>
         <div className="flex items-center gap-4">
           <a

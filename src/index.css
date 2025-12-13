@@ -112,7 +112,8 @@
   h5,
   h6,
   button,
-  [role="tab"] {
+  [role="tab"],
+  [role="creator"] {
     font-family: 'ProtoMono', monospace;
   }
 
