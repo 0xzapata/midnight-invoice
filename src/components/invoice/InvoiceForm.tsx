@@ -13,7 +13,7 @@ import {
 import { CurrencySelector } from '@/components/ui/CurrencySelector';
 import { InvoiceFormData } from '@/types/invoice';
 import { invoiceFormSchema } from '@/lib/validation';
-import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
 import { toast } from 'sonner';
 
 interface InvoiceFormProps {
@@ -73,7 +73,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
   }, [invoiceNumber, form]);
 
   const settings = useSettingsStore((state) => state.settings);
-  const hasDefaults = settings.fromName || settings.fromEmail || settings.fromAddress || settings.paymentDetails || settings.notes || settings.taxRate || settings.currency;
+  const hasDefaults = hasConfiguredSettings(settings);
 
   const applyDefaults = () => {
     if (!hasDefaults) {
