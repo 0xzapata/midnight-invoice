@@ -22,9 +22,10 @@ interface CurrencySelectorProps {
   value: string;
   onChange: (value: string) => void;
   className?: string;
+  align?: "start" | "center" | "end";
 }
 
-export function CurrencySelector({ value, onChange, className }: CurrencySelectorProps) {
+export function CurrencySelector({ value, onChange, className, align = "start" }: CurrencySelectorProps) {
   const [open, setOpen] = React.useState(false);
 
   return (
@@ -36,13 +37,15 @@ export function CurrencySelector({ value, onChange, className }: CurrencySelecto
           aria-expanded={open}
           className={cn("w-full justify-between bg-secondary border-border", className)}
         >
-          {value
-            ? currencies.find((currency) => currency.value === value)?.label
-            : "Select currency..."}
+          <span className="truncate">
+            {value
+              ? currencies.find((currency) => currency.value === value)?.label
+              : "Select currency..."}
+          </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[300px] p-0" align="start">
+      <PopoverContent className="w-[300px] p-0" align={align}>
         <Command>
           <CommandInput placeholder="Search currency..." />
           <CommandList>

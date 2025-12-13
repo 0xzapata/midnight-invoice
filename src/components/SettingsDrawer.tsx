@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/sheet';
 import { useSettingsStore, DefaultSettings } from '@/stores/useSettingsStore';
 import { CurrencySelector } from '@/components/ui/CurrencySelector';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { toast } from 'sonner';
 
 interface SettingsDrawerProps {
@@ -132,15 +133,15 @@ export function SettingsDrawer({ trigger }: SettingsDrawerProps) {
               />
             </div>
             
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">
+            <Field>
+              <FieldLabel className="text-xs text-muted-foreground">
                 Default Currency
-              </Label>
+              </FieldLabel>
               <CurrencySelector
                 value={localSettings.currency}
                 onChange={(value) => setLocalSettings(prev => ({ ...prev, currency: value }))}
               />
-            </div>
+            </Field>
           </div>
 
           <div className="space-y-2">
