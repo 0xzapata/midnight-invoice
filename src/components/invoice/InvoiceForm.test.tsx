@@ -20,7 +20,18 @@ vi.mock('@/stores/useSettingsStore', () => ({
     const state = { settings: defaultSettings };
     return selector ? selector(state) : state;
   }),
+  hasConfiguredSettings: vi.fn((settings) => {
+    return !!(
+      settings.fromName ||
+      settings.fromEmail ||
+      settings.fromAddress ||
+      settings.paymentDetails ||
+      settings.notes ||
+      settings.taxRate
+    );
+  }),
 }));
+
 
 describe('InvoiceForm', () => {
   const mockOnFormChange = vi.fn();

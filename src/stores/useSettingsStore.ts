@@ -35,6 +35,23 @@ const defaultSettings: DefaultSettings = {
  * Zustand store for user settings with localStorage persistence.
  * Stores default values for invoice fields that can be applied via "Use Defaults".
  */
+
+/**
+ * Check if user has configured any meaningful settings.
+ * Ignores default currency 'USD' since it's a system default, not a user choice.
+ */
+export function hasConfiguredSettings(settings: DefaultSettings): boolean {
+    return !!(
+        settings.fromName ||
+        settings.fromEmail ||
+        settings.fromAddress ||
+        settings.paymentDetails ||
+        settings.notes ||
+        settings.taxRate
+    );
+}
+
+
 export const useSettingsStore = create<SettingsState>()(
     persist(
         (set) => ({

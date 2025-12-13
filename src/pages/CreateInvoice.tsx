@@ -8,7 +8,7 @@ import { InvoicePreview } from '@/components/invoice/InvoicePreview';
 import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { useInvoices } from '@/hooks/useInvoices';
-import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
 import { InvoiceFormData } from '@/types/invoice';
 import { toast } from 'sonner';
 
@@ -36,7 +36,8 @@ export default function CreateInvoice() {
   } = useInvoices();
 
   const settings = useSettingsStore((state) => state.settings);
-  const hasDefaults = settings.fromName || settings.fromEmail || settings.fromAddress || settings.paymentDetails || settings.notes || settings.taxRate || settings.currency;
+  const hasDefaults = hasConfiguredSettings(settings);
+
   
   // Load initial data from existing invoice or draft
   const getInitialData = useCallback((): Partial<InvoiceFormData> => {
