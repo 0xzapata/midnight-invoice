@@ -41,12 +41,20 @@ const mockInvoice = {
 /* eslint-disable @typescript-eslint/no-unused-vars */
 const mockGetInvoice = vi.fn((_id: string) => mockInvoice);
 const mockDeleteInvoice = vi.fn();
+const mockSaveDraft = vi.fn();
 /* eslint-enable @typescript-eslint/no-unused-vars */
+
+// Mock crypto.randomUUID
+Object.defineProperty(globalThis.crypto, 'randomUUID', {
+  value: vi.fn(() => 'new-test-id'),
+});
 
 vi.mock('@/hooks/useInvoices', () => ({
   useInvoices: vi.fn(() => ({
     getInvoice: mockGetInvoice,
     deleteInvoice: mockDeleteInvoice,
+    saveDraft: mockSaveDraft,
+    getNextInvoiceNumber: 'INV-124',
     invoices: [mockInvoice],
   })),
 }));
@@ -100,8 +108,13 @@ describe('ViewInvoice', () => {
     const user = userEvent.setup();
     renderComponent();
 
+    // Click the delete button to open the confirmation dialog
     const deleteButton = screen.getByRole('button', { name: /delete/i });
     await user.click(deleteButton);
+
+    // Find and click the confirmation button in the AlertDialog
+    const confirmDeleteButton = await screen.findByRole('button', { name: 'Delete' });
+    await user.click(confirmDeleteButton);
 
     expect(mockDeleteInvoice).toHaveBeenCalledWith('test-id');
     await waitFor(() => {
@@ -116,6 +129,9 @@ describe('ViewInvoice', () => {
     const duplicateButton = screen.getByRole('button', { name: /duplicate/i });
     await user.click(duplicateButton);
 
+    // Verify saveDraft was called with the new ID and duplicated data
+    expect(mockSaveDraft).toHaveBeenCalled();
+    
     await waitFor(() => {
       expect(screen.getByText('Create Page')).toBeInTheDocument();
     });

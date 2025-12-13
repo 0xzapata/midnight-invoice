@@ -120,8 +120,11 @@ describe('InvoiceForm', () => {
   });
 
   it('updates form when initialData changes', () => {
+    // Note: The form uses defaultValues, so to test loading new data
+    // we need to use a key prop to force remount (which is how the actual app works)
     const { rerender } = render(
       <InvoiceForm
+        key="INV-0001"
         invoiceNumber="INV-0001"
         onFormChange={mockOnFormChange}
         initialData={{
@@ -133,9 +136,10 @@ describe('InvoiceForm', () => {
 
     expect(screen.getByDisplayValue('Original Name')).toBeInTheDocument();
 
-    // Rerender with new data simulating "Load Session"
+    // Rerender with new key simulating "Load Session" (form remounts with new data)
     rerender(
       <InvoiceForm
+        key="INV-0002"
         invoiceNumber="INV-0002"
         onFormChange={mockOnFormChange}
         initialData={{

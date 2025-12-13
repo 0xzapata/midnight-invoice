@@ -131,8 +131,13 @@ describe('InvoiceList', () => {
       />
     );
 
+    // Click the delete button to open the confirmation dialog
     const deleteButtons = screen.getAllByTitle('Delete Invoice');
     await user.click(deleteButtons[0]);
+
+    // Find and click the confirmation button in the AlertDialog
+    const confirmDeleteButton = await screen.findByRole('button', { name: 'Delete' });
+    await user.click(confirmDeleteButton);
 
     expect(mockHandlers.onDelete).toHaveBeenCalledWith('1');
   });
