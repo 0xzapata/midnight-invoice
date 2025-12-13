@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useForm } from '@tanstack/react-form';
+import { useForm, useStore } from '@tanstack/react-form';
 import { Plus, Trash2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ interface InvoiceFormProps {
 export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: InvoiceFormProps) {
   const prevDataRef = useRef<string>('');
   
-  const form = useForm<InvoiceFormData>({
+  const form = useForm({
     defaultValues: {
       invoiceNumber,
       invoiceName: '',
@@ -43,9 +43,9 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
       paymentDetails: '',
       currency: 'USD',
       ...initialData,
-    },
+    } as InvoiceFormData,
     validators: {
-      onBlur: invoiceFormSchema,
+      onBlur: invoiceFormSchema as any,
     },
     onSubmit: async () => {
       // Form is controlled, no submit handler needed
@@ -53,7 +53,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
   });
 
   // Watch for form changes and notify parent
-  const formState = form.useStore((state) => state.values);
+  const formState = useStore(form.store, (state) => state.values);
   
   useEffect(() => {
     const serialized = JSON.stringify(formState);
@@ -63,19 +63,14 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
     }
   }, [formState, onFormChange]);
 
-  // Reset form when initialData changes
+  // Only update invoice number if it changes externally and we are not dirty?
+  // Actually, standard pattern is to rely on key to reset form for new invoice.
+  // We keep the invoiceNumber sync just in case.
   useEffect(() => {
-    if (initialData) {
-      form.reset();
-      form.setFieldValue('invoiceNumber', invoiceNumber);
-      Object.entries(initialData).forEach(([key, value]) => {
-        if (value !== undefined) {
-          form.setFieldValue(key as keyof InvoiceFormData, value);
-        }
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialData]);
+     if (invoiceNumber && invoiceNumber !== form.getFieldValue('invoiceNumber')) {
+        form.setFieldValue('invoiceNumber', invoiceNumber);
+     }
+  }, [invoiceNumber, form]);
 
   const settings = useSettingsStore((state) => state.settings);
   const hasDefaults = settings.fromName || settings.fromEmail || settings.fromAddress || settings.paymentDetails || settings.notes || settings.taxRate || settings.currency;

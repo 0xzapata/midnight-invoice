@@ -7,6 +7,7 @@ export const env = createEnv({
     },
     client: {
         VITE_APP_NAME: z.string().min(1),
+        VITE_APP_ENV: z.enum(["DEVELOPMENT", "STAGING", "PREVIEW", "PRODUCTION"]).optional().default("DEVELOPMENT"),
     },
     /**
      * The prefix that client-side variables must have. This is enforced both at

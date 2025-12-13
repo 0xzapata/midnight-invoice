@@ -9,10 +9,23 @@ import ViewInvoice from "./pages/ViewInvoice";
 import NotFound from "./pages/NotFound";
 import { Footer } from "@/components/Footer";
 
+import { useEffect } from "react";
+import { env } from "@/env";
+
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
+const App = () => {
+  useEffect(() => {
+    if (env.VITE_APP_ENV === "DEVELOPMENT") {
+      const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+      if (link) {
+        link.href = "/favicon-dev.svg";
+      }
+    }
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -28,6 +41,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;
