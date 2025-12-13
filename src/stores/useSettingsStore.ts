@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { CURRENT_SETTINGS_VERSION, migrateSettingsStore } from '@/lib/storageMigrations';
 
 /**
  * Default settings for invoice forms.
@@ -50,6 +51,8 @@ export const useSettingsStore = create<SettingsState>()(
         }),
         {
             name: 'settings-storage',
+            version: CURRENT_SETTINGS_VERSION,
+            migrate: migrateSettingsStore,
         }
     )
 );

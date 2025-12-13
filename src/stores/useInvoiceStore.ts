@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Invoice, InvoiceFormData } from '@/types/invoice';
+import { CURRENT_INVOICE_VERSION, migrateInvoiceStore } from '@/lib/storageMigrations';
 
 // Creative session name generators
 const adjectives = ['Cosmic', 'Swift', 'Golden', 'Stellar', 'Bright', 'Noble', 'Grand', 'Prime', 'Royal', 'Epic'];
@@ -91,6 +92,7 @@ export const useInvoiceStore = create<InvoiceState>()(
 
                 const newInvoice: Invoice = {
                     ...formData,
+                    version: CURRENT_INVOICE_VERSION,
                     invoiceName,
                     id: invoiceId,
                     createdAt: new Date().toISOString(),
@@ -185,6 +187,8 @@ export const useInvoiceStore = create<InvoiceState>()(
         }),
         {
             name: 'invoice-storage',
+            version: CURRENT_INVOICE_VERSION,
+            migrate: migrateInvoiceStore,
             partialize: (state) => ({
                 invoices: state.invoices,
                 drafts: state.drafts,
