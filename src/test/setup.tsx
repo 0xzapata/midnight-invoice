@@ -1,13 +1,11 @@
-import { ReactNode } from 'react';
+import { vi } from 'vitest';
 
-export function MockConvexProvider({ children }: { children: ReactNode }) {
-  return <>{children}</>;
-}
-
-export const mockConvexAuth = {
-  isAuthenticated: false,
-  isLoading: false,
-};
-
-export const mockUseQuery = () => undefined;
-export const mockUseMutation = () => async () => {};
+vi.mock('convex/react', () => ({
+  useConvexAuth: () => ({
+    isAuthenticated: false,
+    isLoading: false,
+  }),
+  useQuery: () => undefined,
+  useMutation: () => vi.fn(),
+  ConvexAuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
