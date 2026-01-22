@@ -18,3 +18,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Checks if the current environment is a test environment
+ * @returns true if running in a test environment (like Vitest), false otherwise
+ */
+export function isTestEnvironment(): boolean {
+  return typeof process !== 'undefined' && 
+         process.env && 
+         (process.env.NODE_ENV === 'test' || 
+          process.env.VITEST === 'true' || 
+          process.env.VITEST !== undefined);
+}
+

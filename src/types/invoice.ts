@@ -12,6 +12,7 @@ export interface Invoice {
   invoiceName?: string;
   issueDate: string;
   dueDate?: string;
+  status?: string;
   fromName: string;
   fromAddress: string;
   fromEmail: string;
