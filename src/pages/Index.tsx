@@ -15,6 +15,7 @@ import { Invoice } from '@/types/invoice';
 import { Spinner } from '@/components/ui/spinner';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { env } from '@/env';
+import { Header } from '@/components/layout/Header';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -64,29 +65,8 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-primary/10 flex items-center justify-center">
-                <img src="/favicon.svg" alt={`${env.VITE_APP_NAME} Logo`} className="w-4 h-4 text-primary" />
-              </div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
-                {env.VITE_APP_ENV === "DEVELOPMENT" && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-500 text-[10px] font-medium border border-red-500/20">
-                    Development
-                  </span>
-                )}
-              </div>
-            </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
-              <Plus className="w-4 h-4 mr-2" />
-              New Invoice
-            </Button>
-          </div>
-        </div>
-      </header>
+      {/* Header */}
+      <Header onSettingsClick={() => setActiveTab('settings')} />
 
       {/* Main Content */}
       <main className="container py-8">
