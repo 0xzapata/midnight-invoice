@@ -57,3 +57,10 @@ export function formatDistanceToNow(date: Date): string {
   return `${diffDays}d ago`;
 }
 
+export function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
