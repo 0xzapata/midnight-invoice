@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { InvoiceList } from '@/components/invoice/InvoiceList';
+import { ClientList } from '@/components/clients/ClientList';
 import { useInvoices } from '@/hooks/useInvoices';
 
 import { useSettingsStore, DefaultSettings } from '@/stores/useSettingsStore';
@@ -20,7 +21,7 @@ import { Header } from '@/components/layout/Header';
 const Index = () => {
   const navigate = useNavigate();
   const { invoices, deleteInvoice, isLoading } = useInvoices();
-  const [activeTab, setActiveTab] = useState<'invoices' | 'settings' | 'coming'>('invoices');
+  const [activeTab, setActiveTab] = useState<'invoices' | 'settings' | 'clients' | 'coming'>('invoices');
   const { settings, updateSettings } = useSettingsStore();
 
   // Local state for settings form to avoid auto-saving on every keystroke
@@ -96,6 +97,17 @@ const Index = () => {
               Settings
             </button>
             <button
+              onClick={() => setActiveTab('clients')}
+              className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'clients'
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              Clients
+            </button>
+            <button
               onClick={() => setActiveTab('coming')}
               className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'coming'
@@ -145,6 +157,10 @@ const Index = () => {
                 </div>
               )}
             </>
+          )}
+
+          {activeTab === 'clients' && (
+            <ClientList />
           )}
 
           {activeTab === 'settings' && (

@@ -11,6 +11,7 @@ import { Footer } from "@/components/Footer";
 
 import { useEffect } from "react";
 import { env } from "@/env";
+import { MigrationModal } from "@/components/modals/MigrationModal";
 
 const queryClient = new QueryClient();
 
@@ -29,6 +30,7 @@ const App = () => {
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <MigrationModal />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
