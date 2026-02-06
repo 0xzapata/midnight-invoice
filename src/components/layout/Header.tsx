@@ -6,6 +6,7 @@ import { env } from "@/env";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { SyncStatusIndicator } from "@/components/sync/SyncStatusIndicator";
 
 interface HeaderProps {
   onSettingsClick?: () => void;
@@ -39,26 +40,28 @@ export function Header({ onSettingsClick }: HeaderProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => navigate("/create", { viewTransition: true })}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Invoice
-          </Button>
-          
-          {isAuthenticated ? (
-            <UserMenu onSettingsClick={onSettingsClick} />
-          ) : (
-            <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => void signIn("workos")}
-            >
-                Sign In
-            </Button>
-          )}
-        </div>
+           <Button
+             size="sm"
+             onClick={() => navigate("/create", { viewTransition: true })}
+           >
+             <Plus className="w-4 h-4 mr-2" />
+             New Invoice
+           </Button>
+           
+           <SyncStatusIndicator />
+           
+           {isAuthenticated ? (
+             <UserMenu onSettingsClick={onSettingsClick} />
+           ) : (
+             <Button 
+                 variant="outline" 
+                 size="sm" 
+                 onClick={() => void signIn("workos")}
+             >
+                 Sign In
+             </Button>
+           )}
+         </div>
       </div>
     </header>
   );
