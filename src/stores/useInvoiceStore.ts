@@ -42,6 +42,7 @@ interface InvoiceState {
     saveDraft: (id: string, formData: InvoiceFormData) => void;
     loadDraft: (id: string) => InvoiceFormData | null;
     clearDraft: (id: string) => void;
+    reset: () => void;
 }
 
 /**
@@ -182,6 +183,17 @@ export const useInvoiceStore = create<InvoiceState>()(
                 set((state) => {
                     const { [id]: _, ...remainingDrafts } = state.drafts;
                     return { drafts: remainingDrafts };
+                });
+            },
+
+            /**
+             * Resets the store to its initial state.
+             * Used when migrating data to cloud or clearing user data.
+             */
+            reset: () => {
+                set({
+                    invoices: [],
+                    drafts: {},
                 });
             },
         }),

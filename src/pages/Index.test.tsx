@@ -25,6 +25,24 @@ vi.mock('@/env', () => ({
     },
 }));
 
+// Mock Convex/Auth hooks
+const mockSignOut = vi.fn();
+const mockSignIn = vi.fn();
+const mockUseConvexAuth = vi.fn();
+const mockUseQuery = vi.fn();
+
+vi.mock('@convex-dev/auth/react', () => ({
+  useAuthActions: () => ({
+    signOut: mockSignOut,
+    signIn: mockSignIn,
+  }),
+}));
+
+vi.mock('convex/react', () => ({
+  useConvexAuth: () => mockUseConvexAuth(),
+  useQuery: () => mockUseQuery(),
+}));
+
 const mockInvoice: Invoice = {
     id: 'test-id-1',
     invoiceNumber: 'INV-0001',
@@ -61,6 +79,7 @@ Object.defineProperty(globalThis.crypto, 'randomUUID', {
 describe('Index', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockUseConvexAuth.mockReturnValue({ isAuthenticated: false });
         // Reset settings store to default
         act(() => {
             useSettingsStore.setState({

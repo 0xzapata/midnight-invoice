@@ -1,24 +1,16 @@
-import { useInvoiceStore, useHasHydrated } from '@/stores/useInvoiceStore';
+import { useInvoiceData } from './useInvoiceData';
+import { useHasHydrated } from '@/stores/useInvoiceStore';
 
 /**
- * Backwards-compatible hook wrapping the Zustand invoice store.
+ * Backwards-compatible hook wrapping the unified invoice data hook.
  * Components can continue using this hook without changes.
  */
 export function useInvoices() {
-  const store = useInvoiceStore();
-  const hasHydrated = useHasHydrated();
+  const invoiceData = useInvoiceData();
 
   return {
-    invoices: store.invoices,
-    isLoading: !hasHydrated,
-    saveInvoice: store.saveInvoice,
-    deleteInvoice: store.deleteInvoice,
-    getInvoice: store.getInvoice,
-    getNextInvoiceNumber: store.getNextInvoiceNumber(),
-    saveDraft: store.saveDraft,
-    loadDraft: store.loadDraft,
-    clearDraft: store.clearDraft,
-    // No longer needed with Zustand, kept for API compatibility
+    ...invoiceData,
+    // No longer needed, kept for API compatibility
     refreshInvoices: () => { },
   };
 }
