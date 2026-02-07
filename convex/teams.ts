@@ -307,3 +307,54 @@ export const leaveTeam = mutation({
     await ctx.db.delete(membership._id);
   },
 });
+
+export const updateLogo = mutation({
+  args: {
+    teamId: v.id("teams"),
+    logoUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getUser(ctx);
+
+    const membership = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", args.teamId).eq("userId", user.tokenIdentifier)
+      )
+      .first();
+
+    if (!membership || !["owner", "admin"].includes(membership.role)) {
+      throw new Error("Not authorized to update team logo");
+    }
+
+    await ctx.db.patch(args.teamId, {
+      logoUrl: args.logoUrl,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const removeLogo = mutation({
+  args: {
+    teamId: v.id("teams"),
+  },
+  handler: async (ctx, args) => {
+    const user = await getUser(ctx);
+
+    const membership = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_team_user", (q) =>
+        q.eq("teamId", args.teamId).eq("userId", user.tokenIdentifier)
+      )
+      .first();
+
+    if (!membership || !["owner", "admin"].includes(membership.role)) {
+      throw new Error("Not authorized to remove team logo");
+    }
+
+    await ctx.db.patch(args.teamId, {
+      logoUrl: undefined,
+      updatedAt: Date.now(),
+    });
+  },
+});

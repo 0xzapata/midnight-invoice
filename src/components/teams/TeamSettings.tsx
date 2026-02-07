@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useTeams, useTeam, useTeamInvitations } from '@/hooks/useTeams';
 import { TeamRole, canManageMembers, canEditTeam, canInviteMembers } from '@/types/team';
 import { Button } from '@/components/ui/button';
@@ -8,8 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, Settings, Mail, Crown, Shield, User, Eye } from 'lucide-react';
+import { Users, Settings, Mail, Crown, Shield, User, Eye, Camera, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { TeamAvatar } from './TeamAvatar';
+import { useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 
 interface TeamSettingsProps {
   teamId: string;
@@ -33,11 +36,15 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
   const { team, members, isLoading, updateRole, removeMember } = useTeam(teamId);
   const { invitations, invite, cancel } = useTeamInvitations(teamId);
   const { updateTeam, leaveTeam, deleteTeam } = useTeams();
-  
+  const updateLogo = useMutation(api.teams.updateLogo);
+  const removeLogo = useMutation(api.teams.removeLogo);
+
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<TeamRole>('member');
   const [teamName, setTeamName] = useState(team?.name ?? '');
   const [isEditing, setIsEditing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (isLoading || !team) {
     return <div>Loading team settings...</div>;
@@ -79,6 +86,45 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
     }
   };
 
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Logo must be less than 2MB');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('File must be an image');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        await updateLogo({ teamId: teamId as any, logoUrl: base64 });
+        toast.success('Logo updated successfully');
+        setIsUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      toast.error('Failed to upload logo');
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    try {
+      await removeLogo({ teamId: teamId as any });
+      toast.success('Logo removed');
+    } catch (error) {
+      toast.error('Failed to remove logo');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Tabs defaultValue="general" className="w-full">
@@ -106,32 +152,76 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="team-name">Team Name</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="team-name"
-                    value={teamName}
-                    onChange={(e) => setTeamName(e.target.value)}
-                    disabled={!isEditing || !canEdit}
+              <div className="flex items-start gap-6">
+                <div className="flex flex-col items-center gap-2">
+                  <TeamAvatar
+                    name={team.name}
+                    logoUrl={team.logoUrl}
+                    size="xl"
                   />
                   {canEdit && (
-                    isEditing ? (
-                      <>
-                        <Button onClick={handleUpdateTeam}>Save</Button>
-                        <Button variant="outline" onClick={() => {
-                          setTeamName(team.name);
-                          setIsEditing(false);
-                        }}>
-                          Cancel
-                        </Button>
-                      </>
-                    ) : (
-                      <Button variant="outline" onClick={() => setIsEditing(true)}>
-                        Edit
+                    <div className="flex gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                      >
+                        <Camera className="w-4 h-4 mr-1" />
+                        {isUploading ? 'Uploading...' : 'Change'}
                       </Button>
-                    )
+                      {team.logoUrl && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={handleRemoveLogo}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                   )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleLogoUpload}
+                  />
+                </div>
+
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="team-name">Team Name</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="team-name"
+                      value={teamName}
+                      onChange={(e) => setTeamName(e.target.value)}
+                      disabled={!isEditing || !canEdit}
+                    />
+                    {canEdit && (
+                      isEditing ? (
+                        <>
+                          <Button onClick={handleUpdateTeam}>Save</Button>
+                          <Button variant="outline" onClick={() => {
+                            setTeamName(team.name);
+                            setIsEditing(false);
+                          }}>
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button variant="outline" onClick={() => setIsEditing(true)}>
+                          Edit
+                        </Button>
+                      )
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Logo will be displayed in the team switcher and on invoices. Max 2MB.
+                  </p>
                 </div>
               </div>
 

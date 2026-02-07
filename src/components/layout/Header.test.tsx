@@ -1,7 +1,7 @@
 
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Header } from './Header';
-import { vi } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
 
 // Mock env
@@ -28,6 +28,15 @@ vi.mock('@convex-dev/auth/react', () => ({
 vi.mock('convex/react', () => ({
   useConvexAuth: () => mockUseConvexAuth(),
   useQuery: () => mockUseQuery(),
+  useMutation: () => vi.fn(),
+}));
+
+vi.mock('@/hooks/useTeams', () => ({
+  useTeams: () => ({ teams: [], isLoading: false }),
+}));
+
+vi.mock('@/stores/useTeamContext', () => ({
+  useTeamContext: () => ({ currentTeamId: null, setCurrentTeam: vi.fn(), clearCurrentTeam: vi.fn() }),
 }));
 
 describe('Header', () => {

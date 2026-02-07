@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useForm, useStore } from '@tanstack/react-form';
-import { Plus, Trash2, Settings2 } from 'lucide-react';
+import { Plus, Trash2, Settings2, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,6 +15,8 @@ import { InvoiceFormData } from '@/types/invoice';
 import { invoiceFormSchema } from '@/lib/validation';
 import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
 import { toast } from 'sonner';
+import { useTeamContext } from '@/stores/useTeamContext';
+import { useTeam } from '@/hooks/useTeams';
 
 interface InvoiceFormProps {
   initialData?: Partial<InvoiceFormData>;
@@ -105,8 +107,18 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
     }
   };
 
+  const { currentTeamId } = useTeamContext();
+  const { team: currentTeam } = useTeam(currentTeamId ?? undefined);
+
   return (
     <div className="space-y-6">
+      {currentTeam && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border border-primary/10">
+          <Building2 className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">Creating invoice for</span>
+          <span className="text-sm font-semibold text-primary">{currentTeam.name}</span>
+        </div>
+      )}
       {/* Invoice Name */}
       <form.Field name="invoiceName">
         {(field) => (

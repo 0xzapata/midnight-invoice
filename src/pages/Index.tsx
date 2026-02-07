@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FileText, Settings, Sparkles, Cloud, Users, FileStack, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
+import { Plus, FileText, Settings, Sparkles, Cloud, Users, FileStack, RefreshCw, Mail, Paperclip, Lock, Save, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,8 +9,10 @@ import { Label } from '@/components/ui/label';
 import { InvoiceList } from '@/components/invoice/InvoiceList';
 import { ClientList } from '@/components/clients/ClientList';
 import { useInvoices } from '@/hooks/useInvoices';
+import { useTeams } from '@/hooks/useTeams';
 
 import { useSettingsStore, DefaultSettings } from '@/stores/useSettingsStore';
+import { useTeamContext } from '@/stores/useTeamContext';
 import { CurrencySelector } from '@/components/ui/CurrencySelector';
 import { Invoice } from '@/types/invoice';
 import { Spinner } from '@/components/ui/spinner';
@@ -21,8 +23,13 @@ import { Header } from '@/components/layout/Header';
 const Index = () => {
   const navigate = useNavigate();
   const { invoices, deleteInvoice, isLoading } = useInvoices();
+  const { teams } = useTeams();
+  const { currentTeamId } = useTeamContext();
   const [activeTab, setActiveTab] = useState<'invoices' | 'settings' | 'clients' | 'coming'>('invoices');
   const { settings, updateSettings } = useSettingsStore();
+
+  const currentTeam = teams.find(t => t._id === currentTeamId);
+  const teamName = currentTeam?.name || 'Personal';
 
   // Local state for settings form to avoid auto-saving on every keystroke
   const [localSettings, setLocalSettings] = useState<DefaultSettings>(settings);
@@ -126,11 +133,19 @@ const Index = () => {
           {activeTab === 'invoices' && (
             <>
               <div className="mb-8">
-                <h2 className="text-2xl font-semibold text-foreground mb-2">Your Invoices</h2>
+                <div className="flex items-center gap-2 mb-2">
+                  <h2 className="text-2xl font-semibold text-foreground">Your Invoices</h2>
+                  {currentTeamId && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                      <Building2 className="w-3 h-3" />
+                      {teamName}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {invoices.length === 0
                     ? 'Create professional invoices in seconds'
-                    : `${invoices.length} invoice${invoices.length === 1 ? '' : 's'} saved locally`}
+                    : `${invoices.length} invoice${invoices.length === 1 ? '' : 's'} in ${teamName}`}
                 </p>
               </div>
 

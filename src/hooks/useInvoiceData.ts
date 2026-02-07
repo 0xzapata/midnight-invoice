@@ -3,6 +3,7 @@ import { api } from "../../convex/_generated/api";
 import { isTestEnvironment } from "@/lib/utils";
 import { useInvoiceStore } from "@/stores/useInvoiceStore";
 import { useSyncStore } from "@/stores/useSyncStore";
+import { useTeamContext } from "@/stores/useTeamContext";
 import { Invoice, InvoiceFormData } from "@/types/invoice";
 import { useCallback, useMemo } from "react";
 import { Doc, Id } from "../../convex/_generated/dataModel";
@@ -33,8 +34,14 @@ export function useInvoiceData() {
   const isAuthenticated = inTestEnv ? false : auth.isAuthenticated;
   const { startSync, completeSync } = useSyncStore();
   const localStore = useInvoiceStore();
+  const { currentTeamId } = useTeamContext();
   
-  const cloudInvoices = useQuery(api.invoices.list, (!inTestEnv && isAuthenticated) ? {} : "skip");
+  const cloudInvoices = useQuery(
+    api.invoices.list, 
+    (!inTestEnv && isAuthenticated) 
+      ? { teamId: currentTeamId as Id<"teams"> | undefined } 
+      : "skip"
+  );
   const createInvoice = useMutation(api.invoices.create);
   const updateInvoice = useMutation(api.invoices.update);
   const removeInvoice = useMutation(api.invoices.remove);
@@ -61,6 +68,7 @@ export function useInvoiceData() {
             const { toName, toEmail, toAddress, ...rest } = formData;
             const newId = await createInvoice({
               ...rest,
+              teamId: currentTeamId as Id<"teams"> | undefined,
               clientSnapshot: {
                 name: toName,
                 email: toEmail,
@@ -84,7 +92,7 @@ export function useInvoiceData() {
         }
       }
     },
-    [inTestEnv, isAuthenticated, createInvoice, updateInvoice, localStore, startSync, completeSync]
+    [inTestEnv, isAuthenticated, createInvoice, updateInvoice, localStore, startSync, completeSync, currentTeamId]
   );
 
   const deleteInvoice = useCallback(

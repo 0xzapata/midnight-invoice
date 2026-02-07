@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
 import { Client } from "@/types/client";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Trash2, Mail, MapPin } from "lucide-react";
+import { Plus, Pencil, Trash2, Mail, MapPin, Building2 } from "lucide-react";
 import { ClientModal } from "./ClientModal";
 import {
   AlertDialog,
@@ -18,9 +19,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
+import { useTeamContext } from "@/stores/useTeamContext";
+import { useTeam } from "@/hooks/useTeams";
 
 export function ClientList() {
-  const clients = useQuery(api.clients.list);
+  const { currentTeamId } = useTeamContext();
+  const { team: currentTeam } = useTeam(currentTeamId ?? undefined);
+  const clients = useQuery(api.clients.list, currentTeamId ? { teamId: currentTeamId as Id<"teams"> } : {});
   const removeClient = useMutation(api.clients.remove);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -58,8 +63,20 @@ export function ClientList() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-semibold">Clients</h2>
-          <p className="text-muted-foreground text-sm">Manage your client details for quick invoicing.</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-semibold">Clients</h2>
+            {currentTeam && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full">
+                <Building2 className="w-3 h-3" />
+                {currentTeam.name}
+              </span>
+            )}
+          </div>
+          <p className="text-muted-foreground text-sm">
+            {currentTeam 
+              ? `Manage clients for ${currentTeam.name}.` 
+              : "Manage your personal client details for quick invoicing."}
+          </p>
         </div>
         <Button onClick={handleAdd}>
           <Plus className="w-4 h-4 mr-2" />
@@ -69,8 +86,14 @@ export function ClientList() {
 
       {clients.length === 0 ? (
         <div className="text-center py-12 border rounded-lg bg-card/50 border-dashed">
-          <p className="text-muted-foreground mb-4">No clients found.</p>
-          <Button variant="outline" onClick={handleAdd}>Create your first client</Button>
+          <p className="text-muted-foreground mb-4">
+            {currentTeam 
+              ? `No clients in ${currentTeam.name} yet.` 
+              : "No personal clients found."}
+          </p>
+          <Button variant="outline" onClick={handleAdd}>
+            {currentTeam ? `Add client to ${currentTeam.name}` : "Create your first client"}
+          </Button>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -109,7 +132,8 @@ export function ClientList() {
       <ClientModal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
-        client={editingClient} 
+        client={editingClient}
+        teamId={currentTeamId}
       />
 
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>

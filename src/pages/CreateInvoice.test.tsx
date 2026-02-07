@@ -34,6 +34,21 @@ vi.mock('@/components/invoice/InvoicePDF', () => ({
     InvoicePDF: () => <div data-testid="invoice-pdf">PDF Component</div>,
 }));
 
+vi.mock('@/stores/useTeamContext', () => ({
+    useTeamContext: () => ({
+        currentTeamId: null,
+        setCurrentTeam: vi.fn(),
+    }),
+}));
+
+vi.mock('@/hooks/useTeams', () => ({
+    useTeam: () => ({
+        team: null,
+        members: [],
+        isLoading: false,
+    }),
+}));
+
 const mockSaveInvoice = vi.fn(() => ({ id: 'saved-id' }));
 const mockGetInvoice = vi.fn();
 const mockSaveDraft = vi.fn();

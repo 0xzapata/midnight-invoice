@@ -2,7 +2,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ClientList } from './ClientList';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { TooltipProvider } from '@/components/ui/tooltip';
 
 // Mocks
 const mockUseQuery = vi.fn();
@@ -21,6 +20,21 @@ vi.mock('../../../convex/_generated/api', () => ({
       remove: 'remove',
     }
   }
+}));
+
+vi.mock('@/stores/useTeamContext', () => ({
+  useTeamContext: () => ({
+    currentTeamId: null,
+    setCurrentTeam: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useTeams', () => ({
+  useTeam: () => ({
+    team: null,
+    members: [],
+    isLoading: false,
+  }),
 }));
 
 // Mock toaster
@@ -51,7 +65,7 @@ describe('ClientList', () => {
     it('shows empty state when no clients', () => {
         mockUseQuery.mockReturnValue([]);
         render(<ClientList />);
-        expect(screen.getByText('No clients found.')).toBeInTheDocument();
+        expect(screen.getByText(/No personal clients found/)).toBeInTheDocument();
         expect(screen.getByText('Create your first client')).toBeInTheDocument();
     });
 

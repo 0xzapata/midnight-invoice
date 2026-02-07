@@ -4,6 +4,13 @@ export interface SyncState {
   status: SyncStatus;
   lastSyncTime?: Date;
   isOnline: boolean;
+  setStatus: (status: SyncStatus) => void;
+  setLastSyncTime: (time: Date) => void;
+  setIsOnline: (online: boolean) => void;
+  startSync: () => void;
+  completeSync: () => void;
+  markOffline: () => void;
+  markConflict: () => void;
 }
 
 export const SYNC_ICONS = {

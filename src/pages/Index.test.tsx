@@ -5,6 +5,8 @@ import Index from './Index';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useInvoices } from '@/hooks/useInvoices';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useTeams } from '@/hooks/useTeams';
+import { useTeamContext } from '@/stores/useTeamContext';
 import { Invoice } from '@/types/invoice';
 import { act } from '@testing-library/react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -76,11 +78,20 @@ Object.defineProperty(globalThis.crypto, 'randomUUID', {
     configurable: true,
 });
 
+vi.mock('@/hooks/useTeams', () => ({
+    useTeams: vi.fn(),
+    useTeam: vi.fn(),
+    useTeamInvitations: vi.fn(),
+}));
+
+vi.mock('@/stores/useTeamContext', () => ({
+    useTeamContext: vi.fn(),
+}));
+
 describe('Index', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockUseConvexAuth.mockReturnValue({ isAuthenticated: false });
-        // Reset settings store to default
         act(() => {
             useSettingsStore.setState({
                 settings: {
@@ -94,12 +105,24 @@ describe('Index', () => {
                 },
             });
         });
-        // Reset useInvoices mock to default state
         vi.mocked(useInvoices).mockReturnValue({
             invoices: [],
             deleteInvoice: mockDeleteInvoice,
             isLoading: false,
         } as any);
+        vi.mocked(useTeams).mockReturnValue({
+            teams: [],
+            isLoading: false,
+            createTeam: vi.fn(),
+            updateTeam: vi.fn(),
+            deleteTeam: vi.fn(),
+            leaveTeam: vi.fn(),
+        } as any);
+        vi.mocked(useTeamContext).mockReturnValue({
+            currentTeamId: null,
+            setCurrentTeam: vi.fn(),
+            clearCurrentTeam: vi.fn(),
+        });
     });
 
     const renderComponent = (initialEntries: string[] = ['/']) => {
@@ -212,7 +235,7 @@ describe('Index', () => {
             } as any);
 
             renderComponent();
-            expect(screen.getByText('1 invoice saved locally')).toBeInTheDocument();
+            expect(screen.getByText('1 invoice in Personal')).toBeInTheDocument();
         });
 
         it('shows plural count for multiple invoices', () => {
@@ -223,7 +246,7 @@ describe('Index', () => {
             } as any);
 
             renderComponent();
-            expect(screen.getByText('2 invoices saved locally')).toBeInTheDocument();
+            expect(screen.getByText('2 invoices in Personal')).toBeInTheDocument();
         });
     });
 

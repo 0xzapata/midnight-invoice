@@ -21,9 +21,10 @@ interface ClientModalProps {
   isOpen: boolean;
   onClose: () => void;
   client?: Client;
+  teamId?: string;
 }
 
-export function ClientModal({ isOpen, onClose, client }: ClientModalProps) {
+export function ClientModal({ isOpen, onClose, client, teamId }: ClientModalProps) {
   const createClient = useMutation(api.clients.create);
   const updateClient = useMutation(api.clients.update);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -71,8 +72,9 @@ export function ClientModal({ isOpen, onClose, client }: ClientModalProps) {
             email: data.email || undefined,
             address: data.address || undefined,
             notes: data.notes || undefined,
+            teamId: teamId ? teamId as Id<"teams"> : undefined,
         });
-        toast.success("Client created successfully");
+        toast.success(teamId ? "Client added to team" : "Client created successfully");
       }
       onClose();
     } catch (error) {

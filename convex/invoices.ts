@@ -10,18 +10,30 @@ async function getUser(ctx: any) {
 }
 
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    teamId: v.optional(v.id("teams")),
+  },
+  handler: async (ctx, args) => {
     const identity = await getUser(ctx);
-    return await ctx.db
-      .query("invoices")
-      .withIndex("by_user", (q) => q.eq("userId", identity.tokenIdentifier))
-      .collect();
+    
+    if (args.teamId) {
+      return await ctx.db
+        .query("invoices")
+        .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
+        .collect();
+    } else {
+      return await ctx.db
+        .query("invoices")
+        .withIndex("by_user", (q) => q.eq("userId", identity.tokenIdentifier))
+        .filter((q) => q.eq(q.field("teamId"), undefined))
+        .collect();
+    }
   },
 });
 
 export const create = mutation({
   args: {
+    teamId: v.optional(v.id("teams")),
     invoiceNumber: v.string(),
     invoiceName: v.optional(v.string()),
     issueDate: v.string(),
@@ -49,9 +61,12 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const identity = await getUser(ctx);
+    const { teamId, ...invoiceData } = args;
+    
     const invoiceId = await ctx.db.insert("invoices", {
-      ...args,
+      ...invoiceData,
       userId: identity.tokenIdentifier,
+      teamId,
     });
     return invoiceId;
   },
@@ -124,6 +139,7 @@ export const remove = mutation({
 export const batchCreate = mutation({
   args: {
     invoices: v.array(v.object({
+      teamId: v.optional(v.id("teams")),
       invoiceNumber: v.string(),
       invoiceName: v.optional(v.string()),
       issueDate: v.string(),
@@ -153,13 +169,14 @@ export const batchCreate = mutation({
   handler: async (ctx, args) => {
     const identity = await getUser(ctx);
 
-    // Process all insertions in parallel
-    const promises = args.invoices.map(invoice =>
-      ctx.db.insert("invoices", {
-        ...invoice,
+    const promises = args.invoices.map(invoice => {
+      const { teamId, ...invoiceData } = invoice;
+      return ctx.db.insert("invoices", {
+        ...invoiceData,
         userId: identity.tokenIdentifier,
-      })
-    );
+        teamId,
+      });
+    });
 
     await Promise.all(promises);
     return promises.length;
@@ -167,14 +184,25 @@ export const batchCreate = mutation({
 });
 
 export const getNextInvoiceNumber = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    teamId: v.optional(v.id("teams")),
+  },
+  handler: async (ctx, args) => {
     const identity = await getUser(ctx);
 
-    const invoices = await ctx.db
-      .query("invoices")
-      .withIndex("by_user", (q) => q.eq("userId", identity.tokenIdentifier))
-      .collect();
+    let invoices;
+    if (args.teamId) {
+      invoices = await ctx.db
+        .query("invoices")
+        .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
+        .collect();
+    } else {
+      invoices = await ctx.db
+        .query("invoices")
+        .withIndex("by_user", (q) => q.eq("userId", identity.tokenIdentifier))
+        .filter((q) => q.eq(q.field("teamId"), undefined))
+        .collect();
+    }
 
     const maxNum = invoices.reduce((max, inv) => {
       const num = parseInt(inv.invoiceNumber.replace(/\D/g, ''), 10);

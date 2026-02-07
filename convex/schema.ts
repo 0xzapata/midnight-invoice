@@ -14,6 +14,7 @@ export default defineSchema({
     name: v.string(),
     slug: v.string(),
     ownerId: v.string(),
+    logoUrl: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

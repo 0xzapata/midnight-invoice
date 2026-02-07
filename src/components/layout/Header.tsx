@@ -7,6 +7,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { SyncStatusIndicator } from "@/components/sync/SyncStatusIndicator";
+import { TeamSwitcher } from "@/components/teams/TeamSwitcher";
 
 interface HeaderProps {
   onSettingsClick?: () => void;
@@ -47,6 +48,8 @@ export function Header({ onSettingsClick }: HeaderProps) {
              <Plus className="w-4 h-4 mr-2" />
              New Invoice
            </Button>
+           
+           <TeamSwitcher />
            
            <SyncStatusIndicator />
            
