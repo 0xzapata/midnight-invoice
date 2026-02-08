@@ -8,7 +8,9 @@ export default defineSchema({
     name: v.optional(v.string()),
     plan: v.string(),
     defaultTeamId: v.optional(v.id("teams")),
-  }).index("by_token", ["tokenIdentifier"]),
+  })
+    .index("by_token", ["tokenIdentifier"])
+    .index("by_email", ["email"]),
 
   teams: defineTable({
     name: v.string(),
@@ -66,7 +68,13 @@ export default defineSchema({
     invoiceName: v.optional(v.string()),
     issueDate: v.string(),
     dueDate: v.optional(v.string()),
-    status: v.string(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("sent"),
+      v.literal("paid"),
+      v.literal("overdue"),
+      v.literal("cancelled")
+    ),
     
     fromName: v.string(),
     fromEmail: v.string(),
