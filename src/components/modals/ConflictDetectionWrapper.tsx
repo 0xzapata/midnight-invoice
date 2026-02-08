@@ -8,7 +8,7 @@ import { useOptimisticUpdates } from '@/hooks/useOptimisticUpdates';
 export function ConflictDetectionWrapper() {
   const { getInvoice } = useInvoiceData();
   const { subscribe } = useInvoiceSubscription();
-  const { optimisticUpdate, optimisticDelete } = useOptimisticUpdates();
+  const { optimisticDelete } = useOptimisticUpdates();
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [localInvoice, setLocalInvoice] = useState<Invoice | null>(null);
   const [cloudInvoice, setCloudInvoice] = useState<Invoice | null>(null);
@@ -19,9 +19,6 @@ export function ConflictDetectionWrapper() {
         const current = getInvoice(event.invoiceId);
 
         if (current) {
-          console.log('Storage update detected for invoice:', event.invoiceId);
-          console.log('Current invoice in data:', current);
-
           setLocalInvoice(current);
           setShowConflictModal(true);
         }
@@ -36,11 +33,11 @@ export function ConflictDetectionWrapper() {
 
     try {
       if (action === 'local') {
-        optimisticDelete(cloudInvoice!.id);
+        await optimisticDelete(cloudInvoice.id);
         setShowConflictModal(false);
         setCloudInvoice(null);
       } else if (action === 'cloud') {
-        optimisticDelete(localInvoice!.id);
+        await optimisticDelete(localInvoice.id);
         setShowConflictModal(false);
         setLocalInvoice(null);
       } else if (action === 'merge') {

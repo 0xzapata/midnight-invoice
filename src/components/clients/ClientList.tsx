@@ -45,8 +45,7 @@ export function ClientList() {
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
-      // cast string to Id<"clients"> because local state is string but mutation expects Id
-      await removeClient({ id: deleteId as any });
+      await removeClient({ id: deleteId as Id<"clients"> });
       toast.success("Client deleted");
     } catch (error) {
       toast.error("Failed to delete client");

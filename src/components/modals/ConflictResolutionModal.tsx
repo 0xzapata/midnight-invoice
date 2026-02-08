@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useOptimisticUpdates } from '@/hooks/useOptimisticUpdates';
 import { Invoice } from '@/types/invoice';
 
 interface ConflictResolutionModalProps {
@@ -31,13 +30,13 @@ export function ConflictResolutionModal({ isOpen, onClose, localInvoice, cloudIn
         <h2 className="text-2xl font-semibold mb-4">Resolve Conflict</h2>
         
         <p className="text-muted-foreground mb-6">
-          We found conflicting versions of invoice <strong className="text-foreground">{localInvoice.invoiceNumber || localInvoice.invoice_name || 'Unknown'}</strong>.
+          We found conflicting versions of invoice <strong className="text-foreground">{localInvoice.invoiceNumber || localInvoice.invoiceName || 'Unknown'}</strong>.
         </p>
         
         <div className="space-y-6">
           <div className="border rounded-lg p-4 bg-muted/20">
             <h3 className="font-medium mb-2">Your Local Version</h3>
-            <p className="text-sm text-muted-foreground mb-2">Last modified: {formatDate(localInvoice.createdAt || '')}</p>
+            <p className="text-sm text-muted-foreground mb-2">Created: {formatDate(localInvoice.createdAt || '')}</p>
             <p className="text-sm text-muted-foreground">Status: Draft</p>
             {localInvoice.toName && (
               <p className="text-sm">
@@ -50,26 +49,21 @@ export function ConflictResolutionModal({ isOpen, onClose, localInvoice, cloudIn
                 {localInvoice.lineItems.map((item, idx) => (
                   <div key={idx} className="flex justify-between text-sm py-1 border-b border-border last:border-0">
                     <span className="text-foreground">{item.description}</span>
-                    <span className="text-muted-foreground">${item.price} x {item.quantity}</span>
+                    <span className="text-muted-foreground">{localInvoice.currency || '$'}{item.price} x {item.quantity}</span>
                   </div>
                 ))}
               </div>
             )}
           </div>
-          
+
           {cloudInvoice && (
             <div className="border rounded-lg p-4 bg-muted/20">
               <h3 className="font-medium mb-2">Cloud Version</h3>
-              <p className="text-sm text-muted-foreground mb-2">Last modified: {formatDate(cloudInvoice.createdAt || '')}</p>
+              <p className="text-sm text-muted-foreground mb-2">Created: {formatDate(cloudInvoice.createdAt || '')}</p>
               <p className="text-sm text-muted-foreground">Status: {cloudInvoice.status || 'draft'}</p>
               {cloudInvoice.toName && (
                 <p className="text-sm">
                   <span className="text-muted-foreground">Client:</span> {cloudInvoice.toName}
-                </p>
-              )}
-              {cloudInvoice.clientSnapshot && cloudInvoice.clientSnapshot.name && (
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Client:</span> {cloudInvoice.clientSnapshot.name}
                 </p>
               )}
               {cloudInvoice.lineItems && cloudInvoice.lineItems.length > 0 && (
@@ -78,7 +72,7 @@ export function ConflictResolutionModal({ isOpen, onClose, localInvoice, cloudIn
                   {cloudInvoice.lineItems.map((item, idx) => (
                     <div key={idx} className="flex justify-between text-sm py-1 border-b border-border last:border-0">
                       <span className="text-foreground">{item.description}</span>
-                      <span className="text-muted-foreground">${item.price} x {item.quantity}</span>
+                    <span className="text-muted-foreground">{localInvoice.currency || '$'}{item.price} x {item.quantity}</span>
                     </div>
                   ))}
                 </div>

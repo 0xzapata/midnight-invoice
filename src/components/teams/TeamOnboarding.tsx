@@ -18,7 +18,7 @@ interface TeamOnboardingProps {
 
 export function TeamOnboarding({ isOpen, onClose }: TeamOnboardingProps) {
   const navigate = useNavigate();
-  const { teams } = useTeams();
+  const { teams, isLoading } = useTeams();
   const [step, setStep] = useState(1);
 
   const handleCreateTeam = () => {
@@ -30,7 +30,7 @@ export function TeamOnboarding({ isOpen, onClose }: TeamOnboardingProps) {
     onClose();
   };
 
-  if (teams.length > 0) {
+  if (isLoading || teams.length > 0) {
     return null;
   }
 

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTeams, useTeam, useTeamInvitations } from '@/hooks/useTeams';
 import { TeamRole, canManageMembers, canEditTeam, canInviteMembers } from '@/types/team';
 import { Button } from '@/components/ui/button';
@@ -45,6 +45,13 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (team?.name) {
+      setTeamName(team.name);
+      setIsEditing(false);
+    }
+  }, [team?.name]);
 
   if (isLoading || !team) {
     return <div>Loading team settings...</div>;
@@ -101,19 +108,23 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
     }
 
     setIsUploading(true);
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
         const base64 = reader.result as string;
         await updateLogo({ teamId: teamId as any, logoUrl: base64 });
         toast.success('Logo updated successfully');
+      } catch (error) {
+        toast.error('Failed to upload logo');
+      } finally {
         setIsUploading(false);
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      toast.error('Failed to upload logo');
+      }
+    };
+    reader.onerror = () => {
+      toast.error('Failed to read file');
       setIsUploading(false);
-    }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleRemoveLogo = async () => {
@@ -232,7 +243,17 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
                     Leave Team
                   </Button>
                   {userRole === 'owner' && (
-                    <Button variant="destructive" onClick={() => deleteTeam({ teamId: teamId as any })}>
+                    <Button
+                      variant="destructive"
+                      onClick={async () => {
+                        try {
+                          await deleteTeam({ teamId: teamId as any });
+                          toast.success('Team deleted');
+                        } catch (error) {
+                          toast.error('Failed to delete team');
+                        }
+                      }}
+                    >
                       Delete Team
                     </Button>
                   )}
