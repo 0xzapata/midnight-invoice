@@ -32,6 +32,21 @@ vi.mock('@/stores/useSettingsStore', () => ({
   }),
 }));
 
+vi.mock('@/stores/useTeamContext', () => ({
+  useTeamContext: () => ({
+    currentTeamId: null,
+    setCurrentTeam: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useTeams', () => ({
+  useTeam: () => ({
+    team: null,
+    members: [],
+    isLoading: false,
+  }),
+}));
+
 
 describe('InvoiceForm', () => {
   const mockOnFormChange = vi.fn();
@@ -251,7 +266,7 @@ describe('InvoiceForm', () => {
 
     // Correctly mock the selector pattern
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(useSettingsStore).mockImplementation((selector: any) => {
+    (useSettingsStore as any).mockImplementation((selector: any) => {
        return selector({ settings: mockSettings });
     });
 

@@ -1,5 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+
+// Mock convex/react BEFORE any imports that use it
+vi.mock('convex/react', () => ({
+  useConvexAuth: () => ({
+    isAuthenticated: false,
+    isLoading: false,
+  }),
+  useQuery: () => undefined,
+  useMutation: () => vi.fn(),
+  ConvexAuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 import { useInvoices } from './useInvoices';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { InvoiceFormData } from '@/types/invoice';
@@ -90,13 +102,13 @@ describe('useInvoices', () => {
             expect(result.current.invoices[0].id).toBe('new-id');
         });
 
-        it('returns the saved invoice', () => {
+        it('returns the saved invoice', async () => {
             const { result } = renderHook(() => useInvoices());
             const formData = createMockFormData({ invoiceNumber: 'INV-9999' });
 
             let savedInvoice: any;
-            act(() => {
-                savedInvoice = result.current.saveInvoice(formData, 'test-id');
+            await act(async () => {
+                savedInvoice = await result.current.saveInvoice(formData, 'test-id');
             });
 
             expect(savedInvoice.invoiceNumber).toBe('INV-9999');
@@ -146,12 +158,13 @@ describe('useInvoices', () => {
     });
 
     describe('getNextInvoiceNumber', () => {
-        it('returns INV-0001 when no invoices exist', () => {
+        it('returns INV-0001 when no invoices exist', async () => {
             const { result } = renderHook(() => useInvoices());
-            expect(result.current.getNextInvoiceNumber).toBe('INV-0001');
+            const invoiceNumber = await result.current.getNextInvoiceNumber();
+            expect(invoiceNumber).toBe('INV-0001');
         });
 
-        it('returns incremented number based on existing invoices', () => {
+        it('returns incremented number based on existing invoices', async () => {
             const formData = createMockFormData({ invoiceNumber: 'INV-0042' });
 
             act(() => {
@@ -159,7 +172,8 @@ describe('useInvoices', () => {
             });
 
             const { result } = renderHook(() => useInvoices());
-            expect(result.current.getNextInvoiceNumber).toBe('INV-0043');
+            const invoiceNumber = await result.current.getNextInvoiceNumber();
+            expect(invoiceNumber).toBe('INV-0043');
         });
     });
 

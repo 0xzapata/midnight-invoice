@@ -8,11 +8,21 @@ import CreateInvoice from "./pages/CreateInvoice";
 import ViewInvoice from "./pages/ViewInvoice";
 import NotFound from "./pages/NotFound";
 import { Footer } from "@/components/Footer";
-
 import { useEffect } from "react";
 import { env } from "@/env";
+import { MigrationModal } from "@/components/modals/MigrationModal";
+import { ConflictDetectionWrapper } from "@/components/modals/ConflictDetectionWrapper";
+import { TeamSettings } from "@/components/teams/TeamSettings";
+import { CreateTeamPage } from "@/pages/CreateTeamPage";
+import { useParams } from "react-router-dom";
 
 const queryClient = new QueryClient();
+
+function TeamSettingsWrapper() {
+  const { teamId } = useParams<{ teamId: string }>();
+  if (!teamId) return <div>Team ID required</div>;
+  return <TeamSettings teamId={teamId} />;
+}
 
 const App = () => {
   useEffect(() => {
@@ -26,21 +36,25 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/create" element={<CreateInvoice />} />
-          <Route path="/create/:id" element={<CreateInvoice />} />
-          <Route path="/invoice/:id" element={<ViewInvoice />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-        <Footer />
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <MigrationModal />
+        <ConflictDetectionWrapper />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/create" element={<CreateInvoice />} />
+            <Route path="/create/:id" element={<CreateInvoice />} />
+            <Route path="/invoice/:id" element={<ViewInvoice />} />
+            <Route path="/teams/new" element={<CreateTeamPage />} />
+            <Route path="/teams/:teamId" element={<TeamSettingsWrapper />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+          <Footer />
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 };
 

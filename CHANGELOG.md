@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-02-08
+
+### Added
+- **Team Management (Phase 2B)**
+  - Multi-tenant architecture with team workspaces
+  - Role-based access control (Owner, Admin, Member, Viewer)
+  - Team invitations system with secure token generation
+  - Team logo/avatar upload with validation
+  - Team onboarding flow for new users
+  - Team switcher with quick invite and settings access
+
+- **Client Management**
+  - Team-aware client list with role-based permissions
+  - Clients scoped to teams or personal workspace
+  - Viewers cannot create clients; only admins/owners can delete
+
+- **Cloud Sync & Offline Support**
+  - Real-time Convex database integration
+  - Conflict detection and resolution modal
+  - Local-to-cloud migration wizard
+  - Optimistic updates with sync status indicator
+  - Offline mode with automatic conflict handling
+
+- **Authentication**
+  - WorkOS authentication via Convex Auth
+  - Secure session management
+
+### Fixed
+- **Security**
+  - Added authorization checks for all team-scoped operations
+  - Fixed insecure token generation (now uses crypto.randomBytes)
+  - Fixed duplicate member check in invitations
+  - Fixed ownership transfer logic in team role updates
+
+- **Type Safety**
+  - Added missing teamId field to Client interface
+  - Fixed Invoice status to use union type
+  - Guarded against undefined query results
+
+- **UX Improvements**
+  - Fixed Settings menu item visibility when no handler provided
+  - Fixed team label display when team is loading
+  - Fixed logo upload error handling with try-catch-finally
+  - Fixed currency symbol display in conflict resolution
+
+### Changed
+- **Architecture**
+  - Migrated from localStorage-only to Convex cloud sync
+  - Added server-side invoice number generation
+  - Updated schema with team membership indexes
+
 ## [1.1.0] - 2025-12-13
 
 ### Added
