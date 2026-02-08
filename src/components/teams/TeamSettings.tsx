@@ -36,8 +36,8 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
   const { team, members, isLoading, updateRole, removeMember } = useTeam(teamId);
   const { invitations, invite, cancel } = useTeamInvitations(teamId);
   const { updateTeam, leaveTeam, deleteTeam } = useTeams();
-  const updateLogo = useMutation(api.teams.updateLogo);
-  const removeLogo = useMutation(api.teams.removeLogo);
+  const updateLogo = useMutation((api as any).teams.updateLogo);
+  const removeLogo = useMutation((api as any).teams.removeLogo);
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<TeamRole>('member');
