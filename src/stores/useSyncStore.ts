@@ -1,15 +1,13 @@
 import { create } from 'zustand';
-import type { SyncState, SyncStatus } from '@/types/sync';
+import type { SyncState } from '@/types/sync';
 
-interface SyncStore extends SyncState {}
-
-export const useSyncStore = create<SyncStore>((set) => ({
-  status: 'synced' as SyncStatus,
+export const useSyncStore = create<SyncState>((set) => ({
+  status: 'synced',
   lastSyncTime: undefined,
   isOnline: true,
-  setStatus: (status: SyncStatus) => set({ status }),
-  setLastSyncTime: (time: Date) => set({ lastSyncTime: time }),
-  setIsOnline: (online: boolean) => set({ isOnline: online }),
+  setStatus: (status) => set({ status }),
+  setLastSyncTime: (time) => set({ lastSyncTime: time }),
+  setIsOnline: (online) => set({ isOnline: online }),
   startSync: () => set({ status: 'syncing' }),
   completeSync: () => set({ status: 'synced', lastSyncTime: new Date() }),
   markOffline: () => set({ status: 'offline' }),

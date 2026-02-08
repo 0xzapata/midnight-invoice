@@ -29,7 +29,7 @@ const Index = () => {
   const { settings, updateSettings } = useSettingsStore();
 
   const currentTeam = teams.find(t => t._id === currentTeamId);
-  const teamName = currentTeam?.name || 'Personal';
+  const teamName = currentTeam?.name ?? (currentTeamId ? undefined : 'Personal');
 
   // Local state for settings form to avoid auto-saving on every keystroke
   const [localSettings, setLocalSettings] = useState<DefaultSettings>(settings);
@@ -135,7 +135,7 @@ const Index = () => {
               <div className="mb-8">
                 <div className="flex items-center gap-2 mb-2">
                   <h2 className="text-2xl font-semibold text-foreground">Your Invoices</h2>
-                  {currentTeamId && (
+                  {currentTeamId && teamName && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
                       <Building2 className="w-3 h-3" />
                       {teamName}
@@ -145,7 +145,7 @@ const Index = () => {
                 <p className="text-sm text-muted-foreground">
                   {invoices.length === 0
                     ? 'Create professional invoices in seconds'
-                    : `${invoices.length} invoice${invoices.length === 1 ? '' : 's'} in ${teamName}`}
+                    : `${invoices.length} invoice${invoices.length === 1 ? '' : 's'}${teamName ? ` in ${teamName}` : ''}`}
                 </p>
               </div>
 

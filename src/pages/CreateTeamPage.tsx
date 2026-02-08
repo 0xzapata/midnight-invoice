@@ -28,9 +28,10 @@ export function CreateTeamPage() {
     setIsSubmitting(true);
     
     try {
-      const slug = generateSlug(name);
+      const trimmedName = name.trim();
+      const slug = generateSlug(trimmedName);
       const teamId = await createTeam({
-        name: name.trim(),
+        name: trimmedName,
         slug,
       });
       
