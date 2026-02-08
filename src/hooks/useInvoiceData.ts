@@ -20,9 +20,9 @@ function mapDocToInvoice(doc: Doc<"invoices">): Invoice {
   };
 }
 
-function computeNextInvoiceNumber(invoices: any[]): string {
+function computeNextInvoiceNumber(invoices: Doc<"invoices">[]): string {
   const maxNum = invoices.reduce((max, inv) => {
-    const num = parseInt((inv.invoiceNumber || inv.invoice_number || "").replace(/\D/g, ''), 10);
+    const num = parseInt((inv.invoiceNumber || "").replace(/\D/g, ''), 10);
     return isNaN(num) ? max : Math.max(max, num);
   }, 0);
   return `INV-${String(maxNum + 1).padStart(4, '0')}`;
@@ -121,7 +121,7 @@ export function useInvoiceData() {
   
   const getInvoice = useCallback((id: string) => {
     if (!inTestEnv && isAuthenticated) {
-      const doc = cloudInvoices?.find((inv: any) => inv._id === id || inv.id === id); 
+      const doc = cloudInvoices?.find((inv) => inv._id === id); 
       return doc ? mapDocToInvoice(doc) : undefined;
     } else {
       return localStore.getInvoice(id);

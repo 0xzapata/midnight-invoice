@@ -14,6 +14,8 @@ import { TeamAvatar } from './TeamAvatar';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 
+import { Id } from '../../../convex/_generated/dataModel';
+
 interface TeamSettingsProps {
   teamId: string;
 }
@@ -36,8 +38,10 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
   const { team, members, isLoading, updateRole, removeMember } = useTeam(teamId);
   const { invitations, invite, cancel } = useTeamInvitations(teamId);
   const { updateTeam, leaveTeam, deleteTeam } = useTeams();
-  const updateLogo = useMutation((api as any).teams.updateLogo);
-  const removeLogo = useMutation((api as any).teams.removeLogo);
+  // Using explicit type assertion to Id<"teams"> where needed because the generated API types
+  // might not fully align with the generic Id string in some contexts
+  const updateLogo = useMutation(api.teams.updateLogo);
+  const removeLogo = useMutation(api.teams.removeLogo);
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<TeamRole>('member');
@@ -76,7 +80,7 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
 
   const handleUpdateTeam = async () => {
     try {
-      await updateTeam({ teamId: teamId as any, name: teamName });
+      await updateTeam({ teamId: teamId as Id<"teams">, name: teamName });
       setIsEditing(false);
       toast.success('Team name updated');
     } catch (error) {
@@ -86,7 +90,7 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
 
   const handleLeaveTeam = async () => {
     try {
-      await leaveTeam({ teamId: teamId as any });
+      await leaveTeam({ teamId: teamId as Id<"teams"> });
       toast.success('You have left the team');
     } catch (error) {
       toast.error('Failed to leave team');
@@ -112,7 +116,7 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
     reader.onloadend = async () => {
       try {
         const base64 = reader.result as string;
-        await updateLogo({ teamId: teamId as any, logoUrl: base64 });
+        await updateLogo({ teamId: teamId as Id<"teams">, logoUrl: base64 });
         toast.success('Logo updated successfully');
       } catch (error) {
         toast.error('Failed to upload logo');
@@ -129,7 +133,7 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
 
   const handleRemoveLogo = async () => {
     try {
-      await removeLogo({ teamId: teamId as any });
+      await removeLogo({ teamId: teamId as Id<"teams"> });
       toast.success('Logo removed');
     } catch (error) {
       toast.error('Failed to remove logo');
@@ -243,11 +247,11 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
                     Leave Team
                   </Button>
                   {userRole === 'owner' && (
-                    <Button
+                      <Button
                       variant="destructive"
                       onClick={async () => {
                         try {
-                          await deleteTeam({ teamId: teamId as any });
+                          await deleteTeam({ teamId: teamId as Id<"teams"> });
                           toast.success('Team deleted');
                         } catch (error) {
                           toast.error('Failed to delete team');
