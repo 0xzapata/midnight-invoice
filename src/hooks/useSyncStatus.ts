@@ -7,7 +7,10 @@ export function useSyncStatus() {
 
   useEffect(() => {
     const handleOnline = () => useSyncStore.getState().setIsOnline(true);
-    const handleOffline = () => useSyncStore.getState().markOffline();
+    const handleOffline = () => {
+      useSyncStore.getState().setIsOnline(false);
+      useSyncStore.getState().markOffline();
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);

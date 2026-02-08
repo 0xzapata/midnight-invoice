@@ -6,21 +6,21 @@ export function useOptimisticUpdates() {
   const updateInvoice = useMutation(api.invoices.update);
   const removeInvoice = useMutation(api.invoices.remove);
   
-  const invoicesQuery = useQuery(api.invoices.list);
-  
+  const invoicesQuery = useQuery(api.invoices.list, {});
+
   return {
     optimisticUpdate: async (id: string, updates: Partial<Doc<'invoices'>>) => {
-      const current = invoicesQuery.find(inv => inv._id === id || inv.id === id);
-      
+      const current = invoicesQuery?.find(inv => inv._id === id);
+
       if (current) {
         await updateInvoice({
           id: id as Id<'invoices'>,
           ...updates,
         });
-        
+
         return current;
       }
-      
+
       return null;
     },
     

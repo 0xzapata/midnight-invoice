@@ -158,12 +158,13 @@ describe('useInvoices', () => {
     });
 
     describe('getNextInvoiceNumber', () => {
-        it('returns INV-0001 when no invoices exist', () => {
+        it('returns INV-0001 when no invoices exist', async () => {
             const { result } = renderHook(() => useInvoices());
-            expect(result.current.getNextInvoiceNumber).toBe('INV-0001');
+            const invoiceNumber = await result.current.getNextInvoiceNumber();
+            expect(invoiceNumber).toBe('INV-0001');
         });
 
-        it('returns incremented number based on existing invoices', () => {
+        it('returns incremented number based on existing invoices', async () => {
             const formData = createMockFormData({ invoiceNumber: 'INV-0042' });
 
             act(() => {
@@ -171,7 +172,8 @@ describe('useInvoices', () => {
             });
 
             const { result } = renderHook(() => useInvoices());
-            expect(result.current.getNextInvoiceNumber).toBe('INV-0043');
+            const invoiceNumber = await result.current.getNextInvoiceNumber();
+            expect(invoiceNumber).toBe('INV-0043');
         });
     });
 

@@ -45,6 +45,7 @@ export function useInvoiceData() {
   const createInvoice = useMutation(api.invoices.create);
   const updateInvoice = useMutation(api.invoices.update);
   const removeInvoice = useMutation(api.invoices.remove);
+  const getNextInvoiceNumberMutation = useMutation(api.invoices.getNextInvoiceNumber);
 
   const saveInvoice = useCallback(
     async (formData: InvoiceFormData, id?: string) => {
@@ -79,9 +80,12 @@ export function useInvoiceData() {
             return { ...formData, id: newId, createdAt: new Date().toISOString() } as Invoice;
           }
         } else {
-          const saved = localStore.saveInvoice(formData, id);
-          completeSync();
-          return saved;
+          try {
+            const saved = localStore.saveInvoice(formData, id);
+            return saved;
+          } finally {
+            completeSync();
+          }
         }
       } catch (error) {
         console.error('Failed to save invoice:', error);
@@ -124,13 +128,13 @@ export function useInvoiceData() {
     }
   }, [inTestEnv, isAuthenticated, cloudInvoices, localStore]);
 
-  const cachedNextInvoiceNumber = useMemo(() => {
-    if (!inTestEnv && isAuthenticated && cloudInvoices) {
-      return computeNextInvoiceNumber(cloudInvoices);
+  const getNextInvoiceNumber = useCallback(async () => {
+    if (!inTestEnv && isAuthenticated) {
+      return await getNextInvoiceNumberMutation({ teamId: currentTeamId as Id<"teams"> | undefined });
     } else {
       return localStore.getNextInvoiceNumber();
     }
-  }, [inTestEnv, isAuthenticated, cloudInvoices, localStore]);
+  }, [inTestEnv, isAuthenticated, getNextInvoiceNumberMutation, localStore, currentTeamId]);
 
   if (!inTestEnv && isAuthenticated) {
     const mappedInvoices: Invoice[] = (cloudInvoices || []).map(mapDocToInvoice);
@@ -141,7 +145,7 @@ export function useInvoiceData() {
       saveInvoice,
       deleteInvoice,
       getInvoice,
-      getNextInvoiceNumber: cachedNextInvoiceNumber,
+      getNextInvoiceNumber,
       saveDraft: localStore.saveDraft,
       loadDraft: localStore.loadDraft,
       clearDraft: localStore.clearDraft,
@@ -155,7 +159,7 @@ export function useInvoiceData() {
     saveInvoice,
     deleteInvoice,
     getInvoice,
-    getNextInvoiceNumber: cachedNextInvoiceNumber,
+    getNextInvoiceNumber,
     saveDraft: localStore.saveDraft,
     loadDraft: localStore.loadDraft,
     clearDraft: localStore.clearDraft,

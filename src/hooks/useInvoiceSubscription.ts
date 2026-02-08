@@ -1,32 +1,31 @@
-import { api } from '../../convex/_generated/api';
-import { Id, Doc } from '../../convex/_generated/dataModel';
+import { Id } from '../../convex/_generated/dataModel';
 
-/**
- * Real-time subscriptions to invoice data changes.
- * Provides methods to subscribe to invoice changes across all devices.
- *
- * Usage:
- * ```tsx
- * const invoiceSubscription = useInvoiceSubscription();
- *
- * useEffect(() => {
- *   const unsubscribe = invoiceSubscription.subscribe((event) => {
- *     console.log('Invoice changed:', event);
- *   });
- *   return unsubscribe;
- * }, []);
- * ```
- */
+export interface InvoiceSubscriptionEvent {
+  type: 'storage' | 'network' | 'remote';
+  invoiceId?: Id<'invoices'>;
+  timestamp: number;
+}
+
 export function useInvoiceSubscription() {
   const subscribe = (callback: (event: InvoiceSubscriptionEvent) => void) => {
     let subscribed = true;
 
-    const handleStorage = (e: StorageEvent) => {
+    const handleStorage = (e: globalThis.StorageEvent) => {
       if (!subscribed || e.key !== 'invoices') return;
+
+      let invoiceId: Id<'invoices'> | undefined;
+      if (e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          invoiceId = parsed._id;
+        } catch {
+          invoiceId = undefined;
+        }
+      }
 
       callback({
         type: 'storage',
-        invoiceId: e.newValue ? JSON.parse(e.newValue)._id : undefined,
+        invoiceId,
         timestamp: Date.now(),
       });
     };
@@ -40,15 +39,4 @@ export function useInvoiceSubscription() {
   };
 
   return { subscribe };
-}
-
-export interface InvoiceSubscriptionEvent {
-  type: 'storage' | 'network' | 'remote';
-  invoiceId?: Id<'invoices'>;
-  timestamp: number;
-}
-
-interface StorageEvent extends Event {
-  key: string;
-  newValue: string | null;
 }
