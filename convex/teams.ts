@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { generateSlug } from "@/lib/utils";
+
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 async function getUser(ctx: any) {
   const userId = await getAuthUserId(ctx);
@@ -225,6 +231,29 @@ export const updateMemberRole = mutation({
 
     if (!member) {
       throw new Error("Member not found");
+    }
+
+    if (args.role === "owner") {
+      const team = await ctx.db.get(args.teamId);
+      if (!team) {
+        throw new Error("Team not found");
+      }
+
+      const currentOwner = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_team_user", (q) =>
+          q.eq("teamId", args.teamId).eq("userId", team.ownerId)
+        )
+        .first();
+
+      if (currentOwner) {
+        await ctx.db.patch(currentOwner._id, { role: "admin" });
+      }
+
+      await ctx.db.patch(args.teamId, {
+        ownerId: args.memberId,
+        updatedAt: Date.now(),
+      });
     }
 
     await ctx.db.patch(member._id, { role: args.role });

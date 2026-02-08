@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { randomBytes } from "crypto";
 
 async function getUser(ctx: any) {
   const userId = await getAuthUserId(ctx);
@@ -15,8 +16,7 @@ async function getUser(ctx: any) {
 }
 
 function generateToken(): string {
-  return Math.random().toString(36).substring(2, 15) + 
-         Math.random().toString(36).substring(2, 15);
+  return randomBytes(32).toString('hex');
 }
 
 export const invite = mutation({
@@ -44,15 +44,22 @@ export const invite = mutation({
       throw new Error("Not authorized to invite members");
     }
 
-    const existingMember = await ctx.db
-      .query("teamMembers")
-      .withIndex("by_team_user", (q) =>
-        q.eq("teamId", args.teamId).eq("userId", args.email)
-      )
+    const invitedUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
 
-    if (existingMember) {
-      throw new Error("User is already a member");
+    if (invitedUser) {
+      const existingMember = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_team_user", (q) =>
+          q.eq("teamId", args.teamId).eq("userId", invitedUser.tokenIdentifier)
+        )
+        .first();
+
+      if (existingMember) {
+        throw new Error("User is already a member");
+      }
     }
 
     const existingInvitation = await ctx.db
