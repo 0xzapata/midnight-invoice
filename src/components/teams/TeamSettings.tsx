@@ -38,8 +38,6 @@ export function TeamSettings({ teamId }: TeamSettingsProps) {
   const { team, members, isLoading, updateRole, removeMember } = useTeam(teamId);
   const { invitations, invite, cancel } = useTeamInvitations(teamId);
   const { updateTeam, leaveTeam, deleteTeam } = useTeams();
-  // Using explicit type assertion to Id<"teams"> where needed because the generated API types
-  // might not fully align with the generic Id string in some contexts
   const updateLogo = useMutation(api.teams.updateLogo);
   const removeLogo = useMutation(api.teams.removeLogo);
 
