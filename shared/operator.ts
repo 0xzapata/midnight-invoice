@@ -65,6 +65,8 @@ export interface OverviewResponse {
   generatedAt: number;
   workspaces: StatPair & { active7d: number; suspended: number };
   invoices: StatPair & { byCreator: { user: StatPair; agent: StatPair } };
+  /** Saved clients (counts only; never names or contact data). */
+  clients: StatPair;
   agents: { active: number; revoked: number; pendingRegistrations: number };
   api: { last24h: LatencyStats; last7d: LatencyStats };
   requestsHourly: SeriesPoint[];
@@ -82,6 +84,7 @@ export interface MetricRow {
   clientErrors: number;
   authFailures: number;
   rateLimited: number;
+  maintenance: number;
   errorRate: number;
   avgMs: number;
   p50Ms: number | null;
@@ -91,7 +94,8 @@ export interface MetricRow {
 export interface TelemetryResponse {
   range: '1h' | '24h' | '7d';
   generatedAt: number;
-  totals: LatencyStats & { authFailures: number; rateLimited: number; clientErrors: number };
+  /** `errors` excludes deliberate maintenance-mode 503s, counted in `maintenance`. */
+  totals: LatencyStats & { authFailures: number; rateLimited: number; clientErrors: number; maintenance: number };
   groups: (LatencyStats & { group: string; service: string })[];
   metrics: MetricRow[];
   series: SeriesPoint[];
@@ -107,6 +111,7 @@ export interface WorkspaceItem {
   lastActivityAt: number | null;
   invoiceCount: number;
   agentCount: number;
+  clientCount: number;
   suspended: boolean;
   suspendedAt: number | null;
   suspensionReason: string | null;

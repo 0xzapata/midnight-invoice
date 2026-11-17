@@ -55,7 +55,7 @@ export function TelemetryPage() {
               tone={q.data.totals.errorRate > 0.05 ? 'bad' : q.data.totals.errorRate > 0.01 ? 'warn' : 'default'}
             />
             <StatTile label="Auth failures (401/403)" value={fmtNumber(q.data.totals.authFailures)} sub={`${fmtNumber(q.data.totals.clientErrors)} client errors in total`} />
-            <StatTile label="Rate-limited (429)" value={fmtNumber(q.data.totals.rateLimited)} />
+            <StatTile label="Rate-limited (429)" value={fmtNumber(q.data.totals.rateLimited)} sub={`${fmtNumber(q.data.totals.maintenance)} maintenance-mode 503s (not errors)`} />
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">

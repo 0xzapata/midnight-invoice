@@ -443,7 +443,7 @@ tool results with `isError: true` and the REST error body as text.
 | 413 | `payload_too_large` |
 | 415 | `unsupported_media_type` |
 | 429 | `rate_limited` (+ `Retry-After`) |
-| 503 | `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering) |
+| 503 | `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering). Treat it and `workspace_suspended` as "pause and retry later", not as a rejection of your request. |
 
 ## Rate limits and abuse protection
 

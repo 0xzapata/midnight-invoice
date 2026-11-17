@@ -21,6 +21,16 @@ export class ApiError extends Error {
     this.retryAfterMs = retryAfterMs;
   }
 
+  /**
+   * The site operator paused this workspace's API access (suspension) or the
+   * whole API (maintenance). Sync pauses and retries later; nothing is dropped.
+   */
+  get pause(): 'suspended' | 'maintenance' | null {
+    if (this.status === 403 && this.code === 'workspace_suspended') return 'suspended';
+    if (this.status === 503 && this.code === 'maintenance') return 'maintenance';
+    return null;
+  }
+
   /** Worth retrying later with the same request (server hiccup, rate limit, write race). */
   get isTransient(): boolean {
     return this.status >= 500 || this.status === 429 || this.status === 408 || (this.status === 409 && this.code === 'conflict');
@@ -71,6 +81,15 @@ export function describeError(error: unknown): string {
       return error.retryAfterMs !== null ? `Too many requests. Try again in ${formatWait(error.retryAfterMs)}.` : 'Too many requests. Try again in a minute.';
     }
     if (error.status === 401) return 'This browser is no longer connected to the cloud workspace.';
+    if (error.pause === 'suspended') {
+      return 'Cloud sync is paused: this workspace has been suspended by the site operator. Your invoices are safe in this browser and will sync if it is reinstated.';
+    }
+    if (error.pause === 'maintenance') {
+      return `Cloud sync is paused for maintenance${error.message ? `: ${error.message.replace(/\.?$/, '.')}` : '.'} Changes are kept in this browser and sync automatically afterwards.`;
+    }
+    if (error.code === 'registration_closed') {
+      return 'This site is not accepting new cloud-sync workspaces right now. Your invoices stay in this browser; try again later.';
+    }
     if (error.status >= 500) return 'The server had a problem. Try again in a moment.';
     return error.message;
   }

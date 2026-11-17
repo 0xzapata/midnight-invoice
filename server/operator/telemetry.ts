@@ -55,11 +55,13 @@ export function createTelemetryCollector(odb: OperatorDb, opts: { flushDelayMs?:
     const key = `${granularity}|${bucket}|${s.metric}`;
     let d = rollups.get(key);
     if (!d) {
-      d = { granularity, bucket, metric: s.metric, count: 0, errors: 0, clientErrors: 0, authFailures: 0, rateLimited: 0, durSum: 0, hist: new Array(10).fill(0) };
+      d = { granularity, bucket, metric: s.metric, count: 0, errors: 0, clientErrors: 0, authFailures: 0, rateLimited: 0, maintenance: 0, durSum: 0, hist: new Array(10).fill(0) };
       rollups.set(key, d);
     }
     d.count++;
-    if (s.status >= 500) d.errors++;
+    // A deliberate maintenance-mode 503 is neither a server nor a client error.
+    if (s.errorCode === 'maintenance') d.maintenance++;
+    else if (s.status >= 500) d.errors++;
     else if (s.status >= 400) d.clientErrors++;
     if (s.status === 401 || s.status === 403) d.authFailures++;
     if (s.status === 429) d.rateLimited++;
@@ -125,6 +127,7 @@ export interface MetricSummary {
   clientErrors: number;
   authFailures: number;
   rateLimited: number;
+  maintenance: number;
   errorRate: number;
   avgMs: number;
   p50Ms: number | null;
@@ -168,6 +171,8 @@ export function groupOf(metric: string): { service: string; group: string; name:
   let group = 'REST: other';
   if (name.endsWith('(sync)')) group = 'Sync';
   else if (path.startsWith('/invoices/:id/pdf')) group = 'PDF rendering';
+  else if (path === '/invoices/summary' || /^\/invoices\/:id\/(mark-sent|mark-paid|void|reopen)$/.test(path)) group = 'Invoice status';
+  else if (path.startsWith('/clients')) group = 'Clients';
   else if (path.startsWith('/agents/register') || path.startsWith('/agents/token') || path.startsWith('/agents/registrations')) group = 'Agent registration';
   else if (path.startsWith('/agents')) group = 'Agents';
   else if (path.startsWith('/invoices')) group = 'Invoices';
@@ -186,13 +191,14 @@ export function summarize(rows: RollupRow[]): { metrics: MetricSummary[]; total:
   }
   const agg = (rs: RollupRow[]) => {
     const hist = new Array(10).fill(0);
-    let count = 0, errors = 0, clientErrors = 0, authFailures = 0, rateLimited = 0, dur = 0;
+    let count = 0, errors = 0, clientErrors = 0, authFailures = 0, rateLimited = 0, maintenance = 0, dur = 0;
     for (const r of rs) {
       count += r.count;
       errors += r.errors;
       clientErrors += r.client_errors;
       authFailures += r.auth_failures;
       rateLimited += r.rate_limited;
+      maintenance += r.maintenance ?? 0;
       dur += r.dur_sum;
       histOf(r).forEach((v, i) => (hist[i] += v));
     }
@@ -202,6 +208,7 @@ export function summarize(rows: RollupRow[]): { metrics: MetricSummary[]; total:
       clientErrors,
       authFailures,
       rateLimited,
+      maintenance,
       errorRate: count ? errors / count : 0,
       avgMs: count ? Math.round(dur / count) : 0,
       p50Ms: percentile(hist, 0.5),

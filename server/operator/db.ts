@@ -115,6 +115,7 @@ export interface RollupDelta {
   clientErrors: number;
   authFailures: number;
   rateLimited: number;
+  maintenance: number;
   durSum: number;
   hist: number[];
 }
@@ -127,6 +128,7 @@ export interface RollupRow {
   client_errors: number;
   auth_failures: number;
   rate_limited: number;
+  maintenance: number;
   dur_sum: number;
   h0: number; h1: number; h2: number; h3: number; h4: number;
   h5: number; h6: number; h7: number; h8: number; h9: number;
@@ -138,6 +140,7 @@ export interface WorkspaceAdminRow {
   last_seen_at: number | null;
   invoice_count: number;
   agent_count: number;
+  client_count: number;
   suspended_at: number | null;
   suspension_reason: string | null;
 }
@@ -435,6 +438,7 @@ export function createOperatorDb(db: D1Database) {
         SELECT w.id, w.created_at, act.last_seen_at,
           (SELECT COUNT(*) FROM invoices i WHERE i.workspace_id = w.id AND i.deleted_at IS NULL) AS invoice_count,
           (SELECT COUNT(*) FROM agents a WHERE a.workspace_id = w.id AND a.revoked_at IS NULL) AS agent_count,
+          (SELECT COUNT(*) FROM clients cl WHERE cl.workspace_id = w.id AND cl.deleted_at IS NULL) AS client_count,
           s.suspended_at, s.reason AS suspension_reason
         FROM workspaces w
         LEFT JOIN workspace_suspensions s ON s.workspace_id = w.id
@@ -442,6 +446,14 @@ export function createOperatorDb(db: D1Database) {
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY w.created_at DESC, w.id DESC LIMIT ?`;
       return (await db.prepare(sql).bind(...params, q.limit).all<WorkspaceAdminRow>()).results;
+    },
+    /** Operator-side rows of a deleted workspace (FK cascades may be off). */
+    async purgeWorkspaceOperatorRows(id: string): Promise<void> {
+      await db.batch([
+        db.prepare('DELETE FROM workspace_suspensions WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM workspace_activity WHERE workspace_id = ?').bind(id),
+        self.bumpConfigVersionStatement(),
+      ]);
     },
     async workspaceExists(id: string): Promise<boolean> {
       return !!(await db.prepare('SELECT 1 AS x FROM workspaces WHERE id = ?').bind(id).first());
@@ -506,7 +518,7 @@ export function createOperatorDb(db: D1Database) {
     // Stats
     // -------------------------------------------------------------------------
     async overviewCounts(sinceIso: string, sinceMs: number, nowMs: number) {
-      const [ws, inv, invBy, ag, reg, act, sus] = await db.batch([
+      const [ws, inv, invBy, ag, reg, act, sus, cli] = await db.batch([
         db.prepare('SELECT COUNT(*) AS total, SUM(created_at >= ?) AS recent FROM workspaces').bind(sinceIso),
         db.prepare('SELECT COUNT(*) AS total, SUM(created_at >= ?) AS recent FROM invoices WHERE deleted_at IS NULL').bind(sinceIso),
         db.prepare(
@@ -521,6 +533,7 @@ export function createOperatorDb(db: D1Database) {
              OR EXISTS (SELECT 1 FROM invoices i WHERE i.workspace_id = w.id AND i.updated_at >= ?)`,
         ).bind(sinceMs, sinceIso),
         db.prepare('SELECT COUNT(*) AS n FROM workspace_suspensions'),
+        db.prepare('SELECT COUNT(*) AS total, SUM(created_at >= ?) AS recent FROM clients WHERE deleted_at IS NULL').bind(sinceIso),
       ]);
       const first = <T>(r: D1Result) => (r.results[0] ?? {}) as T;
       return {
@@ -531,6 +544,7 @@ export function createOperatorDb(db: D1Database) {
         agents: first<{ active: number | null; revoked: number | null }>(ag),
         pendingRegistrations: first<{ pending: number }>(reg).pending ?? 0,
         suspended: first<{ n: number }>(sus).n ?? 0,
+        clients: first<{ total: number; recent: number | null }>(cli),
       };
     },
     async dailyCreations(table: 'workspaces' | 'invoices', sinceIso: string): Promise<{ day: string; n: number }[]> {
@@ -559,17 +573,18 @@ export function createOperatorDb(db: D1Database) {
       const h = d.hist;
       return db
         .prepare(
-          `INSERT INTO telemetry_rollups (granularity, bucket, metric, count, errors, client_errors, auth_failures, rate_limited, dur_sum,
+          `INSERT INTO telemetry_rollups (granularity, bucket, metric, count, errors, client_errors, auth_failures, rate_limited, maintenance, dur_sum,
              h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (granularity, bucket, metric) DO UPDATE SET
              count = count + excluded.count, errors = errors + excluded.errors, client_errors = client_errors + excluded.client_errors,
              auth_failures = auth_failures + excluded.auth_failures, rate_limited = rate_limited + excluded.rate_limited,
+             maintenance = maintenance + excluded.maintenance,
              dur_sum = dur_sum + excluded.dur_sum,
              h0 = h0 + excluded.h0, h1 = h1 + excluded.h1, h2 = h2 + excluded.h2, h3 = h3 + excluded.h3, h4 = h4 + excluded.h4,
              h5 = h5 + excluded.h5, h6 = h6 + excluded.h6, h7 = h7 + excluded.h7, h8 = h8 + excluded.h8, h9 = h9 + excluded.h9`,
         )
-        .bind(d.granularity, d.bucket, d.metric, d.count, d.errors, d.clientErrors, d.authFailures, d.rateLimited, Math.round(d.durSum), ...h);
+        .bind(d.granularity, d.bucket, d.metric, d.count, d.errors, d.clientErrors, d.authFailures, d.rateLimited, d.maintenance, Math.round(d.durSum), ...h);
     },
     errorStatement(e: { at: number; metric: string; status: number; code: string | null; ray: string | null }): D1PreparedStatement {
       return db

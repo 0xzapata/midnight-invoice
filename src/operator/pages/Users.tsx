@@ -56,7 +56,7 @@ function WorkspaceDialog({ dialog, onClose }: { dialog: Dialog; onClose: () => v
           <AlertDialogTitle>{isDelete ? 'Delete workspace' : 'Suspend workspace'}</AlertDialogTitle>
           <AlertDialogDescription>
             {isDelete
-              ? 'This permanently deletes the workspace, its invoices, settings and agents from the server. Browsers keep their local copies. This cannot be undone.'
+              ? 'This permanently deletes the workspace, its invoices, saved clients, settings and agents from the server. Browsers keep their local copies. This cannot be undone.'
               : 'The workspace token and all of its agents will get 403 “workspace_suspended” until you unsuspend it. Nothing is deleted.'}
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -135,6 +135,7 @@ function Workspaces() {
               <th className={th}>Created</th>
               <th className={th}>Last activity</th>
               <th className={cn(th, 'text-right')}>Invoices</th>
+              <th className={cn(th, 'text-right')}>Clients</th>
               <th className={cn(th, 'text-right')}>Agents</th>
               <th className={th}>Status</th>
               <th className={cn(th, 'text-right')}>
@@ -151,6 +152,7 @@ function Workspaces() {
                 <td className={cn(td, 'whitespace-nowrap text-muted-foreground')}>{fmtAgo(w.createdAt)}</td>
                 <td className={cn(td, 'whitespace-nowrap text-muted-foreground')}>{fmtAgo(w.lastActivityAt)}</td>
                 <td className={cn(td, 'text-right tabular-nums')}>{fmtNumber(w.invoiceCount)}</td>
+                <td className={cn(td, 'text-right tabular-nums')}>{fmtNumber(w.clientCount)}</td>
                 <td className={cn(td, 'text-right tabular-nums')}>{fmtNumber(w.agentCount)}</td>
                 <td className={td}>
                   {w.suspended ? (
@@ -288,7 +290,7 @@ export function UsersPage() {
         <EyeOff className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         <p>
           <span className="font-medium text-foreground">Privacy boundary.</span> The console shows metadata only: ids, timestamps and counts. It never
-          shows invoice contents, client data, settings or tokens, and there is no endpoint that returns them.
+          shows invoice contents, saved clients' names, addresses or emails, settings or tokens, and there is no endpoint that returns them.
         </p>
       </div>
       <div className="space-y-4">

@@ -136,6 +136,7 @@ CREATE TABLE telemetry_rollups (
   client_errors INTEGER NOT NULL,           -- 4xx
   auth_failures INTEGER NOT NULL,           -- 401 / 403
   rate_limited INTEGER NOT NULL,            -- 429
+  maintenance  INTEGER NOT NULL DEFAULT 0,  -- 503 from maintenance mode (not counted as errors)
   dur_sum      INTEGER NOT NULL,
   h0 INTEGER NOT NULL DEFAULT 0, h1 INTEGER NOT NULL DEFAULT 0, h2 INTEGER NOT NULL DEFAULT 0,
   h3 INTEGER NOT NULL DEFAULT 0, h4 INTEGER NOT NULL DEFAULT 0, h5 INTEGER NOT NULL DEFAULT 0,

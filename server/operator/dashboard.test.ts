@@ -14,7 +14,7 @@ afterAll(async () => {
 
 const TABLES = [
   'operator_sessions', 'operators', 'operator_oauth_states', 'operator_login_attempts', 'operator_settings', 'operator_audit',
-  'operator_state', 'telemetry_rollups', 'telemetry_errors', 'workspace_suspensions', 'workspace_activity', 'workspaces',
+  'operator_state', 'telemetry_rollups', 'telemetry_errors', 'workspace_suspensions', 'workspace_activity', 'clients', 'invoices', 'workspaces',
 ];
 beforeEach(async () => {
   await d1.db.batch(TABLES.map((t) => d1.db.prepare(`DELETE FROM ${t}`)));
@@ -100,7 +100,8 @@ describe('settings', () => {
   });
 
   it('maintenance mode answers the public API and MCP with 503 but not health or the console', async () => {
-    const { b, client } = await signedIn();
+    const { b, client, telemetry } = await signedIn();
+    const telemetryFlush = () => telemetry.flush();
     const ws = await createWorkspace(client);
     await b.put('/api/operator/settings/maintenance.message', { value: 'Back at 10:00 UTC' });
     await b.put('/api/operator/settings/maintenance.enabled', { value: true });
@@ -111,6 +112,10 @@ describe('settings', () => {
     expect((await client.post('/api/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' }, ws.token)).status).toBe(503);
     expect((await client.get('/api/v1/health')).status).toBe(200);
     expect((await b.get('/api/operator/overview')).status).toBe(200);
+    await telemetryFlush();
+    const t = (await b.get('/api/operator/telemetry?range=1h')).json;
+    expect(t.totals.maintenance).toBe(2);
+    expect(t.totals.errors).toBe(0);
   });
 
   it('"Restart" bumps the config version so every isolate reloads', async () => {
@@ -129,6 +134,8 @@ describe('users (workspaces and agents)', () => {
     const agent = await connectAgent(s.client, ws.token, ['invoices:read', 'invoices:write']);
     await s.client.post('/api/v1/invoices', sampleInvoice({ toName: 'SECRET CLIENT Ltd', notes: 'PRIVATE NOTE 42' }), ws.token);
     await s.client.post('/api/v1/invoices', sampleInvoice({ toName: 'Other client' }), agent.api_key);
+    const saved = await s.client.post('/api/v1/clients', { name: 'Hidden Client GmbH', email: 'secret-ap@hidden.example', address: '42 Confidential Road' }, ws.token);
+    if (saved.status !== 201) throw new Error(`client create failed: ${saved.status} ${saved.text}`);
     return { ...s, ws, agent };
   }
 
@@ -143,6 +150,7 @@ describe('users (workspaces and agents)', () => {
       lastActivityAt: expect.any(Number),
       invoiceCount: 2,
       agentCount: 1,
+      clientCount: 1,
       suspended: false,
       suspendedAt: null,
       suspensionReason: null,
@@ -152,7 +160,7 @@ describe('users (workspaces and agents)', () => {
     for (const path of ['/workspaces', '/agents', '/overview', '/telemetry?range=1h', '/telemetry?range=7d', '/audit', '/security']) {
       const r = await b.get(`/api/operator${path}`);
       expect(r.status).toBe(200);
-      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', ws.token]) {
+      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', 'Hidden Client', 'secret-ap@hidden.example', 'Confidential Road', ws.token]) {
         expect(r.text.includes(leak), `${path} leaked ${leak}`).toBe(false);
       }
     }
@@ -166,6 +174,7 @@ describe('users (workspaces and agents)', () => {
       expect(res.status).toBe(403);
       expect(res.json.error).toMatchObject({ code: 'workspace_suspended' });
       expect((await client.post('/api/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' }, token)).status).toBe(403);
+      expect((await client.get('/api/v1/clients', token)).json.error.code).toBe('workspace_suspended');
     }
     const listed = (await b.get('/api/operator/workspaces?status=suspended')).json.workspaces;
     expect(listed[0]).toMatchObject({ suspended: true, suspensionReason: 'abuse report' });
@@ -184,6 +193,9 @@ describe('users (workspaces and agents)', () => {
     expect((await b.del(`/api/operator/workspaces/${ws.workspace.id}`, { confirm: 'wrong' })).status).toBe(400);
     expect((await b.del(`/api/operator/workspaces/${ws.workspace.id}`, { confirm: ws.workspace.id })).status).toBe(204);
     expect((await client.get('/api/v1/invoices', ws.token)).status).toBe(401);
+    for (const table of ['clients', 'invoices', 'agents', 'workspace_activity', 'workspace_suspensions']) {
+      expect(await d1.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE workspace_id = ?`).bind(ws.workspace.id).first('n'), table).toBe(0);
+    }
     expect((await b.del(`/api/operator/workspaces/${ws.workspace.id}`, { confirm: ws.workspace.id })).status).toBe(404);
   });
 
@@ -203,6 +215,7 @@ describe('users (workspaces and agents)', () => {
     expect(o.workspaces).toMatchObject({ total: 1, recent: 1, active7d: 1, suspended: 0 });
     expect(o.invoices).toMatchObject({ total: 2, recent: 2, byCreator: { user: { total: 1 }, agent: { total: 1 } } });
     expect(o.agents).toMatchObject({ active: 1, revoked: 0 });
+    expect(o.clients).toEqual({ total: 1, recent: 1 });
     expect(o.api.last24h.requests).toBeGreaterThan(4);
     expect(o.requestsHourly).toHaveLength(24);
   });
@@ -217,6 +230,11 @@ describe('telemetry', () => {
     await client.get(`/api/v1/invoices/${id}`, ws.token);
     await client.get(`/api/v1/invoices/${id}/pdf`, ws.token);
     await client.get('/api/v1/invoices?include_deleted=true', ws.token);
+    const cl = await client.post('/api/v1/clients', { name: 'Telemetry Co' }, ws.token);
+    await client.get(`/api/v1/clients/${cl.json.client.id}`, ws.token);
+    await client.get('/api/v1/clients?include_deleted=true', ws.token);
+    await client.post(`/api/v1/invoices/${id}/mark-sent`, undefined, ws.token);
+    await client.get('/api/v1/invoices/summary', ws.token);
     await client.get('/api/v1/invoices', 'mi_ws_invalid');
     await client.get('/api/v1/nope');
     await client.post('/api/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_invoices', arguments: {} } }, ws.token);
@@ -233,8 +251,20 @@ describe('telemetry', () => {
         'rest|GET /invoices',
         'rest|GET (unmatched)',
         'mcp|tool list_invoices',
+        'rest|POST /clients',
+        'rest|GET /clients/:id',
+        'rest|GET /clients (sync)',
+        'rest|POST /invoices/:id/mark-sent',
+        'rest|GET /invoices/summary',
       ]),
     );
+    expect(JSON.stringify(t)).not.toContain(cl.json.client.id);
+    expect(JSON.stringify(t)).not.toContain('Telemetry Co');
+    const groupOfMetric = (m: string) => t.metrics.find((x: { metric: string }) => x.metric === m).group;
+    expect(groupOfMetric('rest|POST /invoices/:id/mark-sent')).toBe('Invoice status');
+    expect(groupOfMetric('rest|GET /invoices/summary')).toBe('Invoice status');
+    expect(groupOfMetric('rest|GET /clients/:id')).toBe('Clients');
+    expect(groupOfMetric('rest|GET /clients (sync)')).toBe('Sync');
     expect(JSON.stringify(t)).not.toContain(id);
     const pdf = t.metrics.find((m: { metric: string }) => m.metric === 'rest|GET /invoices/:id/pdf');
     expect(pdf).toMatchObject({ group: 'PDF rendering', count: 1, errors: 0 });

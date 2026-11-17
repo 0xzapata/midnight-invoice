@@ -164,6 +164,7 @@ describe('operator console: dashboard', () => {
     generatedAt: Date.now(),
     workspaces: { total: 12, recent: 3, active7d: 5, suspended: 1 },
     invoices: { total: 40, recent: 7, byCreator: { user: { total: 30, recent: 5 }, agent: { total: 10, recent: 2 } } },
+    clients: { total: 9, recent: 2 },
     agents: { active: 4, revoked: 1, pendingRegistrations: 2 },
     api: {
       last24h: { requests: 1234, errors: 2, errorRate: 0.0016, p50Ms: 12, p95Ms: 80 },
@@ -196,7 +197,7 @@ describe('operator console: dashboard', () => {
       return { json: { ok: true } };
     },
     'GET /workspaces': () => ({
-      json: { workspaces: [{ id: 'ws-1234567890', createdAt: new Date().toISOString(), lastActivityAt: Date.now(), invoiceCount: 3, agentCount: 1, suspended: false, suspendedAt: null, suspensionReason: null }], next: null },
+      json: { workspaces: [{ id: 'ws-1234567890', createdAt: new Date().toISOString(), lastActivityAt: Date.now(), invoiceCount: 3, agentCount: 1, clientCount: 2, suspended: false, suspendedAt: null, suspensionReason: null }], next: null },
     }),
     'GET /agents': () => ({ json: { agents: [], next: null } }),
     'POST /workspaces/ws-1234567890/suspend': () => ({ json: { suspended: true } }),
@@ -207,6 +208,7 @@ describe('operator console: dashboard', () => {
     renderConsole('/operator');
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
     expect(screen.getByText('1,234')).toBeInTheDocument();
+    expect(screen.getByText('Saved clients')).toBeInTheDocument();
     expect(screen.getAllByRole('navigation', { name: 'Operator console' })[0]).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /API requests per hour/ })).toBeInTheDocument();
   });
