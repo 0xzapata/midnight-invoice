@@ -1,3 +1,4 @@
+import "./lib/zodConfig";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import { OperatorEntry, isOperatorPath } from "./operator/OperatorEntry";

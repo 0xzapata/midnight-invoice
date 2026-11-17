@@ -16,6 +16,7 @@ import {
   type StoredOAuthTokens,
 } from '@modelcontextprotocol/client';
 import { extractPdfText, pdfBaseFonts } from '../server/test/pdf-text';
+import { inlineScriptHashes } from '../vite-plugin-csp';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 let server: TestHarness;
@@ -147,8 +148,25 @@ describe('OAuth for MCP in workerd', () => {
       expect(page.status, p).toBe(200);
       expect(await page.text()).toContain('<div id="root">');
       expect(page.headers.get('x-frame-options'), p).toBe('DENY');
-      expect(page.headers.get('content-security-policy'), p).toBe("frame-ancestors 'none'");
+      // Security fix L6: the full policy (was only frame-ancestors); the hash matches the built inline script.
+      const csp = page.headers.get('content-security-policy') ?? '';
+      expect(csp, p).toContain("frame-ancestors 'none'");
+      expect(csp, p).toContain("object-src 'none'");
+      expect(csp, p).not.toMatch(/'unsafe-eval'|__INLINE_SCRIPT_HASHES__/);
+      expect(page.headers.get('referrer-policy'), p).toBe('strict-origin-when-cross-origin');
+      expect(page.headers.get('x-content-type-options'), p).toBe('nosniff');
+      expect(page.headers.get('permissions-policy'), p).toContain('camera=()');
     }
+    const html = await (await fetch(`${base}/`, { headers: { accept: 'text/html' } })).text();
+    const hashes = inlineScriptHashes(html);
+    expect(hashes.length).toBeGreaterThan(0);
+    const scriptSrc = /script-src ([^;]*)/.exec((await fetch(`${base}/`)).headers.get('content-security-policy') ?? '')![1];
+    for (const h of hashes) expect(scriptSrc).toContain(h);
+    // API responses: data only, never rendered or framed.
+    const api = await fetch(`${base}/api/v1/health`);
+    expect(api.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    expect(api.headers.get('x-frame-options')).toBe('DENY');
+    expect(api.headers.get('referrer-policy')).toBe('no-referrer');
     const challenge = await fetch(`${base}/api/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     expect(challenge.status).toBe(401);
     expect(challenge.headers.get('www-authenticate')).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource/api/mcp"`);
