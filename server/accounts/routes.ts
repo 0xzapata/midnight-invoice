@@ -32,7 +32,7 @@ import type { Repository } from '../db/repository';
 import type { AppDeps } from '../deps';
 import { ApiError } from '../errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson } from '../http';
-import { constantTimeEqual, fromBase64Url, randomBytes, toBase64Url } from '../operator/crypto';
+import { constantTimeEqual, fromBase64Url, MIN_INITIAL_PASSWORD_LENGTH, randomBytes, toBase64Url } from '../operator/crypto';
 import { createOperatorDb } from '../operator/db';
 import { OperatorError } from '../operator/errors';
 import type { TelemetryCollector } from '../operator/telemetry';
@@ -88,7 +88,7 @@ export function workspaceView(ws: OwnedWorkspaceRow): AccountWorkspace {
  */
 export async function accountsState(deps: AppDeps): Promise<'disabled' | 'unavailable' | 'ready'> {
   if (!deps.settings.get('accounts.enabled')) return 'disabled';
-  if (!deps.operator.initialPassword) return 'unavailable';
+  if ((deps.operator.initialPassword?.length ?? 0) < MIN_INITIAL_PASSWORD_LENGTH) return 'unavailable';
   try {
     if (!(await deps.settings.keystore.isUnlocked())) return 'unavailable';
     const apiKey = await deps.settings.getSecret('workos.apiKey');

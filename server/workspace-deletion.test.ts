@@ -62,6 +62,9 @@ describe('workspace deletion', () => {
     // agent_registrations + agents; an agent-written invoice fills invoice_sender_review (trigger).
     const agent = await connectAgent(client, t, ['invoices:read', 'invoices:write']);
     expect((await client.post('/api/v1/invoices', sampleInvoice({ fromName: 'Agent wrote this' }), agent.api_key)).status).toBe(201);
+    // A client created by the agent fills agent_content_edits (trigger, migration 0011); user writes fill sender_approved_values.
+    const agentClients = await connectAgent(client, t, ['clients:read', 'clients:write']);
+    expect((await client.post('/api/v1/clients', { name: 'Agent Co', email: 'ap@agent-co.io' }, agentClients.api_key)).status).toBe(201);
     // recurring_schedules + recurring_runs.
     const sched = (await client.post('/api/v1/recurring', { name: 'Monthly', templateId: tpl.id, frequency: 'monthly', startDate: new Date(now).toISOString().slice(0, 10), timezone: 'UTC' }, t)).json.recurring;
     expect((await client.post(`/api/v1/recurring/${sched.id}/run-now`, { period: sched.nextRunDate }, t)).status).toBe(201);

@@ -474,3 +474,21 @@ describe('allowlist', () => {
     expect(res.json.error.code).toBe('last_operator');
   });
 });
+
+describe('INITIAL_PASSWORD strength (security fix L4)', () => {
+  it('refuses to enable the console with an INITIAL_PASSWORD shorter than 24 characters', async () => {
+    const { app } = setup({ initialPassword: 'correct-horse-battery' });
+    const b = browser(app);
+    for (const [method, path, body] of [
+      ['GET', '/api/operator/status'],
+      ['POST', '/api/operator/bootstrap/login', { password: 'correct-horse-battery' }],
+    ] as const) {
+      const res = await b.call(method, path, { body });
+      expect(res.status, path).toBe(503);
+      expect(res.json.error).toMatchObject({ code: 'operator_not_configured', details: { reason: 'initial_password_too_short' } });
+      expect(res.json.error.message).toMatch(/shorter than 24 characters/);
+    }
+    // User accounts depend on the console's encrypted store: unavailable too.
+    expect((await api(app).get('/api/account/config')).json).toMatchObject({ enabled: false });
+  });
+});

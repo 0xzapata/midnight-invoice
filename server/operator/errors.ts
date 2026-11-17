@@ -15,6 +15,15 @@ export class OperatorError extends ApiError {
   static notConfigured() {
     return new OperatorError(503, 'operator_not_configured', 'Operator console not configured: set the INITIAL_PASSWORD secret to enable it.');
   }
+  /** INITIAL_PASSWORD is set but too short to protect the console and the encrypted settings (security fix L4). */
+  static weakInitialPassword() {
+    return new OperatorError(
+      503,
+      'operator_not_configured',
+      'Operator console disabled: INITIAL_PASSWORD is shorter than 24 characters. Set a long random value (e.g. openssl rand -base64 32) with wrangler secret put INITIAL_PASSWORD.',
+      { reason: 'initial_password_too_short' },
+    );
+  }
   static unauthenticated(message = 'Sign in to the operator console') {
     return new OperatorError(401, 'operator_unauthenticated', message);
   }

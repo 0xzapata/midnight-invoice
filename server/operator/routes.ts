@@ -44,7 +44,7 @@ import {
   startSession,
   type OperatorSession,
 } from './auth';
-import { constantTimeEqual, fromBase64Url, randomBytes, secretsEqual, toBase64Url } from './crypto';
+import { constantTimeEqual, fromBase64Url, MIN_INITIAL_PASSWORD_LENGTH, randomBytes, secretsEqual, toBase64Url } from './crypto';
 import type { OperatorDb, OperatorStateRow } from './db';
 import { OperatorError } from './errors';
 import { createGithubClient } from './github';
@@ -199,6 +199,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
   app.use('*', async (c, next) => {
     c.header('x-robots-tag', 'noindex, nofollow');
     if (!deps.operator.initialPassword) throw OperatorError.notConfigured();
+    if (deps.operator.initialPassword.length < MIN_INITIAL_PASSWORD_LENGTH) throw OperatorError.weakInitialPassword();
     if (c.req.header('authorization')) {
       throw OperatorError.unauthenticated('The operator console does not accept API tokens or agent keys.');
     }

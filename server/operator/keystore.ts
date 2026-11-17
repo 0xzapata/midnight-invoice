@@ -2,7 +2,7 @@
  * Envelope encryption for secret settings.
  *
  *   master key MK (256-bit; random, or PBKDF2 from an operator passphrase)
- *     ├─ "wrapped" mode: sealed in D1 under KEK = PBKDF2-SHA-256(INITIAL_PASSWORD, kek_salt, 100k)
+ *     ├─ "wrapped" mode: sealed in D1 under KEK = PBKDF2-SHA-256(INITIAL_PASSWORD, kek_salt, 600k; older wraps 100k, upgraded on unlock)
  *     └─ "env" mode (hardened): only in the ENCRYPTION_KEY Worker secret; D1 holds no copy
  *   MK seals the DEK (AES-256-GCM), the DEK seals every secret value
  *   (AES-256-GCM, random 96-bit IV, AAD = setting key + row version + DEK version).
@@ -14,6 +14,7 @@
  */
 import {
   KEK_PBKDF2_ITERATIONS,
+  LEGACY_KEK_PBKDF2_ITERATIONS,
   PASSPHRASE_PBKDF2_ITERATIONS,
   aesGcmDecrypt,
   aesGcmEncrypt,
@@ -102,10 +103,10 @@ export function createKeystore(odb: OperatorDb, env: KeystoreEnv, clock: () => D
     return aesGcmEncrypt(await importAesKey(mk), dekRaw, dekWrapAad(dekVersion));
   }
 
-  async function tryUnwrapMk(state: OperatorStateRow, wrapped: string | null, salt: string | null): Promise<Uint8Array | null> {
+  async function tryUnwrapMk(state: OperatorStateRow, wrapped: string | null, salt: string | null, iterations: number): Promise<Uint8Array | null> {
     if (!wrapped || !salt) return null;
     try {
-      const mk = await aesGcmDecrypt(await kekFor(salt, state.kek_iterations ?? KEK_PBKDF2_ITERATIONS), wrapped, MK_WRAP_AAD);
+      const mk = await aesGcmDecrypt(await kekFor(salt, iterations), wrapped, MK_WRAP_AAD);
       return (await keyCheckValue(mk)) === state.mk_kcv ? mk : null;
     } catch (e) {
       if (e instanceof DecryptionError) return null;
@@ -150,9 +151,21 @@ export function createKeystore(odb: OperatorDb, env: KeystoreEnv, clock: () => D
 
     // Wrapped mode. A matching ENCRYPTION_KEY also works (it is the same key).
     if (fromEnv && envKcv === state.mk_kcv) return { mk: fromEnv };
-    const current = await tryUnwrapMk(state, state.mk_wrapped, state.kek_salt);
-    if (current) return { mk: current };
-    const pending = await tryUnwrapMk(state, state.mk_pending_wrapped, state.kek_pending_salt);
+    const storedIterations = state.kek_iterations ?? LEGACY_KEK_PBKDF2_ITERATIONS;
+    const current = await tryUnwrapMk(state, state.mk_wrapped, state.kek_salt, storedIterations);
+    if (current) {
+      if (storedIterations < KEK_PBKDF2_ITERATIONS) {
+        // Upgrade on unlock (security fix L4): re-wrap under a KEK with the current iteration count.
+        // Compare-and-set on the salt, so concurrent isolates upgrade once; a lost race keeps the old wrap working.
+        const upgraded = await wrapMk(current);
+        if (await odb.updateState({ ...upgraded, config_version: state.config_version + 1 }, { kek_salt: state.kek_salt })) {
+          await odb.audit({ at: now(), actorType: 'system', action: 'encryption.kdf_upgraded', detail: { from: storedIterations, to: KEK_PBKDF2_ITERATIONS } });
+        }
+      }
+      return { mk: current };
+    }
+    // Pending wraps (prepare re-wrap) are always made with the current iteration count.
+    const pending = await tryUnwrapMk(state, state.mk_pending_wrapped, state.kek_pending_salt, KEK_PBKDF2_ITERATIONS);
     if (pending) {
       // INITIAL_PASSWORD was changed after "prepare re-wrap": promote the pending wrap.
       const ok = await odb.updateState(

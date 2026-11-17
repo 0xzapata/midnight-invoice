@@ -50,7 +50,7 @@ export function NotConfigured({ error }: { error?: unknown }) {
       ) : (
         <div className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Set the <code className="font-code text-foreground">INITIAL_PASSWORD</code> secret on the Worker to enable the console, then reload this page:
+            Set the <code className="font-code text-foreground">INITIAL_PASSWORD</code> secret on the Worker (at least 24 characters; a shorter value keeps the console off) to enable the console, then reload this page:
           </p>
           <pre className="overflow-x-auto border border-border bg-secondary p-3 font-code text-xs text-foreground">openssl rand -base64 32 | npx wrangler secret put INITIAL_PASSWORD</pre>
         </div>

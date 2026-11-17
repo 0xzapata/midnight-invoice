@@ -1,5 +1,6 @@
 import { generateSecret, generateUserCode } from './crypto';
 import type { EmailSender } from './email/sender';
+import { MIN_INITIAL_PASSWORD_LENGTH } from './operator/crypto';
 import { createOperatorDb } from './operator/db';
 import { createSettingsProvider, type SettingsProvider } from './operator/settings';
 
@@ -104,8 +105,9 @@ export function defaultDeps(
     createSettingsProvider({
       odb: createOperatorDb(base.db),
       clock: base.clock,
-      keystoreEnv: base.operator.initialPassword
-        ? { initialPassword: base.operator.initialPassword, encryptionKey: base.operator.encryptionKey }
+      // A too-short INITIAL_PASSWORD never protects encrypted settings (security fix L4; the console refuses it too).
+      keystoreEnv: (base.operator.initialPassword?.length ?? 0) >= MIN_INITIAL_PASSWORD_LENGTH
+        ? { initialPassword: base.operator.initialPassword!, encryptionKey: base.operator.encryptionKey }
         : null,
       vars: base.operator.vars,
       logError: base.logError,
