@@ -97,6 +97,11 @@ function decodeWith(cmap: Map<string, string> | undefined, hex: string): string 
 }
 
 export function extractPdfText(bytes: Uint8Array): string {
+  return extractPdfPages(bytes).map((lines) => lines.join('\n')).join('\n');
+}
+
+/** The text runs of each page, in drawing order (one array per page, in page order). */
+export function extractPdfPages(bytes: Uint8Array): string[][] {
   const objects = parseObjects(Buffer.from(bytes));
   // Font object id -> its ToUnicode CMap.
   const cmapByFont = new Map<number, Map<string, string>>();
@@ -105,9 +110,10 @@ export function extractPdfText(bytes: Uint8Array): string {
     const cmapStream = ref ? objects.get(Number(ref[1]))?.stream : null;
     if (cmapStream) cmapByFont.set(id, parseCMap(cmapStream));
   }
-  const lines: string[] = [];
-  for (const page of objects.values()) {
-    if (!/\/Type\s*\/Page\b/.test(page.dict)) continue;
+  const pages: string[][] = [];
+  for (const page of pageObjectsInOrder(objects)) {
+    const lines: string[] = [];
+    pages.push(lines);
     // Resource name (e.g. F2) -> font object id. Resources may be inline or referenced.
     let resources = page.dict;
     const resRef = page.dict.match(/\/Resources\s+(\d+)\s+0\s+R/);
@@ -129,5 +135,32 @@ export function extractPdfText(bytes: Uint8Array): string {
       }
     }
   }
-  return lines.join('\n');
+  return pages;
+}
+
+/** The (inflated) content stream of each page, in page order. */
+export function pdfPageContents(bytes: Uint8Array): string[] {
+  const objects = parseObjects(Buffer.from(bytes));
+  return pageObjectsInOrder(objects).map((page) =>
+    [...(page.dict.match(/\/Contents\s+(\[[^\]]*\]|\d+\s+0\s+R)/)?.[1] ?? '').matchAll(/(\d+)\s+0\s+R/g)]
+      .map(([, ref]) => objects.get(Number(ref))?.stream ?? '')
+      .join('\n'),
+  );
+}
+
+/** Page objects in document order (following /Kids from the page tree root). */
+function pageObjectsInOrder(objects: Map<number, PdfObject>): PdfObject[] {
+  const root = [...objects.values()].find((o) => /\/Type\s*\/Pages\b/.test(o.dict) && !/\/Parent\b/.test(o.dict));
+  const out: PdfObject[] = [];
+  const visit = (o: PdfObject | undefined) => {
+    if (!o) return;
+    if (/\/Type\s*\/Page\b/.test(o.dict)) {
+      out.push(o);
+      return;
+    }
+    const kids = o.dict.match(/\/Kids\s*\[([^\]]*)\]/)?.[1] ?? '';
+    for (const [, id] of kids.matchAll(/(\d+)\s+0\s+R/g)) visit(objects.get(Number(id)));
+  };
+  visit(root);
+  return out;
 }
