@@ -1,9 +1,11 @@
 # Midnight Invoice Agent API
 
 Midnight Invoice exposes a REST API (`/api/v1`) and a remote MCP server
-(`/api/mcp`) so that AI agents can work with a user's invoices and saved
-clients **after the user approves them**. There are no accounts: the browser app owns an anonymous
-*workspace*, and agents connect to a workspace in one of three ways:
+(`/api/mcp`) so that AI agents can work with a user's invoices, saved
+clients, templates and recurring schedules **after the user approves them**.
+The browser app owns a *workspace* (anonymous, or owned by an optional user
+account; agents never see the difference), and agents connect to it in one of
+three ways:
 
 1. **OAuth** (MCP clients): paste `https://invoices.example.com/api/mcp` into
    an MCP client that supports the MCP authorization flow; the user approves it
@@ -16,7 +18,7 @@ clients **after the user approves them**. There are no accounts: the browser app
 
 - Machine-readable contract: `GET /api/v1/openapi.json` (OpenAPI 3.1)
 - Short pointer for crawlers/agents: `/llms.txt`
-- Shared TypeScript types: [`shared/api.ts`](shared/api.ts), [`shared/types/invoice.ts`](shared/types/invoice.ts), [`shared/types/client.ts`](shared/types/client.ts)
+- Shared TypeScript types: [`shared/api.ts`](shared/api.ts), [`shared/types/invoice.ts`](shared/types/invoice.ts), [`shared/types/client.ts`](shared/types/client.ts), [`shared/types/template.ts`](shared/types/template.ts), [`shared/activity.ts`](shared/activity.ts)
 
 Replace `https://invoices.example.com` below with the deployment's URL
 (`http://localhost:8080` under `bun run dev`).
@@ -297,7 +299,7 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 | GET | `/api/v1/openapi.json` | none | | OpenAPI 3.1 |
 | POST | `/api/v1/workspaces` | none (rate limited) | | → 201 `{workspace:{id,createdAt},token}` |
 | GET | `/api/v1/workspace` | workspace token | | `{workspace}` |
-| DELETE | `/api/v1/workspace` | workspace token | | 204; deletes all invoices, clients, settings, agents and activity |
+| DELETE | `/api/v1/workspace` | workspace token | | 204; deletes all invoices, clients, templates, recurring schedules, settings, email log, agents (incl. OAuth grants), device tokens and activity |
 | POST | `/api/v1/agents/register` | none (rate limited) | | → 201, see above |
 | POST | `/api/v1/agents/token` | none (rate limited) | | see above |
 | GET | `/api/v1/agents/registrations/:user_code` | workspace token | | Preview `{registration:{id,userCode,name,description,requestedScopes,createdAt,expiresAt}}` |
@@ -813,7 +815,7 @@ logged.
 | `invoice.status_changed` | status changed (mark-sent/-paid/void/reopen, PATCH/PUT `status`, `set_invoice_status`) | `{status:{from,to}, fields?}` |
 | `invoice.deleted` | DELETE, `delete_invoice` | |
 | `invoice.pdf_downloaded` | `/pdf`, `get_invoice_pdf` (once per actor, invoice and 10 min) | `{theme}` |
-| `invoice.emailed` | `POST /invoices/:id/send`, `send_invoice_email` succeeded (one entry; a draft → sent change is folded in, no separate `status_changed`) | `{email:{to (masked, e.g. "b•••@acme.io"), cc (count), resend}, status?}` |
+| `invoice.emailed` | `POST /invoices/:id/send`, `send_invoice_email` succeeded (one entry; a draft → sent change is folded in, no separate `status_changed`) | `{email:{to (masked, e.g. "b•••@acme.io"), cc (count), resend (this invoice had been emailed before)}, status?}` |
 | `invoice.email_failed` | the provider refused or failed | `{email:{to, cc, resend, code}}` |
 | `invoice.email_blocked` | an agent's send was refused by the recipient or review rules (once per agent, invoice, reason and hour) | `{email:{to, code}}` |
 | `client.created` / `client.updated` / `client.archived` / `client.unarchived` / `client.deleted` | client writes | `{fields}` for updates |
@@ -824,7 +826,6 @@ logged.
 | `agent.revoked` | the user revoked an agent | |
 | `agent.revoked_key_used` | a revoked agent's key was used (401; at most once per agent and hour) | |
 | `sync.bulk_upload` | the browser uploaded its local data when joining a workspace (one entry per upload) | `{counts:{invoices,clients,templates}}` |
-| `sync.bulk_upload` | the browser uploaded its local data when joining a workspace (one entry per upload) | `{counts:{invoices,clients}}` |
 | `agent.oauth_authorized` | the user approved an MCP client on the OAuth consent screen (entity: the existing agent when re-authorising, else `oauth_client` with a stable `oc_…` reference and the client's name) | `{scopes, requestedScopes}` (narrowed when they differ) |
 | `agent.oauth_denied` | the user denied an MCP client | `{requestedScopes}` |
 | `agent.oauth_connected` | an approved MCP client exchanged its code and became an agent (actor = the agent) | `{scopes}` |
@@ -1010,7 +1011,7 @@ tool results with `isError: true` and the REST error body as text.
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
 | 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion; recurring: paused/ended schedule, not the next period), `invalid_status_transition`, `limit_reached` (too many recurring schedules), `idempotency_conflict` (Idempotency-Key reused for another request, or still in progress) |
-| 410 | `gone` (deleted invoice or client; expired registration) |
+| 410 | `gone` (deleted invoice, client, template or recurring schedule; expired registration) |
 | 412 | `precondition_failed` |
 | 413 | `payload_too_large` |
 | 415 | `unsupported_media_type` |
