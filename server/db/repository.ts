@@ -11,6 +11,7 @@
 import type { Actor, InvoiceFormData } from '../../shared/types/invoice';
 import type { DefaultSettings } from '../../shared/settings';
 import type { Scope } from '../../shared/api';
+import type { InvoiceStatusFields } from '../../shared/invoice-status';
 
 /** D1's own clock, ISO-8601 with milliseconds. Used for all invoice timestamps. */
 const DB_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
@@ -63,8 +64,56 @@ export interface InvoiceRow {
   updated_by: string;
 }
 
-/** Invoice body persisted in `invoices.data` (JSON). */
-export type StoredInvoiceData = InvoiceFormData & { version: number };
+/** Invoice body persisted in `invoices.data` (JSON). Status fields are absent on rows written before statuses existed. */
+export type StoredInvoiceData = InvoiceFormData & Partial<InvoiceStatusFields> & { version: number };
+
+/**
+ * Optional filters of the invoice listing (migration 0002 generated columns).
+ * `statuses` and `overdue` are OR-ed (`status=sent,overdue`); the date and
+ * client filters are AND-ed with them.
+ */
+export interface InvoiceListFilters {
+  statuses?: string[];
+  /** Include sent invoices with due_date < today. */
+  overdue?: boolean;
+  /** YYYY-MM-DD, the reference date for `overdue`. */
+  today: string;
+  /** due_date < dueBefore (invoices without a due date never match). */
+  dueBefore?: string;
+  /** due_date > dueAfter (invoices without a due date never match). */
+  dueAfter?: string;
+  /** Case-insensitive substring of toName. */
+  client?: string;
+}
+
+function invoiceFilterSql(f: InvoiceListFilters | undefined): { where: string[]; params: unknown[] } {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (!f) return { where, params };
+  const statusOr: string[] = [];
+  if (f.statuses && f.statuses.length > 0) {
+    statusOr.push(`status IN (${f.statuses.map(() => '?').join(', ')})`);
+    params.push(...f.statuses);
+  }
+  if (f.overdue) {
+    statusOr.push(`(status = 'sent' AND due_date <> '' AND due_date < ?)`);
+    params.push(f.today);
+  }
+  if (statusOr.length > 0) where.push(`(${statusOr.join(' OR ')})`);
+  if (f.dueBefore) {
+    where.push(`(due_date <> '' AND due_date < ?)`);
+    params.push(f.dueBefore);
+  }
+  if (f.dueAfter) {
+    where.push(`(due_date <> '' AND due_date > ?)`);
+    params.push(f.dueAfter);
+  }
+  if (f.client) {
+    where.push('instr(lower(to_name), lower(?)) > 0');
+    params.push(f.client);
+  }
+  return { where, params };
+}
 
 const INVOICE_COLUMNS =
   'id, workspace_id, invoice_number, data, revision, created_at, updated_at, deleted_at, created_by, updated_by';
@@ -307,6 +356,7 @@ export function createRepository(db: D1Database) {
       afterId?: string;
       includeDeleted: boolean;
       limit: number;
+      filters?: InvoiceListFilters;
     }): Promise<{ rows: InvoiceRow[]; syncedAt: string }> {
       const where = ['workspace_id = ?'];
       const params: unknown[] = [args.workspaceId];
@@ -318,6 +368,9 @@ export function createRepository(db: D1Database) {
         params.push(args.updatedSince);
       }
       if (!args.includeDeleted) where.push('deleted_at IS NULL');
+      const filter = invoiceFilterSql(args.filters);
+      where.push(...filter.where);
+      params.push(...filter.params);
       params.push(args.limit);
       const [now, list] = await db.batch([
         db.prepare(`SELECT ${DB_NOW} AS now`),
@@ -329,6 +382,15 @@ export function createRepository(db: D1Database) {
         syncedAt: (now.results[0] as { now: string }).now,
         rows: list.results as unknown as InvoiceRow[],
       };
+    },
+
+    /** Bodies of all live, non-void invoices (input of the status summary). */
+    async listLiveInvoiceBodies(workspaceId: string): Promise<{ id: string; invoice_number: string; data: string }[]> {
+      const { results } = await db
+        .prepare(`SELECT id, invoice_number, data FROM invoices WHERE workspace_id = ? AND deleted_at IS NULL AND status <> 'void'`)
+        .bind(workspaceId)
+        .all<{ id: string; invoice_number: string; data: string }>();
+      return results;
     },
 
     /** Highest numeric invoice number among live invoices (same rule as the browser store). */
