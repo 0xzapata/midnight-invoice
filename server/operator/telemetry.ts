@@ -162,14 +162,19 @@ export function percentile(hist: number[], q: number): number | null {
   return DURATION_BOUNDS_MS[DURATION_BOUNDS_MS.length - 2];
 }
 
+/** MCP tools counted in the Email group (sends and failures next to the REST send endpoint). */
+const EMAIL_MCP_TOOLS = new Set(['tool send_invoice_email']);
+
 /** Route-group ("part of the site") for a metric. */
 export function groupOf(metric: string): { service: string; group: string; name: string } {
   const [service, name = ''] = metric.split('|');
-  if (service === 'mcp') return { service, group: 'MCP endpoint', name };
+  if (service === 'mcp') return { service, group: EMAIL_MCP_TOOLS.has(name) ? 'Email' : 'MCP endpoint', name };
   if (service === 'operator') return { service, group: 'Operator console', name };
+  if (service === 'accounts') return { service, group: name.startsWith('sign-in') || name.includes(' /auth/') ? 'Account sign-in' : 'Accounts', name };
   const path = name.replace(/^[A-Z]+ /, '');
   let group = 'REST: other';
   if (name.endsWith('(sync)')) group = 'Sync';
+  else if (/^\/invoices\/:id\/(send|emails)$/.test(path)) group = 'Email';
   else if (path.startsWith('/invoices/:id/pdf')) group = 'PDF rendering';
   else if (path === '/invoices/summary' || /^\/invoices\/:id\/(mark-sent|mark-paid|void|reopen)$/.test(path)) group = 'Invoice status';
   else if (path.startsWith('/clients')) group = 'Clients';

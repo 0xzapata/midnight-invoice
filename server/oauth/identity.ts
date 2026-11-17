@@ -4,9 +4,11 @@
  * Today the person approving an OAuth client is identified by the browser's
  * workspace: the consent screen calls the consent API with the workspace
  * token (`mi_ws_…`) in the Authorization header, and the approved client is
- * bound to that workspace. When real accounts arrive (e.g. WorkOS sign-in),
- * only this function needs to change: return the account's workspace from
- * the new session credential instead.
+ * bound to that workspace. With optional user accounts (server/accounts) a
+ * signed-in browser holds its own per-device workspace token for the
+ * account's workspace, so this function did not need to change; the grant is
+ * bound to the workspace, never to that device token (signing a device out
+ * leaves agents connected).
  */
 import { requireUser, type Principal } from '../auth';
 

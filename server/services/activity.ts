@@ -55,6 +55,8 @@ export interface ActivityRequest {
   bulkUploadId?: string;
   /** Keeps background work alive after the response (ExecutionContext.waitUntil). */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /** Reports a failure the transport answers with 200 (MCP tool errors) to request telemetry (`setTelemetryDetail`). */
+  telemetry?: (detail: { status: number; errorCode: string }) => void;
 }
 
 /** What recording needs. `ServiceContext` (services/invoices.ts) satisfies it. */

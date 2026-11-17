@@ -269,6 +269,11 @@ function PermissionGlossary() {
           <div key={scope} className="grid gap-0.5 sm:grid-cols-[12rem_1fr] sm:gap-3">
             <dt className="font-medium text-foreground">
               {SCOPE_INFO[scope].title} <code className="font-code text-[11px] font-normal text-muted-foreground">{scope}</code>
+              {SCOPE_INFO[scope].sensitive && (
+                <span className="ml-1.5 border border-destructive/30 bg-destructive/10 px-1 py-px text-[10px] font-medium uppercase tracking-wider text-destructive">
+                  {SCOPE_INFO[scope].sensitiveLabel ?? 'Destructive'}
+                </span>
+              )}
             </dt>
             <dd className="text-muted-foreground">{SCOPE_INFO[scope].allows}</dd>
           </div>

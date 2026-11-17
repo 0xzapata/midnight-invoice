@@ -5,8 +5,10 @@
  * Today the user is this browser's cloud-sync workspace: the consent API is
  * called through `api`, which sends the workspace token only in the
  * Authorization header of same-origin /api/v1 requests (never in a URL, a
- * cookie or the page). When real accounts (e.g. WorkOS sign-in) replace the
- * workspace token, only this module (and server/oauth/identity.ts) change.
+ * cookie or the page). A browser signed in with an optional account uses its
+ * own device token here, so nothing changes; a browser without a workspace is
+ * offered "Sign in" first on the consent screen (EnableCloudSyncCard
+ * `accountFirst`), which returns to the same `?request=` after sign-in.
  */
 import { api } from '@/lib/api';
 import { useCloudEnabled } from '@/stores/useCloudStore';

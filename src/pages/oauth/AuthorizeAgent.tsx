@@ -350,7 +350,7 @@ export default function AuthorizeAgent() {
             connect the workspace you already use on another device); you will then review this request here.
           </p>
         </StateCard>
-        <EnableCloudSyncCard />
+        <EnableCloudSyncCard accountFirst />
       </div>
     );
   } else content = <RequestLoader key={requestId} requestId={requestId} />;

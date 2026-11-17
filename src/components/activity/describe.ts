@@ -121,6 +121,21 @@ function statusPhrase(to: string): SentencePart[] {
   return ['marked ', { target: true }, ` as ${STATUS_LABELS[to as keyof typeof STATUS_LABELS]?.toLowerCase() ?? to}`];
 }
 
+/** Why an email was not sent (codes from the send endpoint). */
+const EMAIL_REASONS: Record<string, string> = {
+  provider_auth_failed: 'The server’s email account rejected its API key',
+  provider_rejected: 'The email provider refused the message',
+  provider_rate_limited: 'The email provider was busy',
+  provider_unavailable: 'The email provider had a problem',
+  provider_unreachable: 'The email provider could not be reached',
+  attachment_too_large: 'The PDF was too large',
+  pdf_render_failed: 'The PDF could not be generated',
+  agent_recipient_override: 'Agents can only email the client address on the invoice',
+  agent_cc_not_allowed: 'Agents can only copy your own email',
+  address_not_confirmed_by_user: 'You have not entered or confirmed this address yourself',
+  invoice_needs_review: 'An agent changed the sender or payment details; review and save the invoice first',
+};
+
 export function describeEntry(entry: ActivityEntry): DescribedEntry {
   const actor = actorName(entry);
   const c = entry.changes ?? {};
@@ -154,6 +169,22 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       break;
     case 'invoice.pdf_downloaded':
       parts = ['downloaded the PDF of ', { target: true }];
+      break;
+    case 'invoice.emailed': {
+      const e = c.email;
+      parts = ['emailed ', { target: true }, e?.to ? ` to ${e.to}` : ' to the client'];
+      if (e?.resend) details.push('Sent again');
+      if (c.status?.to === 'sent') details.push('Marked as sent');
+      if (e?.cc) details.push(`Copy to ${plural(e.cc, 'more recipient')}`);
+      break;
+    }
+    case 'invoice.email_failed':
+      parts = ['could not email ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
+      if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
+      break;
+    case 'invoice.email_blocked':
+      parts = ['was stopped from emailing ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
+      if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
       break;
     case 'client.created':
       parts = ['added the client ', { target: true }];
@@ -269,11 +300,53 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       targetLabel = null;
       break;
     }
+    case 'account.workspace_created':
+      parts = ['created this cloud workspace with your account'];
+      targetLabel = null;
+      break;
+    case 'account.workspace_claimed':
+      parts = ['added this workspace to your account'];
+      targetLabel = null;
+      break;
+    case 'account.device_signed_in':
+      parts = ['signed in on ', { target: true }];
+      break;
+    case 'account.device_revoked':
+      parts = ['signed out ', { target: true }];
+      break;
+    case 'account.signed_out_other_devices':
+    case 'account.signed_out_everywhere': {
+      const n = c.counts?.devices;
+      parts = [entry.action === 'account.signed_out_everywhere' ? 'signed out everywhere' : 'signed out all other devices'];
+      targetLabel = null;
+      if (n !== undefined) details.push(`${plural(n, 'device')} signed out`);
+      break;
+    }
+    case 'account.recovery_key_created':
+      parts = ['created a recovery key'];
+      targetLabel = null;
+      break;
+    case 'account.recovery_key_rotated':
+      parts = ['replaced the recovery key (the old one no longer works)'];
+      targetLabel = null;
+      break;
+    case 'account.recovery_key_disabled':
+      parts = ['turned off the recovery key'];
+      targetLabel = null;
+      break;
+    case 'account.deleted':
+      parts = ['deleted your account; this workspace was kept with a new recovery key'];
+      targetLabel = null;
+      break;
+    case 'account.disabled':
+      parts = ['disabled your account on behalf of the site operator; its devices were signed out'];
+      targetLabel = null;
+      break;
     default:
       parts = entry.entity ? [`${entry.action} on `, { target: true }] : [entry.action];
   }
   if (parts.some((p) => typeof p !== 'string') && !targetLabel) {
-    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'template' ? 'a template' : entry.entity?.type === 'recurring' ? 'a schedule' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : 'an item';
+    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'template' ? 'a template' : entry.entity?.type === 'recurring' ? 'a schedule' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : entry.entity?.type === 'device' ? 'a device' : 'an item';
   }
   if (c.theme && entry.action === 'invoice.pdf_downloaded') details.push(`${c.theme === 'light' ? 'Light' : 'Dark'} theme`);
   return { actor, parts, targetLabel, details };

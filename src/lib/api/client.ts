@@ -23,6 +23,9 @@ import {
   type InvoiceResponse,
   type ListAgentsResponse,
   type ListInvoicesResponse,
+  type ListInvoiceEmailsResponse,
+  type SendInvoiceEmailRequest,
+  type SendInvoiceEmailResponse,
   type ListActivityResponse,
   type PutSettingsRequest,
   type Scope,
@@ -188,6 +191,11 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
       request<InvoiceResponse>('PUT', `/invoices/${encode(id)}`, { body, headers: preconditionHeaders(pre) }),
     deleteInvoice: (id: string, pre?: WritePreconditions) =>
       request<void>('DELETE', `/invoices/${encode(id)}`, { headers: preconditionHeaders(pre) }),
+
+    // Email (server-side feature: needs cloud sync and an uploaded invoice)
+    sendInvoiceEmail: (id: string, body: SendInvoiceEmailRequest, idempotencyKey: string) =>
+      request<SendInvoiceEmailResponse>('POST', `/invoices/${encode(id)}/send`, { body, headers: { 'idempotency-key': idempotencyKey } }),
+    listInvoiceEmails: (id: string) => request<ListInvoiceEmailsResponse>('GET', `/invoices/${encode(id)}/emails`),
 
     // Clients
     listClients: (p: ListInvoicesParams & { q?: string } = {}) =>

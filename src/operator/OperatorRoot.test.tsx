@@ -203,6 +203,18 @@ describe('operator console: dashboard', () => {
     }),
     'GET /agents': () => ({ json: { agents: [], next: null } }),
     'POST /workspaces/ws-1234567890/suspend': () => ({ json: { suspended: true } }),
+    'GET /accounts': () => ({
+      json: {
+        enabled: true,
+        linkedWorkspaces: 1,
+        requiredForNewWorkspaces: false,
+        accounts: [
+          { id: 'acc-1', email: 'alice@example.com', emailVerified: true, createdAt: Date.now(), lastSignInAt: Date.now(), workspaceId: 'ws-1234567890', activeDevices: 2, disabled: false, disabledAt: null, disabledReason: null },
+        ],
+        next: null,
+      },
+    }),
+    'POST /accounts/acc-1/disable': () => ({ json: { disabled: true } }),
   };
 
   it('shows the overview with headline stats and the sidebar', async () => {
@@ -230,6 +242,45 @@ describe('operator console: dashboard', () => {
     expect(secret).toHaveAttribute('type', 'password');
     expect(secret).toHaveValue('');
     expect(screen.getByText(/•••• WXYZ · write-only/)).toBeInTheDocument();
+  });
+
+  it('lists accounts in Users and disables one', async () => {
+    const api = fakeOperatorApi(routes);
+    vi.stubGlobal('fetch', api.fetchMock);
+    const user = userEvent.setup();
+    renderConsole('/operator/users');
+    const table = await screen.findByRole('table', { name: 'Accounts' });
+    expect(within(table).getByText('alice@example.com')).toBeInTheDocument();
+    expect(within(table).getByText('Verified')).toBeInTheDocument();
+    expect(within(table).getByText('ws-12345…')).toBeInTheDocument();
+    await user.click(within(table).getByRole('button', { name: 'Disable' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.type(within(dialog).getByLabelText(/Reason/), 'abuse');
+    await user.click(within(dialog).getByRole('button', { name: 'Disable' }));
+    await waitFor(() => expect(api.calls.find((c) => c.path === '/accounts/acc-1/disable')).toMatchObject({ method: 'POST', body: { reason: 'abuse' } }));
+    expect(api.calls.find((c) => c.path === '/accounts/acc-1/disable')!.headers['x-csrf-token']).toBeTruthy();
+  });
+
+  it('shows "Email: not configured" above the Email settings until the key and From address are set', async () => {
+    const email = (apiKeySet: boolean, fromAddress: string) => ({
+      json: {
+        configVersion: 3,
+        propagationSeconds: 5,
+        encryptionLocked: false,
+        settings: [
+          { key: 'email.enabled', group: 'Email', label: 'Send invoices by email', description: 'd', type: 'boolean', secret: false, value: true, defaultValue: true, source: 'default', updatedAt: null, updatedBy: null },
+          { key: 'resend.apiKey', group: 'Email', label: 'Resend API key', description: 'd', type: 'secret', secret: true, isSet: apiKeySet, last4: null, source: apiKeySet ? 'environment' : 'default', updatedAt: null, updatedBy: null },
+          { key: 'email.fromAddress', group: 'Email', label: 'From address', description: 'd', type: 'string', secret: false, value: fromAddress, defaultValue: '', source: 'default', updatedAt: null, updatedBy: null },
+        ],
+      },
+    });
+    vi.stubGlobal('fetch', fakeOperatorApi({ ...routes, 'GET /settings': () => email(false, '') }).fetchMock);
+    const { unmount } = renderConsole('/operator/settings');
+    expect(await screen.findByText('Email: not configured — set the Resend API key and the From address (on a domain verified with Resend)')).toBeInTheDocument();
+    unmount();
+    vi.stubGlobal('fetch', fakeOperatorApi({ ...routes, 'GET /settings': () => email(true, 'invoices@mail.example.org') }).fetchMock);
+    renderConsole('/operator/settings');
+    expect(await screen.findByText('Email: configured')).toBeInTheDocument();
   });
 
   it('suspends a workspace from Users and states the privacy boundary', async () => {

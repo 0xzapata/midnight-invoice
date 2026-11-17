@@ -9,6 +9,7 @@ import { LIMITS } from './schemas';
 import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
 import { templateOpenApiPaths, templateOpenApiSchemas } from './openapiTemplates';
 import { oauthOpenApiPaths, oauthOpenApiSchemas } from './openapiOAuth';
+import { emailOpenApiPaths, emailOpenApiSchemas } from './openapiEmail';
 import { activityOpenApiPaths, activityOpenApiSchemas } from './openapiActivity';
 import { recurringOpenApiPaths, recurringOpenApiSchemas } from './recurring/openapi';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
@@ -193,6 +194,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         ...clientOpenApiSchemas,
         ...templateOpenApiSchemas,
         ...oauthOpenApiSchemas,
+        ...emailOpenApiSchemas,
         ...activityOpenApiSchemas,
         ...recurringOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
@@ -321,6 +323,7 @@ export function buildOpenApiDocument(baseUrl: string) {
           security: [],
           responses: {
             201: ok('Created', { type: 'object', properties: { workspace: ref('Workspace'), token: str({ description: 'mi_ws_…' }) } }),
+            403: { ...E[403], description: '`registration_closed`, or `account_required` when the site requires a signed-in account for new workspaces' },
             429: E[429],
           },
         },
@@ -518,6 +521,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
       },
       ...statusActionPaths(),
+      ...emailOpenApiPaths,
       '/settings': {
         get: { summary: 'Default sender settings', ...scoped('settings:read'), responses: { 200: ok('Settings', { type: 'object', properties: { settings: ref('Settings'), updatedAt: { type: ['string', 'null'] } } }), 401: E[401], 403: E[403] } },
         put: {

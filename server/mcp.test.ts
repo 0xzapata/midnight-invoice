@@ -74,6 +74,7 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
       'preview_recurring',
       'resume_recurring',
       'run_recurring_now',
+      'send_invoice_email',
       'set_invoice_status',
       'update_client',
       'update_invoice',

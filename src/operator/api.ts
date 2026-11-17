@@ -19,6 +19,7 @@ import {
   type TelemetryResponse,
   type WorkspacesResponse,
 } from '../../shared/operator';
+import type { OperatorAccountsResponse } from '../../shared/accounts';
 
 const BASE = '/api/operator';
 
@@ -103,6 +104,9 @@ export const operatorApi = {
   deleteWorkspace: (id: string, confirm: string) => request<void>('DELETE', `/workspaces/${encodeURIComponent(id)}`, { confirm }),
   agents: (p: { q?: string; status?: string; cursor?: string }) => request<AgentsResponse>('GET', `/agents${q(p)}`),
   revokeAgent: (id: string) => request<{ result: string }>('POST', `/agents/${encodeURIComponent(id)}/revoke`),
+  accounts: (p: { q?: string; status?: string; cursor?: string }) => request<OperatorAccountsResponse>('GET', `/accounts${q(p)}`),
+  disableAccount: (id: string, reason?: string) => request<unknown>('POST', `/accounts/${encodeURIComponent(id)}/disable`, reason ? { reason } : {}),
+  enableAccount: (id: string) => request<unknown>('POST', `/accounts/${encodeURIComponent(id)}/enable`),
   settings: () => request<SettingsResponse>('GET', '/settings'),
   setSetting: (key: string, value: unknown) => request<{ ok: boolean }>('PUT', `/settings/${encodeURIComponent(key)}`, { value }),
   resetSetting: (key: string) => request<{ ok: boolean }>('DELETE', `/settings/${encodeURIComponent(key)}`),

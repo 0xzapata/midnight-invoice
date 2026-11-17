@@ -16,3 +16,22 @@ users:
     last_name: Operator
     password: local-dev-password-2
     email_verified: true
+  # End users for optional user accounts (Settings → Cloud sync & agents → Sign in).
+  # The emulator signs in the user named by `login_hint` (or the first user above,
+  # the operator). POST /api/account/auth/start takes an optional `loginHint`,
+  # which is how a local test signs in as alice or bob.
+  - email: alice@example.com
+    first_name: Alice
+    last_name: Example
+    password: local-dev-password-3
+    email_verified: true
+  - email: bob@example.com
+    first_name: Bob
+    last_name: Example
+    password: local-dev-password-4
+    email_verified: true
+  - email: unverified@example.com
+    first_name: Unverified
+    last_name: Example
+    password: local-dev-password-5
+    email_verified: false

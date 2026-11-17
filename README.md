@@ -22,9 +22,11 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - ⚡ Installable PWA with offline support
 - 🕵️ Activity log (with cloud sync): a timeline (`/activity`) of what you and each AI agent did — invoices and clients created, edited, deleted, status changes, PDF downloads through the API, agents approved, denied and revoked — with filters, per-agent views and a History section on each invoice
 - ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
+- 👤 Optional accounts (when the operator enables them): sign in with WorkOS AuthKit to reach your workspace from any browser, with per-device keys you can revoke
 - 🤖 AI agents: approve an agent from the app (scopes you can narrow), see what it created or edited, revoke it any time (REST + remote MCP)
 - 🔐 Sign-in for MCP clients (OAuth 2.1): paste the MCP URL into a client that supports the MCP authorization flow, approve it in the app, done; no key to copy
 - 🧾 Server-side PDF rendering with the same PDF component as the app
+- ✉️ Send an invoice by email (with cloud sync): the client gets the PDF attached, a draft is marked sent, and the invoice page shows the email history; agents can send too with the separate `invoices:send` permission (only to the client email you entered). Needs an email provider configured by the site operator (see below)
 
 ## Tech Stack
 
@@ -261,10 +263,46 @@ audit log (never the value of a secret).
   fine-grained token with *Actions: read and write* on this repository only),
   `github.repository`, and optionally the workflow file and ref.
 
+### Email (sending invoices)
+
+Sending invoices by email (`POST /api/v1/invoices/:id/send`, the app's
+**Send by email**, MCP `send_invoice_email`) uses [Resend](https://resend.com).
+Until it is configured, the feature answers `503 email_not_configured`, the
+app explains it, and *Settings → Email* shows "Email: not configured".
+
+1. Create a Resend account and **add and verify a sending domain** (Resend →
+   Domains: add the SPF/DKIM DNS records it shows; a subdomain such as
+   `mail.example.org` keeps your main domain's reputation separate). Add a
+   DMARC record for the domain if you do not have one.
+2. Create an API key with *Sending access*, ideally restricted to that domain.
+3. In `/operator` → **Settings → Email** paste the key into *Resend API key*
+   (stored encrypted; alternatively `bunx wrangler secret put RESEND_API_KEY`)
+   and set *From address* to an address on the verified domain, e.g.
+   `invoices@mail.example.org` (or the `EMAIL_FROM_ADDRESS` var). No redeploy
+   is needed.
+4. Optionally adjust the *From name* (recipients see "<sender> via <From
+   name>"), *Reply-To* (default: the invoice's From email), the attached PDF's
+   theme (default light) and the limits: resend cooldown per invoice (10 min),
+   sends per workspace per hour/day (20/50), per agent per hour/day (5/20) and
+   for the whole site per day (500). *Send invoices by email* turns the feature
+   off without removing the key.
+
+Users never choose the From address: it is always the configured one, with
+the invoice sender's name as display name and their email as Reply-To.
+Agents need the `invoices:send` scope (never granted to existing agents) and
+can only email the invoice's client address when the user entered it
+themselves, and cannot send an invoice whose sender or payment details an
+agent changed until the user has reviewed (saved) it. Every attempt is logged
+per workspace (`email_messages`, no message bodies) and appears in the
+activity log (recipient masked). Bounce/complaint webhooks are not handled yet; watch the
+Resend dashboard. In development, point the Worker at a local fake with
+`RESEND_API_BASE_URL=http://127.0.0.1:<port>` in the environment of
+`bun run dev` (honoured only by the Vite dev server, compiled out of builds).
+
 ### Privacy boundary
 
 The console shows metadata only: workspace ids, timestamps and counts, agent
-names and scopes. There is no endpoint that returns invoice contents, client
+names and scopes, and for optional user accounts their sign-in email. There is no endpoint that returns invoice contents, client
 data, workspace settings or tokens (recurring schedules appear as counts only). Telemetry stores route templates, status
 classes, durations and `cf-ray`; never ids in paths, bodies, tokens or IPs.
 
@@ -303,6 +341,79 @@ Then sign in with `INITIAL_PASSWORD` again and finish the wizard's identity
 step. To start over completely (new master key; all stored secrets are lost),
 also run `DELETE FROM operator_settings; DELETE FROM operator_state;`.
 
+## User accounts (optional)
+
+By default cloud sync uses an **anonymous workspace**: one browser holds its
+token, and the *recovery key* (that token) is the only way back in from
+another device. When the operator turns on accounts, users can also **sign in
+with WorkOS AuthKit** (email + password, passkeys or social logins, whatever
+the AuthKit environment allows) and reach their workspace from any browser.
+Accounts are additive: the app still works fully local, and anonymous
+workspaces and recovery keys keep working exactly as before.
+
+### Enabling accounts (operator)
+
+Accounts reuse the operator console's WorkOS integration and credentials (same
+API key and client ID, same AuthKit environment), so the console must be set up
+first.
+
+1. In the WorkOS dashboard, under *Redirects*, add a second redirect URI:
+   `https://<your-site>/api/account/auth/callback` (exactly; the operator's
+   `/api/operator/auth/callback` stays). Make sure AuthKit **allows sign-ups**
+   and requires **email verification** (the server refuses unverified emails in
+   any case).
+2. In the console: *Settings → Accounts → User accounts* on. Optionally *Require
+   an account for new workspaces* (anonymous `POST /api/v1/workspaces` then
+   answers `403 account_required`; existing workspaces are unaffected) and the
+   account-session timeouts (idle 14 days, absolute 30 days by default).
+3. *Users → Accounts* lists accounts (email, verified, created, last sign-in,
+   linked workspace id, device count), searchable by email; *Disable* refuses
+   sign-in and revokes every session and device key of that account. The
+   privacy boundary is unchanged (no invoice or client data). The *Telemetry*
+   page has an *Account sign-in* group (successful and failed sign-ins).
+
+Turning accounts off later does not lock anyone out: browsers that are
+already signed in keep syncing with their own keys, but nobody can sign in,
+add a device or manage their account until accounts are back (*Users →
+Accounts* shows how many workspaces are owned by an account). Disable
+individual accounts to revoke their devices.
+
+Operators and users are separate identities even though they share the WorkOS
+environment: an operator signing in to the app gets an ordinary user account,
+and neither session is ever accepted by the other side.
+
+### What users see
+
+- Settings → *Cloud sync & agents* (and the agents screen) show **Sign in** /
+  **Create account** next to *Turn on cloud sync*; the agent approval and
+  OAuth consent screens offer **Sign in** first and come back to the same
+  request afterwards. Signing in
+  with no workspace turns cloud sync on with a workspace owned by the account.
+- A browser that already syncs anonymously and signs in **claims** that
+  workspace for the account. Its recovery key keeps working until the owner
+  rotates or turns it off on the *Account* page.
+- On a **new browser**, signing in connects the account's workspace and pulls
+  everything, no recovery key needed. If that browser already has invoices that
+  are not in the account, or syncs with a different workspace, the app **asks**:
+  upload/copy them into the account's workspace, or cancel (nothing changes and
+  the browser is signed out). Local invoices are never discarded and two cloud
+  workspaces are never merged.
+- *Account* (`/account`): email, sign out, devices with revoke, *sign out other
+  devices*, *sign out everywhere*, recovery key (rotate / create / turn off) and
+  *delete account* (optionally with the workspace; if kept, the browser
+  continues anonymously with a fresh recovery key). One account has one
+  workspace. Devices show when they last synced.
+- Signing a device out (or "sign out everywhere") never disconnects your
+  agents or OAuth-connected apps; manage those on the *Agents* page.
+- Account events (signing in on a device, signing devices out, recovery key
+  changes, deleting the account) appear in the workspace's *Activity* log.
+- A browser that was signed out from another device, or whose account the
+  operator disabled, says so in Settings and keeps its local invoices.
+
+Locally, `bun run dev:operator` seeds `alice@example.com` and `bob@example.com`
+(and an unverified user) in the WorkOS emulator; it signs in the user named by
+the `loginHint` sent to `POST /api/account/auth/start`, or the first seeded user.
+
 ## Agent API
 
 AI agents (Claude, ChatGPT, scripts…) can work with your invoices after you
@@ -321,8 +432,8 @@ on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
    `settings:read`, `clients:read`, `clients:write`, `templates:read`,
-   `templates:write`, `activity:read`, `recurring:read`, `recurring:write`)
-   and shows you a code like
+   `templates:write`, `activity:read`, `invoices:send`, `recurring:read`,
+   `recurring:write`) and shows you a code like
    `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
@@ -336,6 +447,10 @@ id ("invoice Globex for 10 hours": `list_clients` → `create_invoice` with
 terms. `clients:write` lets it add, edit, archive and delete clients.
 `activity:read` lets an agent read its *own* entries of the activity log
 (`get_my_activity`), e.g. to check whether it already sent this month's invoice.
+`invoices:send` (marked as sensitive on the approval screen) lets it email an
+invoice to the client on file on your behalf; it cannot choose another
+recipient, only addresses you entered yourself are allowed, and it has its own
+hourly and daily limits.
 
 With `templates:read` (and `invoices:write`) an agent can create invoices from
 your templates ("send the usual retainer": `list_templates` →

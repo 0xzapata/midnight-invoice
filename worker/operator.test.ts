@@ -60,4 +60,11 @@ describe('operator console in the deployable bundle', () => {
     expect(worker).toContain('workosBaseUrl: void 0');
     expect(worker).not.toContain('WORKOS_API_BASE_URL');
   });
+
+  it('ships no fake email-provider override in the production Worker', () => {
+    const worker = fs.readFileSync(path.join(ROOT, 'dist/midnight_invoice/index.js'), 'utf8');
+    expect(worker).toContain('resendBaseUrl: void 0');
+    expect(worker).not.toContain('RESEND_API_BASE_URL');
+    expect(worker).toContain('https://api.resend.com');
+  });
 });

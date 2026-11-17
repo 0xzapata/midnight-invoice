@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Ban, CheckCircle2, ListChecks, RotateCcw, Send } from 'lucide-react';
+import { Ban, CheckCircle2, ListChecks, Mail, RotateCcw, Send } from 'lucide-react';
 import type { Invoice } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -16,8 +16,8 @@ const ACTION_ICONS: Record<StatusAction, typeof Send> = {
 
 type StatusInvoice = Pick<Invoice, 'id' | 'invoiceNumber' | 'status' | 'sentAt'>;
 
-/** Row menu with the status changes that apply to this invoice (dashboard list). */
-export function StatusActionsMenu({ invoice }: { invoice: StatusInvoice }) {
+/** Row menu with the status changes that apply to this invoice (dashboard list), plus "Send by email…" when given. */
+export function StatusActionsMenu({ invoice, onSendEmail }: { invoice: StatusInvoice; onSendEmail?: () => void }) {
   const [open, setOpen] = useState(false);
   const run = useStatusAction();
   const actions = availableActions(invoice);
@@ -58,6 +58,22 @@ export function StatusActionsMenu({ invoice }: { invoice: StatusInvoice }) {
             );
           })}
         </div>
+        {onSendEmail && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSendEmail();
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 px-2 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-hidden',
+                actions.length > 0 && 'mt-1 border-t border-border pt-2',
+              )}
+            >
+              <Mail className="h-4 w-4 shrink-0" aria-hidden="true" />
+              Send by email…
+            </button>
+        )}
       </PopoverContent>
     </Popover>
   );

@@ -278,7 +278,7 @@ export const SETTINGS = {
   'workos.clientId': setting.string({
     group: 'WorkOS',
     label: 'WorkOS client ID',
-    description: 'AuthKit client ID (client_…) used for operator sign-in.',
+    description: 'AuthKit client ID (client_…) used for operator sign-in and, when enabled, user accounts.',
     default: '',
     maxLength: 200,
     pattern: /^client_[A-Za-z0-9_]+$/,
@@ -290,6 +290,37 @@ export const SETTINGS = {
     description: 'Secret key (sk_…) used to exchange AuthKit codes server-side.',
     maxLength: 500,
     pattern: /^sk_[A-Za-z0-9_]+$/,
+  }),
+
+  // --- User accounts (server/accounts) ------------------------------------
+  'accounts.enabled': setting.boolean({
+    group: 'Accounts',
+    label: 'User accounts',
+    description:
+      'Let users sign in with WorkOS AuthKit to reach their workspace from any browser. Needs the WorkOS credentials above and the redirect URI <public URL>/api/account/auth/callback in the WorkOS dashboard. Turning it off later hides sign-in; already signed-in devices keep syncing (see Users → Accounts).',
+    default: false,
+  }),
+  'accounts.requiredForNewWorkspaces': setting.boolean({
+    group: 'Accounts',
+    label: 'Require an account for new workspaces',
+    description: 'When accounts are on: only signed-in users can turn on cloud sync. Existing anonymous workspaces keep working.',
+    default: false,
+  }),
+  'accounts.sessionIdleDays': setting.integer({
+    group: 'Accounts',
+    label: 'Account session idle timeout (days)',
+    description: 'Account sessions (used for account management, not for sync) end after this much inactivity.',
+    default: 14,
+    min: 1,
+    max: 90,
+  }),
+  'accounts.sessionAbsoluteDays': setting.integer({
+    group: 'Accounts',
+    label: 'Account session absolute timeout (days)',
+    description: 'Account sessions end this long after sign-in. Device sync tokens are not affected.',
+    default: 30,
+    min: 1,
+    max: 365,
   }),
 
   // --- Deployments (GitHub Actions) ---------------------------------------
@@ -332,12 +363,108 @@ export const SETTINGS = {
     default: 'https://api.github.com',
   }),
 
-  // --- Upcoming features ---------------------------------------------------
+  // --- Email (sending invoices, server/email) ------------------------------
+  'email.enabled': setting.boolean({
+    group: 'Email',
+    label: 'Send invoices by email',
+    description: 'Lets users and agents with the invoices:send scope email invoices (PDF attached). Needs a provider API key and a From address below.',
+    default: true,
+  }),
+  'email.provider': setting.enum({
+    group: 'Email',
+    label: 'Email provider',
+    description: 'Service that delivers the messages.',
+    default: 'resend',
+    options: ['resend'] as const,
+  }),
   'resend.apiKey': setting.secret({
     group: 'Email',
     label: 'Resend API key',
-    description: 'For transactional email (upcoming feature).',
+    description: 'API key (re_…) with "Sending access", ideally restricted to your sending domain.',
     maxLength: 500,
+    envVar: 'RESEND_API_KEY',
+  }),
+  'email.fromAddress': setting.string({
+    group: 'Email',
+    label: 'From address',
+    description: 'Address on a domain verified with the provider, e.g. invoices@mail.example.org. Users never choose it; their name is shown as "<name> via <From name>".',
+    default: '',
+    maxLength: 254,
+    pattern: /^[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/,
+    patternMessage: 'Expected an email address like invoices@mail.example.org',
+    envVar: 'EMAIL_FROM_ADDRESS',
+  }),
+  'email.fromName': setting.string({
+    group: 'Email',
+    label: 'From name',
+    description: 'Service name in the From display name ("Acme Studio via Midnight Invoice").',
+    default: 'Midnight Invoice',
+    maxLength: 60,
+    // eslint-disable-next-line no-control-regex -- refuses control characters (header injection)
+    pattern: /^[^\u0000-\u001f\u007f"<>\\]+$/,
+    patternMessage: 'No quotes, angle brackets, backslashes or line breaks',
+  }),
+  'email.replyTo': setting.enum({
+    group: 'Email',
+    label: 'Reply-To',
+    description: 'sender = replies go to the invoice’s From email (recommended); none = no Reply-To header.',
+    default: 'sender',
+    options: ['sender', 'none'] as const,
+  }),
+  'email.pdfTheme': setting.enum({
+    group: 'Email',
+    label: 'Attached PDF theme',
+    description: 'Default look of the attached PDF. Light prints well and reads like a paper invoice; users can pick dark per send.',
+    default: 'light',
+    options: ['light', 'dark'] as const,
+  }),
+  'email.cooldownMinutes': setting.integer({
+    group: 'Email',
+    label: 'Resend cooldown (min)',
+    description: 'Minimum time between two sends of the same invoice.',
+    default: 10,
+    min: 0,
+    max: 1440,
+  }),
+  'email.workspaceHourlyLimit': setting.integer({
+    group: 'Email',
+    label: 'Sends per workspace per hour',
+    description: 'Rate limit per workspace (user and agents together).',
+    default: 20,
+    min: 1,
+    max: 1000,
+  }),
+  'email.workspaceDailyCap': setting.integer({
+    group: 'Email',
+    label: 'Sends per workspace per day',
+    description: 'Daily cap per workspace (UTC day).',
+    default: 50,
+    min: 1,
+    max: 10000,
+  }),
+  'email.agentHourlyLimit': setting.integer({
+    group: 'Email',
+    label: 'Sends per agent per hour',
+    description: 'Rate limit per agent key (counts towards the workspace limits too).',
+    default: 5,
+    min: 1,
+    max: 1000,
+  }),
+  'email.agentDailyCap': setting.integer({
+    group: 'Email',
+    label: 'Sends per agent per day',
+    description: 'Daily cap per agent key (UTC day).',
+    default: 20,
+    min: 1,
+    max: 10000,
+  }),
+  'email.globalDailyCap': setting.integer({
+    group: 'Email',
+    label: 'Sends per day (whole site)',
+    description: 'Hard daily cap across all workspaces; protects the sending domain and the provider quota.',
+    default: 500,
+    min: 1,
+    max: 1000000,
   }),
 
   // --- Internal ------------------------------------------------------------
@@ -345,6 +472,12 @@ export const SETTINGS = {
     group: 'Internal',
     label: 'Session signing key',
     description: 'HMAC key for operator session cookies and CSRF tokens. Generated by the server.',
+    internal: true,
+  }),
+  'accounts.sessionSigningKey': setting.secret({
+    group: 'Internal',
+    label: 'Account session signing key',
+    description: 'HMAC key for user account session cookies and CSRF tokens. Generated by the server; separate from the operator key.',
     internal: true,
   }),
 } as const satisfies Record<string, SettingDef<unknown>>;

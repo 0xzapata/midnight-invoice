@@ -35,6 +35,7 @@ import * as invoices from './services/invoices';
 import { registerClientTools } from './mcpClients';
 import { registerTemplateTools } from './mcpTemplates';
 import { registerStatusTools, statusListFilters } from './mcpStatusTools';
+import { registerEmailTools } from './mcpEmailTools';
 import { registerActivityTools } from './mcpActivity';
 import { registerRecurringTools } from './recurring/mcp';
 import type { ActivityRequest } from './services/activity';
@@ -299,6 +300,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
   registerClientTools(tool, ctx);
   registerTemplateTools(tool, ctx);
   registerStatusTools(tool, ctx);
+  registerEmailTools(tool, ctx);
   registerActivityTools(tool, ctx);
   registerRecurringTools(tool, ctx);
 

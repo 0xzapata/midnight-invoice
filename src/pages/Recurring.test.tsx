@@ -111,7 +111,9 @@ describe('Recurring page', () => {
     expect(screen.queryByRole('button', { name: /New schedule/ })).not.toBeInTheDocument();
     // "Make recurring" links land here too, still without requests.
     await new Promise((r) => setTimeout(r, 20));
-    expect(fake.fetch).not.toHaveBeenCalled();
+    // Only the public "are accounts on" flag of the sign-in card (no token, no workspace data).
+    expect(fake.requests.filter((r) => r.path !== '/api/account/config')).toEqual([]);
+    expect(fake.requests.every((r) => !r.headers.authorization)).toBe(true);
   });
 
   it('sets up a monthly schedule with a plain-language summary, upcoming dates and a preview of the next invoice', async () => {
