@@ -3,6 +3,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { api, BASE, buildApp, connectAgent, countingLimiter, createWorkspace, sampleInvoice, startD1, TestClock } from './test/helpers';
 import { authorize, authorizeUrl, connectOAuth, REDIRECT, registerClient, requestIdOf, RESOURCE, tokenRequest, VERIFIER } from './test/oauth';
 import { s256 } from './oauth/pkce';
+import { SCOPES } from '../shared/api';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
 beforeAll(async () => {
@@ -61,7 +62,8 @@ describe('discovery', () => {
       expect(await res.json()).toEqual({
         resource: RESOURCE,
         authorization_servers: [BASE],
-        scopes_supported: ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write'],
+        // Every scope this API defines (clients pick from these; the user narrows on the consent screen).
+        scopes_supported: [...SCOPES],
         bearer_methods_supported: ['header'],
         resource_name: 'Midnight Invoice',
         resource_documentation: `${BASE}/llms.txt`,

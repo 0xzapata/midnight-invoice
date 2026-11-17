@@ -106,6 +106,25 @@ describe('enabling', () => {
     expect(local(ID.a)?.createdBy).toEqual({ type: 'user' });
   });
 
+  it('marks the initial upload as one bulk batch (for the activity log), but not later edits', async () => {
+    save(ID.a, { invoiceNumber: 'INV-0001' });
+    save(ID.b, { invoiceNumber: 'INV-0002' });
+    await enableCloudSync();
+    await whenIdle();
+    const markers = fake.requests.filter((r) => r.method === 'PUT' && r.path.startsWith('/invoices/')).map((r) => r.headers['x-midnight-sync']);
+    expect(markers).toHaveLength(2);
+    expect(markers[0]).toMatch(/^bulk-upload; batch=[0-9a-f-]{36}$/);
+    expect(markers[1]).toBe(markers[0]);
+    expect(fake.requests.find((r) => r.path === '/settings')?.headers['x-midnight-sync']).toBeUndefined();
+
+    save(ID.a, { invoiceNumber: 'INV-0001', notes: 'edited later' });
+    await syncNow();
+    await whenIdle();
+    const last = fake.requests.filter((r) => r.method === 'PUT' && r.path === `/invoices/${ID.a}`).pop()!;
+    expect(last.body).toMatchObject({ notes: 'edited later' });
+    expect(last.headers['x-midnight-sync']).toBeUndefined();
+  });
+
   it('keeps the token out of localStorage keys other than the cloud store', async () => {
     save(ID.a);
     await enableCloudSync();

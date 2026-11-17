@@ -8,6 +8,7 @@ import { INVOICE_STATUSES, STATUS_TRANSITIONS } from '../shared/invoice-status';
 import { LIMITS } from './schemas';
 import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
 import { oauthOpenApiPaths, oauthOpenApiSchemas } from './openapiOAuth';
+import { activityOpenApiPaths, activityOpenApiSchemas } from './openapiActivity';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
 type Json = Record<string, unknown>;
@@ -176,6 +177,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         Actor: actor,
         ...clientOpenApiSchemas,
         ...oauthOpenApiSchemas,
+        ...activityOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
         LineItem: {
           type: 'object',
@@ -292,6 +294,7 @@ export function buildOpenApiDocument(baseUrl: string) {
       '/openapi.json': { get: { summary: 'This document', security: [], responses: { 200: { description: 'OpenAPI 3.1 document' } } } },
       ...clientOpenApiPaths,
       ...oauthOpenApiPaths,
+      ...activityOpenApiPaths,
       '/workspaces': {
         post: {
           summary: 'Create an anonymous workspace',

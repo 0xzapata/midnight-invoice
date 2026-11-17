@@ -20,6 +20,7 @@ import {
   type InvoiceResponse,
   type ListAgentsResponse,
   type ListInvoicesResponse,
+  type ListActivityResponse,
   type PutSettingsRequest,
   type Scope,
   type SettingsResponse,
@@ -50,11 +51,41 @@ export interface ListInvoicesParams {
   limit?: number;
 }
 
+/** Filters of GET /activity (see AGENT_API.md "Activity log"). */
+export interface ActivityParams {
+  /** `user`, `system` or `agent:<id>` (who did it). */
+  actor?: string;
+  /** Entries by or about this agent. */
+  agentId?: string;
+  /** Action codes or prefixes (OR). */
+  action?: readonly string[];
+  entityType?: string;
+  entityId?: string;
+  since?: string;
+  until?: string;
+  before?: string;
+  limit?: number;
+}
+
+const activityQuery = (p: ActivityParams) => ({
+  actor: p.actor,
+  agent_id: p.agentId,
+  action: p.action?.length ? p.action.join(',') : undefined,
+  entity_type: p.entityType,
+  entity_id: p.entityId,
+  since: p.since,
+  until: p.until,
+  before: p.before,
+  limit: p.limit,
+});
+
 export interface WritePreconditions {
   /** Last known revision: the write fails with 412 if the invoice changed meanwhile. */
   ifMatch?: number;
   /** Create only: 412 if the id already exists. */
   ifNoneMatch?: boolean;
+  /** Part of a bulk upload (joining a workspace): batch id sent as `X-Midnight-Sync` so the activity log summarises it. */
+  bulkUpload?: string;
 }
 
 const encode = (segment: string) => encodeURIComponent(segment);
@@ -126,6 +157,7 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
     const headers: Record<string, string> = {};
     if (pre.ifMatch !== undefined) headers['if-match'] = `"${pre.ifMatch}"`;
     if (pre.ifNoneMatch) headers['if-none-match'] = '*';
+    if (pre.bulkUpload) headers['x-midnight-sync'] = `bulk-upload; batch=${pre.bulkUpload}`;
     return headers;
   };
 
@@ -188,6 +220,10 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
     approveOAuthRequest: (id: string, scopes: Scope[]) =>
       request<OAuthDecisionResponse>('POST', `/oauth/requests/${encode(id)}/approve`, { body: { scopes } }),
     denyOAuthRequest: (id: string) => request<OAuthDecisionResponse>('POST', `/oauth/requests/${encode(id)}/deny`),
+    // Activity log
+    listActivity: (p: ActivityParams = {}) => request<ListActivityResponse>('GET', '/activity', { query: activityQuery(p) }),
+    listAgentActivity: (id: string, p: Omit<ActivityParams, 'agentId'> = {}) =>
+      request<ListActivityResponse>('GET', `/agents/${encode(id)}/activity`, { query: activityQuery(p) }),
   };
 }
 

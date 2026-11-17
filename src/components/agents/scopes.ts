@@ -27,6 +27,10 @@ export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitiv
     title: 'Add, edit and delete clients',
     allows: 'Save new clients and change, archive or delete saved ones. Existing invoices never change: they keep their own copy of the client’s details.',
   },
+  'activity:read': {
+    title: 'See its own activity',
+    allows: 'Read the activity log entries this agent made itself (what it created, changed or downloaded), so it can check its earlier work. Never your own or other agents’ activity.',
+  },
 };
 
 export const SCOPE_SHORT: Record<Scope, string> = {
@@ -36,4 +40,5 @@ export const SCOPE_SHORT: Record<Scope, string> = {
   'settings:read': 'Read defaults',
   'clients:read': 'View clients',
   'clients:write': 'Edit clients',
+  'activity:read': 'Own activity',
 };

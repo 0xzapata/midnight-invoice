@@ -20,6 +20,7 @@ import {
   type StoredOAuthTokens,
 } from '@modelcontextprotocol/client';
 import { api, buildApp, createWorkspace, startD1, TestClock } from './test/helpers';
+import { SCOPES } from '../shared/api';
 
 const ORIGIN = 'https://invoices.example.com';
 const MCP_URL = new URL(`${ORIGIN}/api/mcp`);
@@ -147,7 +148,7 @@ describe.each<Mode>(['legacy', 'modern'])('official MCP client SDK OAuth flow (%
       state: 'sdk-state-42',
       resource: `${ORIGIN}/api/mcp`,
       // Scope selection strategy: all of scopes_supported from the protected-resource metadata.
-      scope: 'invoices:read invoices:write invoices:delete settings:read clients:read clients:write',
+      scope: SCOPES.join(' '),
     });
 
     // 2. The user approves a narrower set on the consent screen.

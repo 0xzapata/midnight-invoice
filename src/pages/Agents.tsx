@@ -1,8 +1,8 @@
 import { useId, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
-import { Bot, ChevronRight, Plug, Trash2 } from 'lucide-react';
+import { Bot, ChevronRight, History, Plug, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ import {
 import { PageHeader } from '@/components/PageHeader';
 import { CopyButton } from '@/components/CopyButton';
 import { EnableCloudSyncCard } from '@/components/sync/CloudSyncSettings';
+import { AgentActivityPreview } from '@/components/activity/AgentActivityPreview';
 import { SCOPE_INFO, SCOPE_SHORT } from '@/components/agents/scopes';
 import { api } from '@/lib/api';
 import { describeError } from '@/lib/api/errors';
@@ -97,6 +98,7 @@ function AgentRow({ agent }: { agent: AgentSummary }) {
             {agent.lastUsedAt ? formatDistanceToNow(parseISO(agent.lastUsedAt), { addSuffix: true }) : 'never'}
             {revoked && ` · Revoked ${format(parseISO(agent.revokedAt!), 'MMM d, yyyy')}`}
           </p>
+          <AgentActivityPreview agentId={agent.id} agentName={agent.name} />
         </div>
       </div>
       {!revoked && (
@@ -345,9 +347,17 @@ export default function Agents() {
             <EnableCloudSyncCard reason="Agents work with invoices stored in the cloud. Turn on cloud sync to connect one." />
           ) : (
             <section aria-labelledby="agents-connected" className="space-y-4">
-              <h3 id="agents-connected" className="text-lg font-semibold text-foreground">
-                Connected agents
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 id="agents-connected" className="text-lg font-semibold text-foreground">
+                  Connected agents
+                </h3>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/activity">
+                    <History className="h-4 w-4" aria-hidden="true" />
+                    Activity log
+                  </Link>
+                </Button>
+              </div>
               <AgentList />
               <CodeForm />
             </section>
