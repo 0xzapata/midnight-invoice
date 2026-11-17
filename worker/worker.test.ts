@@ -90,7 +90,16 @@ describe('agent flow, REST, MCP and PDF in workerd', () => {
     const mcp = new Client({ name: 'e2e', version: '1.0.0' });
     await mcp.connect(transport);
     const tools = (await mcp.listTools()).tools.map((t) => t.name).sort();
-    expect(tools).toEqual(['create_invoice', 'get_invoice', 'get_invoice_pdf', 'get_next_invoice_number', 'list_invoices', 'update_invoice']);
+    expect(tools).toEqual([
+      'create_invoice',
+      'get_invoice',
+      'get_invoice_pdf',
+      'get_invoice_summary',
+      'get_next_invoice_number',
+      'list_invoices',
+      'set_invoice_status',
+      'update_invoice',
+    ]);
     const next = await mcp.callTool({ name: 'get_next_invoice_number', arguments: {} });
     expect(JSON.parse((next.content as { text: string }[])[0].text)).toEqual({ invoiceNumber: 'INV-0002' });
     const pdfTool = await mcp.callTool({ name: 'get_invoice_pdf', arguments: { id: created.body.invoice.id } });

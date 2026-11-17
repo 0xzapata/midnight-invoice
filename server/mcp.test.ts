@@ -55,10 +55,12 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
       'get_client',
       'get_invoice',
       'get_invoice_pdf',
+      'get_invoice_summary',
       'get_next_invoice_number',
       'get_settings',
       'list_clients',
       'list_invoices',
+      'set_invoice_status',
       'update_client',
       'update_invoice',
     ]);
@@ -77,6 +79,7 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
     expect((await readOnly.listTools()).tools.map((t) => t.name).sort()).toEqual([
       'get_invoice',
       'get_invoice_pdf',
+      'get_invoice_summary',
       'get_next_invoice_number',
       'list_invoices',
     ]);

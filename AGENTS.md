@@ -26,7 +26,7 @@ Midnight Invoice is a modern invoice generator built with React 19, Vite, and Ty
 
 ### State Management
 State is managed using Zustand stores located in `src/stores/`.
-- `useInvoiceStore.ts`: Manages the list of saved invoices.
+- `useInvoiceStore.ts`: Manages the list of saved invoices. Status changes go through `setInvoiceStatus` (shared transition rules); `saveInvoice` never changes the status of an existing invoice (new ones are drafts unless `options.status`).
 - `useSettingsStore.ts`: Manages default invoice settings (from address, currency, etc.).
 - `useClientStore.ts`: saved clients (address book), persisted as `client-storage` (version + `migrateClientStore`). Local-first and works without cloud sync; user edits are reported with `emitLocalChange`. Helpers: `activeClientsSorted`, `invoicesForClient` (by `clientId`, or name+email for older unlinked invoices), `importFromInvoices` (dedupe by `clientDedupeKey`).
 - `useCloudStore.ts`: opt-in cloud sync state: workspace, workspace token (the "recovery key"), one delta cursor per synced collection (`cursors`), the pending-change queue (entries carry `collection` + `entityId`), merge bases and sync errors keyed by `syncKey(collection, id)` (bare id for invoices), plus runtime status for the header. Persisted as `cloud-sync-storage` (version 2 + `migrateCloudStore`, which converts version 1 data).
@@ -44,6 +44,7 @@ State is managed using Zustand stores located in `src/stores/`.
 - Local edits reach the engine through `src/lib/sync/localChanges.ts` (`emitLocalChange`, called by the stores' save/archive/delete actions); changes applied from the server use `setState` directly (through the descriptor) so they are never echoed back. Drafts are never synced.
 - `src/components/sync/CloudSyncRuntime.tsx` (mounted in `App.tsx`) triggers cycles on start, focus, `online`, and every 15 s while visible. `cloudActions.ts`: enable (create workspace + upload settings, clients, invoices), connect with a recovery key (validated via `GET /workspace`), disconnect, delete workspace.
 - Agent-facing UI: `/agents/approve` (consent screen, never auto-approves; agent-supplied text is rendered as plain text) and `/agents` (list/revoke, connection help). Server state there uses react-query (`['agents']`, `['agent-registration', code]`).
+- Invoice status: `shared/invoice-status.ts` is the single source of the rules (statuses, transitions, derived overdue, per-currency summary), used by the store, the UI (`src/components/invoice/status/`) and the server (`server/services/invoiceStatus.ts`, `statusFields.ts`, `server/routes/invoiceStatus.ts`, `server/mcpStatusTools.ts`). Missing status = `draft` everywhere. "Today" is the local date in the browser and the UTC date on the server. For the three-way merge, status + `sentAt` + `paidAt` is one field. Migration `0002_invoice_status.sql` exposes status/due date/client as virtual generated columns over the invoice JSON.
 - Tests use `src/test/fakeApi.ts` (an in-memory implementation of the API) with `vi.stubGlobal('fetch', fake.fetch)`.
 
 ### Routing

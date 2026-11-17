@@ -33,6 +33,7 @@ import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invo
 import { invoiceInputSchema, invoicePatchSchema, isoDateTime, LIMITS } from './schemas';
 import * as invoices from './services/invoices';
 import { registerClientTools } from './mcpClients';
+import { registerStatusTools, statusListFilters } from './mcpStatusTools';
 
 export const MCP_SERVER_INFO = { name: 'midnight-invoice', version: '1.0.0' };
 
@@ -56,6 +57,9 @@ const FIELD_DOCS: Record<string, string> = {
     'Id of a saved client to bill (from list_clients / get_client; requires clients:read). Look the client up first — never invent an address. ' +
     'Omitted toName/toAddress/toEmail are filled from the client, and omitted currency/taxRate/dueDate from its defaults before the workspace settings. ' +
     'null unlinks (update only).',
+  status: 'Invoice status: draft (default), sent, paid or void. To change the status of an existing invoice prefer set_invoice_status.',
+  sentAt: 'Date the invoice was sent, YYYY-MM-DD. Defaults to today when status is sent.',
+  paidAt: 'Date the invoice was paid, YYYY-MM-DD. Defaults to today when status is paid.',
 };
 
 function describeShape<T extends z.ZodRawShape>(shape: T): T {
@@ -79,6 +83,7 @@ const listInput = z.object({
   updated_since: isoDateTime.optional().describe('Only invoices changed at or after this ISO timestamp.'),
   include_deleted: z.boolean().optional().describe('Include soft-deleted invoices (tombstones). Default false.'),
   limit: z.number().int().min(1).max(LIMITS.listMax).optional().describe(`Max results (default ${LIMITS.listMax}).`),
+  ...statusListFilters,
 });
 
 function json(value: unknown): CallToolResult {
@@ -144,7 +149,8 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
     {
       title: 'List invoices',
       description:
-        'List invoices in the workspace, oldest change first, with computed totals. Soft-deleted invoices are excluded unless include_deleted is true.',
+        'List invoices in the workspace, oldest change first, with computed totals, status and overdue days. Soft-deleted invoices are excluded unless include_deleted is true. ' +
+        'Filter with status (e.g. ["overdue"] for unpaid invoices past their due date, ["sent","overdue"] for everything unpaid), due_before, due_after and client.',
       inputSchema: listInput,
       annotations: { readOnlyHint: true },
     },
@@ -154,6 +160,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
           updatedSince: args.updated_since,
           includeDeleted: args.include_deleted,
           limit: args.limit,
+          filters: invoices.listFiltersOf(args),
         }),
       ),
   );
@@ -266,6 +273,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
   );
 
   registerClientTools(tool, ctx);
+  registerStatusTools(tool, ctx);
 
   return server;
 }

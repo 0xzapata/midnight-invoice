@@ -15,6 +15,7 @@ import type { AppDeps } from './deps';
 import { ApiError, errors } from './errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, runInBackground } from './http';
 import { createMcpEndpoint } from './mcp';
+import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
 import { buildOpenApiDocument } from './openapi';
 import { parsePdfTheme, pdfFilename, renderInvoicePdf } from './pdf/render';
 import { LIMITS, listInvoicesQuerySchema, settingsSchema, zodDetails } from './schemas';
@@ -157,6 +158,7 @@ export function createApp(deps: AppDeps) {
         afterId: q.after_id,
         includeDeleted: q.include_deleted === 'true',
         limit: q.limit,
+        filters: invoices.listFiltersOf(q),
       }),
     );
   });
@@ -167,6 +169,7 @@ export function createApp(deps: AppDeps) {
     return c.json({ invoice }, 201);
   });
   v1.get('/invoices/next-number', auth, async (c) => c.json({ invoiceNumber: await invoices.nextInvoiceNumber(svc(c)) }));
+  registerInvoiceStatusRoutes(v1, auth, svc);
   v1.get('/invoices/:id', auth, async (c) => {
     const invoice = await invoices.getInvoice(svc(c), c.req.param('id'));
     withEtag(c, invoice);

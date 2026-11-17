@@ -29,7 +29,7 @@ only as SHA-256 hashes. Send them as `Authorization: Bearer <secret>`.
 | Scope | Allows |
 |---|---|
 | `invoices:read` | List/get invoices, next invoice number, PDF download |
-| `invoices:write` | Create (POST/PUT) and update (PUT/PATCH) invoices |
+| `invoices:write` | Create (POST/PUT) and update (PUT/PATCH) invoices, change their status |
 | `invoices:delete` | Delete invoices |
 | `settings:read` | Read the default sender settings |
 | `clients:read` | List/search/get saved clients; bill an invoice to a saved client (`clientId`) |
@@ -125,6 +125,11 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 | GET | `/api/v1/invoices` | any | `invoices:read` | Sync feed, see below |
 | POST | `/api/v1/invoices` | any | `invoices:write` | → 201 `{invoice}` + `ETag`, `Location` |
 | GET | `/api/v1/invoices/next-number` | any | `invoices:read` | `{invoiceNumber:"INV-0007"}` |
+| GET | `/api/v1/invoices/summary` | any | `invoices:read` | Counts and totals per currency, see [Status](#invoice-status) |
+| POST | `/api/v1/invoices/:id/mark-sent` | any | `invoices:write` | Optional body `{sentAt}`; `If-Match` → `{invoice}` + `ETag` |
+| POST | `/api/v1/invoices/:id/mark-paid` | any | `invoices:write` | Optional body `{paidAt}`; `If-Match` → `{invoice}` + `ETag` |
+| POST | `/api/v1/invoices/:id/void` | any | `invoices:write` | `If-Match` → `{invoice}` + `ETag` |
+| POST | `/api/v1/invoices/:id/reopen` | any | `invoices:write` | `If-Match` → `{invoice}` + `ETag` |
 | GET | `/api/v1/invoices/:id` | any | `invoices:read` | `{invoice}` + `ETag`; 410 if deleted |
 | PUT | `/api/v1/invoices/:id` | any | `invoices:write` | Create-or-replace with client UUID → 201/200 |
 | PATCH | `/api/v1/invoices/:id` | any | `invoices:write` | Partial update → 200 |
@@ -194,6 +199,59 @@ otherwise).
 Totals: `subtotal = Σ quantity × price`, `taxAmount = subtotal × taxRate / 100`,
 `total = subtotal + taxAmount`, each rounded to 2 decimals.
 
+### Invoice status
+
+`ApiInvoice` also has `status` (`draft | sent | paid | void`), `sentAt` and
+`paidAt` (`YYYY-MM-DD` or `null`) and the derived, never stored, `isOverdue`
+and `daysOverdue`.
+
+- **Overdue** = status `sent` and `dueDate` strictly before today. The server
+  uses the **UTC** date (the app uses the user's local date, so around
+  midnight they can differ by a day). Due today is not overdue; no due date is
+  never overdue. `daysOverdue` = whole days since `dueDate`, 0 otherwise.
+- **Old invoices** (saved before statuses existed, locally or on the server)
+  have no stored status and read as `draft`: nothing says they were sent, and
+  calling them `sent` would report long-paid invoices as overdue.
+- **Dates**: `sentAt` is set when an invoice becomes `sent` (default today),
+  `paidAt` iff it is `paid` (default today); `draft` clears both; `void`
+  clears `paidAt` and keeps `sentAt`.
+- **Transitions** (one shared function, `shared/invoice-status.ts`, also used
+  by the app): draft → sent | void; sent → paid | void | draft; paid → sent
+  (undo payment) | void; void → draft | sent. Setting the current status again
+  is a no-op (same revision). Anything else is `409 invalid_status_transition`
+  with `details: {from, to|action, allowed}`.
+- **Endpoints**: `mark-sent` (drafts), `mark-paid` (sent invoices; optional
+  `paidAt`), `void` (anything not void), `reopen` (paid → sent; void → sent if
+  it had been sent, else draft). They honour `If-Match` like PATCH.
+- **Writes**: `POST`/`PUT`-create accept `status`, `sentAt`, `paidAt` (default
+  `draft`). `PATCH` with `status` enforces the transitions. `PUT` replace is a
+  full-state write used by sync and accepts any status (a series of offline
+  changes arrives as one PUT); an omitted `status` keeps the current one.
+- **Filters on `GET /invoices`** (combine with the sync parameters below):
+  `status=sent,overdue` (comma list, OR; `overdue` is virtual and `sent`
+  includes overdue invoices), `due_before=YYYY-MM-DD` / `due_after=…` (strict;
+  invoices without a due date never match), `client=` (case-insensitive
+  substring of `toName`).
+- **`GET /invoices/summary`** (`?oldest_overdue_limit=0..50`, default 5):
+
+```json
+{
+  "asOf": "2026-11-17",
+  "currencies": [
+    { "currency": "EUR",
+      "draft": { "count": 1, "total": 10 }, "outstanding": { "count": 1, "total": 100 },
+      "overdue": { "count": 1, "total": 220 }, "paidThisMonth": { "count": 1, "total": 300 },
+      "paidThisYear": { "count": 2, "total": 700 } }
+  ],
+  "oldestOverdue": [
+    { "id": "…", "invoiceNumber": "INV-0003", "toName": "Globex", "currency": "EUR", "total": 220, "dueDate": "2026-11-01", "daysOverdue": 16 }
+  ]
+}
+```
+
+  Amounts are grouped by currency and never summed across currencies;
+  `outstanding` = sent and not overdue; paid buckets use `paidAt`; void and
+  deleted invoices are excluded.
 ### Billing a saved client
 
 `POST`, `PUT` and `PATCH /invoices` accept `clientId` (a saved client's id).
@@ -346,7 +404,9 @@ Tools (only those your scopes allow are listed; others are rejected):
 
 | Tool | Scope | Annotations | Does |
 |---|---|---|---|
-| `list_invoices` | `invoices:read` | read-only | `{updated_since?, include_deleted?, limit?}` → same as `GET /invoices` |
+| `list_invoices` | `invoices:read` | read-only | `{updated_since?, include_deleted?, limit?, status?: ("draft"\|"sent"\|"paid"\|"void"\|"overdue")[], due_before?, due_after?, client?}` → same as `GET /invoices` |
+| `get_invoice_summary` | `invoices:read` | read-only | `{oldest_overdue_limit?}` → same as `GET /invoices/summary` |
+| `set_invoice_status` | `invoices:write` | destructive, idempotent | `{id, status, paid_at?, sent_at?, expected_revision?}` → `{invoice, changed}`; same transition rules |
 | `get_invoice` | `invoices:read` | read-only | `{id}` |
 | `get_next_invoice_number` | `invoices:read` | read-only | `{}` |
 | `get_invoice_pdf` | `invoices:read` | read-only | `{id, theme?: "light"\|"dark"}` (default `dark`) → embedded `application/pdf` resource (base64) + download URL |
@@ -377,7 +437,7 @@ tool results with `isError: true` and the REST error body as text.
 | 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
-| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion) |
+| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition` |
 | 410 | `gone` (deleted invoice or client; expired registration) |
 | 412 | `precondition_failed` |
 | 413 | `payload_too_large` |

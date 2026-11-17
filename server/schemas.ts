@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { invoiceFormSchema } from '@/lib/validation';
 import { currencies } from '@/lib/currencies';
 import { SCOPES } from '../shared/api';
+import { INVOICE_STATUSES } from '../shared/invoice-status';
 
 export const LIMITS = {
   /** Max JSON body for invoice/settings writes. */
@@ -67,6 +68,9 @@ const invoiceFields = {
   notes: text(LIMITS.longText),
   paymentDetails: text(LIMITS.longText),
   currency: currencyCode,
+  status: z.enum(INVOICE_STATUSES),
+  sentAt: z.union([isoDate, z.literal(''), z.null()]),
+  paidAt: z.union([isoDate, z.literal(''), z.null()]),
 };
 
 /** Reference to a saved client (`null` = no client). See server/services/invoiceClients.ts. */
@@ -93,6 +97,9 @@ export const invoiceInputSchema = z.object({
   notes: invoiceFields.notes.optional(),
   paymentDetails: invoiceFields.paymentDetails.optional(),
   currency: invoiceFields.currency.optional(),
+  status: invoiceFields.status.optional(),
+  sentAt: invoiceFields.sentAt.optional(),
+  paidAt: invoiceFields.paidAt.optional(),
   createdAt: isoDateTime.optional(),
   id: z.string().optional(),
   clientId: clientIdRef.optional(),
@@ -116,6 +123,9 @@ export const invoicePatchSchema = z.object({
   notes: invoiceFields.notes.optional(),
   paymentDetails: invoiceFields.paymentDetails.optional(),
   currency: invoiceFields.currency.optional(),
+  status: invoiceFields.status.optional(),
+  sentAt: invoiceFields.sentAt.optional(),
+  paidAt: invoiceFields.paidAt.optional(),
   id: z.string().optional(),
   clientId: clientIdRef.optional(),
 });
@@ -157,7 +167,24 @@ export const listInvoicesQuerySchema = z.object({
   after_id: z.string().min(1).max(LIMITS.id).optional(),
   include_deleted: z.enum(['true', 'false']).optional(),
   limit: z.coerce.number().int().min(1).max(LIMITS.listMax).optional(),
+  // Status / due-date filters (comma list of statuses, plus the virtual "overdue").
+  status: z
+    .string()
+    .max(100)
+    .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean))
+    .pipe(z.array(z.enum([...INVOICE_STATUSES, 'overdue'])).min(1, 'At least one status'))
+    .optional(),
+  due_before: isoDate.optional(),
+  due_after: isoDate.optional(),
+  client: z.string().trim().min(1).max(LIMITS.shortText).optional(),
 });
+
+export const summaryQuerySchema = z.object({
+  oldest_overdue_limit: z.coerce.number().int().min(0).max(50).optional(),
+});
+
+export const markSentSchema = z.object({ sentAt: isoDate.optional() });
+export const markPaidSchema = z.object({ paidAt: isoDate.optional() });
 
 /** Turns a ZodError into `details` for a 400 response. */
 export function zodDetails(error: z.ZodError): { path: string; message: string }[] {

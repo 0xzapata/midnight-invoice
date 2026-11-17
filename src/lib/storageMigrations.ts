@@ -2,12 +2,13 @@ import type { Invoice } from '@/types/invoice';
 import type { DefaultSettings } from '../../shared/settings';
 import type { Client } from '../../shared/types/client';
 import { isCollectionName, type CollectionName } from '@/lib/sync/collectionNames';
+import { localToday, normalizeStatusFields } from '../../shared/invoice-status';
 
 /**
  * Current schema version for invoices.
  * Increment this when making breaking changes to the Invoice type.
  */
-export const CURRENT_INVOICE_VERSION = 1;
+export const CURRENT_INVOICE_VERSION = 2;
 
 /**
  * Current schema version for settings.
@@ -40,12 +41,13 @@ export interface SettingsPersistedState {
  * @example
  * // Automatic migration when loading from localStorage
  * // Version 0 (unversioned) -> Version 1: stamps invoices with version
+ * // Version 1 -> Version 2: adds status fields (missing status = 'draft', see shared/invoice-status.ts)
  */
 export function migrateInvoiceStore(
     persistedState: unknown,
     version: number
 ): InvoicePersistedState {
-    const state = persistedState as InvoicePersistedState;
+    let state = persistedState as InvoicePersistedState;
 
     // Version 0 -> 1: Add version field to existing invoices
     if (version === 0) {
@@ -54,15 +56,31 @@ export function migrateInvoiceStore(
             version: 1,
         }));
 
-        return {
+        state = {
             ...state,
             invoices: migratedInvoices,
             drafts: state.drafts || {},
         };
     }
 
+    // Version 1 -> 2: invoice status. Invoices saved before statuses existed
+    // become drafts (claiming "sent" would report old, long-paid invoices with a
+    // past due date as overdue); the user marks them sent or paid.
+    if (version <= 1) {
+        const today = localToday();
+        state = {
+            ...state,
+            invoices: (state.invoices || []).map((invoice) => ({
+                ...invoice,
+                ...normalizeStatusFields(invoice, today),
+                version: 2,
+            })),
+            drafts: state.drafts || {},
+        };
+    }
+
     // Future migrations would go here:
-    // if (version === 1) { ... migrate to v2 ... }
+    // if (version === 2) { ... migrate to v3 ... }
 
     return state;
 }

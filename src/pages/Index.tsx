@@ -17,6 +17,8 @@ import { env } from '@/env';
 import { SyncStatusIndicator } from '@/components/sync/SyncStatusIndicator';
 import { CloudSyncSettings } from '@/components/sync/CloudSyncSettings';
 import { useCloudEnabled } from '@/stores/useCloudStore';
+import { StatusFilterChips, TotalsStrip } from '@/components/invoice/status/StatusOverview';
+import { useInvoiceStatusView, type StatusFilter } from '@/components/invoice/status/useInvoiceStatus';
 
 type Tab = 'invoices' | 'settings' | 'coming';
 const TABS: readonly Tab[] = ['invoices', 'settings', 'coming'];
@@ -30,6 +32,8 @@ const Index = () => {
   const activeTab: Tab = tabParam && TABS.includes(tabParam) ? tabParam : 'invoices';
   const { settings, updateSettings } = useSettingsStore();
   const cloudEnabled = useCloudEnabled();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const statusView = useInvoiceStatusView(invoices, statusFilter);
 
   // Local state for settings form to avoid auto-saving on every keystroke
   const [localSettings, setLocalSettings] = useState<DefaultSettings>(settings);
@@ -174,13 +178,30 @@ const Index = () => {
                   <Spinner size="lg" />
                 </div>
               ) : (
+                <>
+                {invoices.length > 0 && (
+                  <>
+                    <TotalsStrip summary={statusView.summary} onSelect={setStatusFilter} className="mb-4" />
+                    <StatusFilterChips value={statusFilter} counts={statusView.counts} onChange={setStatusFilter} className="mb-4" />
+                  </>
+                )}
+                {invoices.length > 0 && statusView.filtered.length === 0 ? (
+                  <div className="border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
+                    No {statusFilter} invoices.{' '}
+                    <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => setStatusFilter('all')}>
+                      Show all
+                    </button>
+                  </div>
+                ) : (
                 <InvoiceList
-                  invoices={invoices}
+                  invoices={statusView.filtered}
                   onView={handleViewInvoice}
                   onLoadSession={handleLoadSession}
                   onDuplicate={handleDuplicateInvoice}
                   onDelete={deleteInvoice}
                 />
+                )}
+                </>
               )}
 
               {invoices.length === 0 && !isLoading && (
