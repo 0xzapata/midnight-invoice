@@ -86,6 +86,21 @@ function statusPhrase(to: string): SentencePart[] {
   return ['marked ', { target: true }, ` as ${STATUS_LABELS[to as keyof typeof STATUS_LABELS]?.toLowerCase() ?? to}`];
 }
 
+/** Why an email was not sent (codes from the send endpoint). */
+const EMAIL_REASONS: Record<string, string> = {
+  provider_auth_failed: 'The server’s email account rejected its API key',
+  provider_rejected: 'The email provider refused the message',
+  provider_rate_limited: 'The email provider was busy',
+  provider_unavailable: 'The email provider had a problem',
+  provider_unreachable: 'The email provider could not be reached',
+  attachment_too_large: 'The PDF was too large',
+  pdf_render_failed: 'The PDF could not be generated',
+  agent_recipient_override: 'Agents can only email the client address on the invoice',
+  agent_cc_not_allowed: 'Agents can only copy your own email',
+  address_not_confirmed_by_user: 'You have not entered or confirmed this address yourself',
+  invoice_needs_review: 'An agent changed the sender or payment details; review and save the invoice first',
+};
+
 export function describeEntry(entry: ActivityEntry): DescribedEntry {
   const actor = actorName(entry);
   const c = entry.changes ?? {};
@@ -114,6 +129,22 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       break;
     case 'invoice.pdf_downloaded':
       parts = ['downloaded the PDF of ', { target: true }];
+      break;
+    case 'invoice.emailed': {
+      const e = c.email;
+      parts = ['emailed ', { target: true }, e?.to ? ` to ${e.to}` : ' to the client'];
+      if (e?.resend) details.push('Sent again');
+      if (c.status?.to === 'sent') details.push('Marked as sent');
+      if (e?.cc) details.push(`Copy to ${plural(e.cc, 'more recipient')}`);
+      break;
+    }
+    case 'invoice.email_failed':
+      parts = ['could not email ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
+      if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
+      break;
+    case 'invoice.email_blocked':
+      parts = ['was stopped from emailing ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
+      if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
       break;
     case 'client.created':
       parts = ['added the client ', { target: true }];

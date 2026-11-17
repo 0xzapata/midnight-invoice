@@ -26,7 +26,7 @@ approves in the app. OAuth access tokens only work on /api/mcp.
 1. POST /api/v1/agents/register with {"name", "description"?, "scopes": [...]}
    Scopes: invoices:read, invoices:write, invoices:delete, settings:read,
    clients:read, clients:write, templates:read, templates:write,
-   activity:read
+   activity:read, invoices:send (email invoices; ask only if needed)
 2. Show the user `user_code` and `verification_url_complete`; they approve it in the app.
 3. Poll POST /api/v1/agents/token with {"device_code"} every `interval` seconds
    until it returns {"api_key"} (errors: authorization_pending, slow_down,
@@ -45,6 +45,16 @@ approves in the app. OAuth access tokens only work on /api/mcp.
 - GET /api/v1/activity (scope activity:read): your own activity log entries, newest first
   (filters action=invoice.,client. entity_id= since= until=; page with before=next.before)
 - MCP: get_my_activity
+
+## Email an invoice to the client
+
+- POST /api/v1/invoices/:id/send (scope invoices:send; send an Idempotency-Key header)
+  emails the PDF to the invoice's toEmail. Agents cannot pick another recipient,
+  and only addresses the user entered in the app are allowed. A draft becomes sent.
+  Always confirm with the user (invoice number, recipient, total) before sending.
+- Errors: 503 email_not_configured, 403 recipient_not_allowed, 429 rate_limited
+  (cooldown and daily caps), 502 email_send_failed. History: GET /api/v1/invoices/:id/emails
+- MCP: send_invoice_email
 
 ## Docs
 

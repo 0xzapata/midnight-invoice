@@ -9,6 +9,7 @@ import { LIMITS } from './schemas';
 import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
 import { templateOpenApiPaths, templateOpenApiSchemas } from './openapiTemplates';
 import { oauthOpenApiPaths, oauthOpenApiSchemas } from './openapiOAuth';
+import { emailOpenApiPaths, emailOpenApiSchemas } from './openapiEmail';
 import { activityOpenApiPaths, activityOpenApiSchemas } from './openapiActivity';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
@@ -185,6 +186,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         ...clientOpenApiSchemas,
         ...templateOpenApiSchemas,
         ...oauthOpenApiSchemas,
+        ...emailOpenApiSchemas,
         ...activityOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
         LineItem: {
@@ -508,6 +510,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
       },
       ...statusActionPaths(),
+      ...emailOpenApiPaths,
       '/settings': {
         get: { summary: 'Default sender settings', ...scoped('settings:read'), responses: { 200: ok('Settings', { type: 'object', properties: { settings: ref('Settings'), updatedAt: { type: ['string', 'null'] } } }), 401: E[401], 403: E[403] } },
         put: {

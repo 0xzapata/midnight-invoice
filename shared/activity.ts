@@ -16,6 +16,9 @@ export const ACTIVITY_ACTIONS = [
   'invoice.status_changed',
   'invoice.deleted',
   'invoice.pdf_downloaded',
+  'invoice.emailed',
+  'invoice.email_failed',
+  'invoice.email_blocked',
   'client.created',
   'client.updated',
   'client.archived',
@@ -50,6 +53,7 @@ export const ACTIVITY_ACTION_GROUPS = {
   invoices: { label: 'Invoices', prefixes: ['invoice.'] },
   payments: { label: 'Status changes', prefixes: ['invoice.status_changed'] },
   downloads: { label: 'PDF downloads', prefixes: ['invoice.pdf_downloaded'] },
+  emails: { label: 'Emails', prefixes: ['invoice.email'] },
   clients: { label: 'Clients', prefixes: ['client.'] },
   templates: { label: 'Templates', prefixes: ['template.'] },
   access: { label: 'Agent access', prefixes: ['agent.'] },
@@ -91,6 +95,12 @@ export interface ActivityChanges {
   theme?: string;
   /** `invoice.created` from a template: which one (name snapshot taken at the time). */
   template?: { id: string; label: string | null };
+  /**
+   * `invoice.emailed` / `invoice.email_failed` / `invoice.email_blocked`: the
+   * recipient masked (`b•••@acme.io`), number of cc recipients, whether it was
+   * a resend, and the failure or refusal code. Never the message.
+   */
+  email?: { to: string; cc?: number; resend?: boolean; code?: string };
 }
 
 export type ActivitySource = 'rest' | 'mcp' | 'system';

@@ -15,7 +15,9 @@ import { ApiError, errors } from './errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, runInBackground } from './http';
 import { createMcpEndpoint } from './mcp';
 import { installOperator } from './operator';
+import { setTelemetryDetail } from './operator/hooks';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
+import { registerInvoiceEmailRoutes } from './routes/invoiceEmail';
 import { buildOpenApiDocument } from './openapi';
 import { parsePdfTheme, pdfFilename } from './pdf/render';
 import { LIMITS, listInvoicesQuerySchema, zodDetails } from './schemas';
@@ -59,6 +61,7 @@ export function createApp(deps: AppDeps) {
     requestId: c.req.header('cf-ray') ?? crypto.randomUUID(),
     bulkUploadId: parseBulkUploadHeader(c.req.header('x-midnight-sync')),
     waitUntil: (promise) => runInBackground(c, promise),
+    telemetry: (detail) => setTelemetryDetail(c, detail),
   });
 
   /** Bearer auth for workspace tokens and agent keys. */
@@ -199,6 +202,7 @@ export function createApp(deps: AppDeps) {
   });
   v1.get('/invoices/next-number', auth, async (c) => c.json({ invoiceNumber: await invoices.nextInvoiceNumber(svc(c)) }));
   registerInvoiceStatusRoutes(v1, auth, svc);
+  registerInvoiceEmailRoutes(v1, auth, svc);
   v1.get('/invoices/:id', auth, async (c) => {
     const invoice = await invoices.getInvoice(svc(c), c.req.param('id'));
     withEtag(c, invoice);

@@ -12,7 +12,7 @@
  */
 import { vi } from 'vitest';
 import type { Actor } from '@/types/invoice';
-import type { AgentSummary, ApiClientRecord, ApiInvoice, ApiTemplate, ClientInput, InvoiceInput, Scope, TemplateInput } from '../../shared/api';
+import type { AgentSummary, ApiClientRecord, ApiInvoice, ApiTemplate, ClientInput, InvoiceEmail, InvoiceInput, Scope, SendInvoiceEmailRequest, TemplateInput } from '../../shared/api';
 import type { ActivityEntry } from '../../shared/activity';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 import { daysOverdue, isOverdue, normalizeStatusFields, utcToday } from '../../shared/invoice-status';
@@ -50,7 +50,10 @@ export function createFakeApi() {
     /** Activity log entries (any order; served newest first by id). */
     activity: [] as ActivityEntry[],
     workspace: { id: 'ws-1', createdAt: '2026-11-17T09:00:00.000Z' },
+    /** POST /invoices/:id/send behaviour (email configured on the "server"). */
+    email: { configured: true, fromAddress: 'invoices@mail.midnight.app', fromName: 'Midnight Invoice', pdfTheme: 'light' as 'light' | 'dark', cooldownMinutes: 10 },
   };
+  const emails = new Map<string, InvoiceEmail[]>();
   const requests: RecordedRequest[] = [];
   const handlers: Handler[] = [];
 
@@ -303,6 +306,57 @@ export function createFakeApi() {
         return new Response(null, { status: 204 });
       }
     }
+    const sendMatch = /^\/invoices\/([^/]+)\/(send|emails)$/.exec(path);
+    if (sendMatch) {
+      const [, id, action] = sendMatch;
+      const existing = invoices.get(id);
+      if (!existing) return apiError(404, 'not_found', 'Invoice not found');
+      if (existing.deletedAt) return apiError(410, 'gone', 'Invoice was deleted', { id });
+      if (action === 'emails' && method === 'GET') {
+        return json(200, { emails: structuredClone(emails.get(id) ?? []), delivery: { ...state.email, fromAddress: state.email.configured ? state.email.fromAddress : null } });
+      }
+      if (action === 'send' && method === 'POST') {
+        if (!state.email.configured) return apiError(503, 'email_not_configured', 'Email is not available: This server has no email provider API key yet.');
+        if (existing.status === 'void') return apiError(409, 'invalid_status_transition', 'Void invoices cannot be sent');
+        const req = (body ?? {}) as SendInvoiceEmailRequest;
+        const to = req.to ?? existing.toEmail;
+        const at = tick();
+        const statusChanged = existing.status === 'draft';
+        const invoice = statusChanged
+          ? { ...existing, status: 'sent' as const, sentAt: at.slice(0, 10), revision: existing.revision + 1, updatedAt: at }
+          : existing;
+        invoices.set(id, invoice);
+        const email: InvoiceEmail = {
+          id: `email-${(emails.get(id)?.length ?? 0) + 1}`,
+          invoiceId: id,
+          to,
+          cc: req.ccMe ? [state.settings.settings.fromEmail] : [],
+          subject: req.subject ?? `Invoice ${existing.invoiceNumber}`,
+          status: 'sent',
+          error: null,
+          sentBy: { type: 'user' },
+          statusChanged,
+          createdAt: at,
+          sentAt: at,
+        };
+        emails.set(id, [email, ...(emails.get(id) ?? [])]);
+        state.activity.push({
+          id: `act_${String(state.activity.length + 1).padStart(19, '0')}`,
+          time: at,
+          actor: { type: 'user' },
+          action: 'invoice.emailed',
+          entity: { type: 'invoice', id, label: existing.invoiceNumber },
+          changes: {
+            email: { to: `${to[0]}•••${to.slice(to.lastIndexOf('@'))}`, cc: email.cc.length, resend: !statusChanged },
+            ...(statusChanged ? { status: { from: 'draft' as const, to: 'sent' as const } } : {}),
+          },
+          source: 'rest',
+          tool: null,
+          requestId: null,
+        });
+        return json(200, { email, invoice: structuredClone(invoice), statusChanged, replayed: false });
+      }
+    }
     if (path === '/clients' && method === 'GET') {
       const { page, syncedAt, hasMore, next } = feed(clients.values(), query);
       return json(200, { clients: page, syncedAt, hasMore, next });
@@ -469,6 +523,8 @@ export function createFakeApi() {
     },
     getTemplate: (id: string) => templates.get(id),
     allTemplates: () => [...templates.values()],
+    /** Email history per invoice (newest first), e.g. to seed a failed send. */
+    emails,
     /** Appends an activity entry (ids increase with each call, so later = newer). */
     addActivity(entry: Partial<ActivityEntry> & Pick<ActivityEntry, 'action'>): ActivityEntry {
       const full: ActivityEntry = {
@@ -507,4 +563,4 @@ export function createFakeApi() {
 
 export type FakeApi = ReturnType<typeof createFakeApi>;
 
-export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read'];
+export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read', 'invoices:send'];

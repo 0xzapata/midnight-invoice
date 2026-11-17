@@ -48,6 +48,7 @@ only as SHA-256 hashes. Send them as `Authorization: Bearer <secret>`.
 | `templates:read` | List/search/get invoice templates; with `invoices:write`, create invoices from a template |
 | `templates:write` | Create, update, archive and delete invoice templates |
 | `activity:read` | Read this agent's **own** entries of the [activity log](#activity-log) (`GET /activity`, `get_my_activity`) |
+| `invoices:send` | Email an invoice (PDF attached) to the client on file; sending a draft marks it sent. Sensitive: real email to real people |
 
 There is no separate `clients:delete`: deleting a client is a soft delete of
 address-book data that never touches invoices (they keep their own copy of the
@@ -58,6 +59,8 @@ scopes it was granted and must register again to get client access. The
 same holds for `templates:read` / `templates:write` (write includes delete,
 for the same reason as clients: deleting a template never touches the
 invoices made from it).
+The same holds for `invoices:send`: no existing agent can send email until
+the user approves a new registration that asks for it.
 
 Settings writes, agent management and workspace deletion require the workspace
 token; no scope grants them.
@@ -318,6 +321,8 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 | PATCH | `/api/v1/templates/:id` | any | `templates:write` | Partial update (lineItems replaces the list) → 200 |
 | DELETE | `/api/v1/templates/:id` | any | `templates:write` | Soft delete → 204 (invoices unchanged) |
 | POST | `/api/v1/templates/:id/instantiate` | any | `invoices:write` + `templates:read` | Optional overrides → 201 `{invoice, template, placeholders, warnings}`, see [Creating an invoice from a template](#creating-an-invoice-from-a-template) |
+| POST | `/api/v1/invoices/:id/send` | any | `invoices:send` | Email the invoice with its PDF; optional `Idempotency-Key`; see [Sending invoices by email](#sending-invoices-by-email) |
+| GET | `/api/v1/invoices/:id/emails` | any | `invoices:read` | `{emails:[…], delivery:{configured,fromAddress,fromName,pdfTheme,cooldownMinutes}}` (newest first) |
 | GET | `/api/v1/invoices/:id/pdf` | any | `invoices:read` | `application/pdf`, styled like the app's invoice preview; optional `?theme=light\|dark` (default `dark`, the app default; anything else → 400) |
 | GET | `/api/v1/settings` | any | `settings:read` | `{settings,updatedAt}` (defaults + `updatedAt:null` if never saved) |
 | PUT | `/api/v1/settings` | workspace token | | Body = settings object → `{settings,updatedAt}` |
@@ -470,6 +475,86 @@ Rules:
   omits from the new client; it never changes currency, tax rate or due date
   of an existing invoice. `PATCH {"clientId": null}` unlinks (details kept).
 
+### Sending invoices by email
+
+`POST /api/v1/invoices/:id/send` emails the invoice to the client with the
+PDF attached. It needs the `invoices:send` scope (the workspace token has it;
+existing agents do not). The body is optional:
+
+```bash
+curl -X POST "$BASE/api/v1/invoices/$ID/send" \
+  -H "Authorization: Bearer $MI_AGENT_KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"ccMe": true, "message": "Thanks for the project!"}'
+# → 200 {"email": {...}, "invoice": {...}, "statusChanged": true, "replayed": false}
+```
+
+| Field | Default | Rules |
+|---|---|---|
+| `to` | the invoice `toEmail` | Workspace token: any deliverable address. **Agents: must be the invoice `toEmail`.** |
+| `cc` | `[]` | Workspace token: up to 3 addresses. Agents: only the workspace `fromEmail` (settings). |
+| `ccMe` | `false` | Adds the workspace `fromEmail` (settings) to cc |
+| `subject` | `Invoice <number> from <fromName>` | One line of plain text, ≤ 200 characters; CR/LF and control characters → 400 |
+| `message` | greeting with number, total and due date | Plain text ≤ 2000 characters, replaces the greeting; never HTML (escaped in the HTML part). Invoice number, amount due and due date are always appended. |
+| `theme` | server setting (`light`) | Theme of the attached PDF |
+
+Unknown fields (`from`, `replyTo`, `html`, `bcc`, …) are rejected with 400.
+
+- **From / Reply-To.** From is always the server's sending address (set by the
+  site operator), with display name `"<invoice fromName> via Midnight Invoice"`;
+  Reply-To is the invoice `fromEmail`, so replies reach the sender. Nobody can
+  choose the From address.
+- **Agents** may only email the invoice's `toEmail`, and only an address the
+  **user entered themselves**: an address that was the email of a saved client
+  or the `toEmail` of an invoice when the user (workspace token: the app) saved
+  that record, or an address this workspace has emailed before. This is
+  tracked per address, not per record: an agent editing another field of a
+  client or invoice does not un-confirm its address, an address an agent wrote
+  (its own new invoice or client, or its edit of an email field) is not
+  confirmed, and the user saving that record afterwards confirms it. Otherwise
+  `403 recipient_not_allowed` (`details.reason: "address_not_confirmed_by_user"`).
+  Always confirm with the user before sending.
+- **Sender review (agents).** If an agent created the invoice or changed its
+  `fromName`, `fromEmail` or `paymentDetails`, and the user has not saved the
+  invoice since, an agent can send it only while those three fields equal the
+  workspace defaults (settings, which agents cannot change); payment details
+  may also equal those of the template the invoice was created from, when the
+  user saved that template last (an agent-edited template, or payment details
+  the agent passed when instantiating, do not count). Otherwise
+  `403 invoice_needs_review` (`details.fields`): ask the user to open the
+  invoice in the app and save it (or send it themselves). This stops an agent
+  from redirecting a payment or replies and then emailing the client.
+- **Status.** A `draft` becomes `sent` (`sentAt` = today, UTC; same transition
+  as `mark-sent`, no `invoices:write` needed) and `statusChanged` is `true`.
+  Sending a `sent` or `paid` invoice again is a resend: the status does not
+  change. `void` invoices → `409 invalid_status_transition`.
+- **Limits** (all configurable by the site operator; defaults): 10 minutes
+  between two sends of the same invoice, 20 sends/hour and 50/day per
+  workspace, 5/hour and 20/day per agent, 500/day for the whole site. Over a
+  limit → `429 rate_limited` with `details.reason` (`invoice_cooldown`,
+  `workspace_hourly_limit`, `workspace_daily_cap`, `agent_hourly_limit`,
+  `agent_daily_cap`, `site_daily_cap`), `details.retryAfterSeconds` and
+  `Retry-After`. Obviously undeliverable addresses (malformed, `example.com`,
+  `.test`, `.invalid`, `.local`, IP literals) → 400 without contacting the provider.
+- **Idempotency.** Send `Idempotency-Key` (1–255 printable ASCII). Repeating
+  the request with the same key and body returns the first result with
+  `replayed: true` (header `Idempotent-Replayed: true`) and never sends twice;
+  the same key with another body → `409 idempotency_conflict`. A key whose
+  attempt failed can be retried: the server tries again with the same
+  provider-side key.
+- **Failures.** If the provider refuses or fails, the attempt is recorded and
+  the answer is `502 email_send_failed` with `details: {reason, retryable,
+  email}` (`reason`: `provider_auth_failed`, `provider_rejected`,
+  `provider_rate_limited`, `provider_unavailable`, `provider_unreachable`,
+  `attachment_too_large`, `pdf_render_failed`). The invoice status is not changed.
+- **Not configured.** Without a provider key or sending address on the server:
+  `503 email_not_configured`. `GET /invoices/:id/emails` tells you in advance
+  (`delivery.configured`).
+- `GET /api/v1/invoices/:id/emails` (`invoices:read`) lists the attempts
+  (`{id, to, cc, subject, status: "queued"|"sent"|"failed", error, sentBy,
+  statusChanged, createdAt, sentAt}`), newest first, max 50. Message bodies are
+  not stored. Delivery events (bounces, complaints) are not tracked yet.
+
 ### Clients
 
 A saved client (`ApiClientRecord`):
@@ -608,6 +693,9 @@ logged.
 | `invoice.status_changed` | status changed (mark-sent/-paid/void/reopen, PATCH/PUT `status`, `set_invoice_status`) | `{status:{from,to}, fields?}` |
 | `invoice.deleted` | DELETE, `delete_invoice` | |
 | `invoice.pdf_downloaded` | `/pdf`, `get_invoice_pdf` (once per actor, invoice and 10 min) | `{theme}` |
+| `invoice.emailed` | `POST /invoices/:id/send`, `send_invoice_email` succeeded (one entry; a draft → sent change is folded in, no separate `status_changed`) | `{email:{to (masked, e.g. "b•••@acme.io"), cc (count), resend}, status?}` |
+| `invoice.email_failed` | the provider refused or failed | `{email:{to, cc, resend, code}}` |
+| `invoice.email_blocked` | an agent's send was refused by the recipient or review rules (once per agent, invoice, reason and hour) | `{email:{to, code}}` |
 | `client.created` / `client.updated` / `client.archived` / `client.unarchived` / `client.deleted` | client writes | `{fields}` for updates |
 | `template.created` / `template.updated` / `template.archived` / `template.unarchived` / `template.deleted` | template writes (REST, MCP, sync) | `{fields}` (names only, never line text or notes) for updates |
 | `settings.updated` | PUT /settings that changed something | `{fields}` |
@@ -758,6 +846,7 @@ Tools (only those your scopes allow are listed; others are rejected):
 | `delete_template` | `templates:write` | destructive, idempotent | `{id}` (soft delete; invoices unchanged) |
 | `create_invoice_from_template` | `invoices:write` + `templates:read` | not destructive | `{id, …overrides}` → same as `POST /templates/:id/instantiate` |
 | `get_my_activity` | `activity:read` | read-only | `{action?, entity_type?, entity_id?, since?, until?, before?, limit?}` → this agent's own activity entries (same as `GET /activity`) |
+| `send_invoice_email` | `invoices:send` | not read-only, not idempotent, open-world | `{id, cc_me?, subject?, message?, theme?, idempotency_key?}` → same as `POST /invoices/:id/send` (always to the invoice `toEmail`; confirm with the user first) |
 
 `create_invoice` and `update_invoice` accept `clientId` (rules as in
 [Billing a saved client](#billing-a-saved-client)); their descriptions tell
@@ -777,16 +866,17 @@ tool results with `isError: true` and the REST error body as text.
 |---|---|
 | 400 | `validation_failed` (`details: [{path, message}]`), `invalid_json`, `bad_request`, `invalid_scope`, device-flow codes |
 | 401 | `unauthorized` (+ `WWW-Authenticate: Bearer realm="midnight-invoice", error="invalid_token"`) |
-| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off) |
+| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off), `recipient_not_allowed` (email recipient rules for agents), `invoice_needs_review` (an agent changed the sender or payment details; the user must review the invoice) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
-| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition` |
+| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition`, `idempotency_conflict` (Idempotency-Key reused for another request, or still in progress) |
 | 410 | `gone` (deleted invoice or client; expired registration) |
 | 412 | `precondition_failed` |
 | 413 | `payload_too_large` |
 | 415 | `unsupported_media_type` |
-| 429 | `rate_limited` (+ `Retry-After`) |
-| 503 | `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering). Treat it and `workspace_suspended` as "pause and retry later", not as a rejection of your request. |
+| 429 | `rate_limited` (+ `Retry-After`; email limits add `details.reason`) |
+| 502 | `email_send_failed` (the email provider refused or failed; `details.email` is the recorded attempt) |
+| 503 | `email_not_configured` (no email provider set up on this server), `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering). Treat it and `workspace_suspended` as "pause and retry later", not as a rejection of your request. |
 
 ### Operator controls
 
@@ -825,4 +915,4 @@ stay available.
 CORS on `/api/v1` and `/api/mcp` (the API is same-origin for the app; agents
 call it server-to-server), OAuth access tokens on the REST API, confidential
 OAuth clients (client secrets, `private_key_jwt`), DPoP, OpenID Connect,
-webhooks, per-agent rate limits, pagination of `GET /agents`.
+webhooks (including email delivery events such as bounces), per-agent rate limits outside email, pagination of `GET /agents`.

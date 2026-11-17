@@ -1,7 +1,7 @@
 import type { Scope } from '../../../shared/api';
 
 /** Plain-language scope descriptions for consent and management screens. */
-export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitive?: boolean }> = {
+export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitive?: boolean; sensitiveLabel?: string }> = {
   'invoices:read': {
     title: 'View invoices',
     allows: 'See every invoice in this workspace (clients, amounts, notes, payment details), the next invoice number, and download PDFs.',
@@ -39,6 +39,13 @@ export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitiv
     title: 'See its own activity',
     allows: 'Read the activity log entries this agent made itself (what it created, changed or downloaded), so it can check its earlier work. Never your own or other agents’ activity.',
   },
+  'invoices:send': {
+    title: 'Email invoices to your clients',
+    allows:
+      'Can email invoices to your clients on your behalf, with the PDF attached, using your name. Only to client emails you entered yourself, and not invoices whose payment or sender details an agent changed until you review them; a draft is marked as sent. Emails cannot be unsent, so only allow this for an agent you trust.',
+    sensitive: true,
+    sensitiveLabel: 'Sends email',
+  },
 };
 
 export const SCOPE_SHORT: Record<Scope, string> = {
@@ -51,4 +58,5 @@ export const SCOPE_SHORT: Record<Scope, string> = {
   'templates:read': 'View templates',
   'templates:write': 'Edit templates',
   'activity:read': 'Own activity',
+  'invoices:send': 'Email invoices',
 };
