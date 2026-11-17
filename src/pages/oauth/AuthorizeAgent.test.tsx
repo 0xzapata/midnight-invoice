@@ -201,6 +201,11 @@ describe('AuthorizeAgent (OAuth consent screen)', () => {
     expect(screen.getByText(/you were not sent back to it/)).toBeInTheDocument();
   });
 
+  it('explains maintenance mode', () => {
+    renderAt('/agents/authorize?error=temporarily_unavailable');
+    expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
+  });
+
   it('maps unknown error codes to a generic message', () => {
     renderAt(`/agents/authorize?error=${encodeURIComponent('<b>pwned</b>')}`);
     expect(screen.getByText('This link is not valid')).toBeInTheDocument();

@@ -62,6 +62,10 @@ const REQUEST_ERROR_TEXT: Record<OAuthRequestError, { title: string; body: strin
     title: 'Too many attempts',
     body: 'Too many connection requests came from your network. Wait a minute, then start connecting again from your MCP client.',
   },
+  temporarily_unavailable: {
+    title: 'Temporarily unavailable',
+    body: 'Midnight Invoice is undergoing maintenance and cannot connect apps right now. Try again from your MCP client in a few minutes.',
+  },
 };
 
 function RequestErrorState({ code }: { code: string }) {

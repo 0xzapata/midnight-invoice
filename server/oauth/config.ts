@@ -4,18 +4,19 @@
  */
 import { MCP_PATH, SCOPES } from '../../shared/api';
 import { OAUTH_PATHS } from '../../shared/oauth';
+import type { AppDeps } from '../deps';
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Fixed lifetimes. Access/refresh token lifetimes and the unused-registration
+ * lifetime are runtime settings (operator console), see `oauthTunables`.
+ */
 export const OAUTH_TTL = {
   /** Pending authorization request (the consent screen must be answered within this). */
   requestMs: 10 * 60 * 1000,
   /** Authorization code: single use, redeemed by the client right after the redirect. */
   codeMs: 2 * 60 * 1000,
-  /** Access token (Bearer, opaque). */
-  accessSeconds: 60 * 60,
-  /** Refresh token; each use rotates it and issues a new one with a fresh lifetime. */
-  refreshMs: 30 * 24 * 60 * 60 * 1000,
-  /** A dynamically registered client that never completes a code exchange is deleted after this. */
-  unusedClientMs: 24 * 60 * 60 * 1000,
   /** Client ID Metadata Document cache bounds (Cache-Control max-age is clamped into this range). */
   metadataMinMs: 5 * 60 * 1000,
   metadataDefaultMs: 60 * 60 * 1000,
@@ -39,6 +40,23 @@ export const OAUTH_LIMITS = {
 } as const;
 
 export const SCOPES_SUPPORTED: readonly string[] = SCOPES;
+
+/** Operator-tunable OAuth settings (server/operator/settings-registry.ts, `oauth.*`). */
+export function oauthTunables(deps: Pick<AppDeps, 'settings'>) {
+  const s = deps.settings;
+  return {
+    /** Access token lifetime (default 1 hour). */
+    accessSeconds: s.get('oauth.accessTokenMinutes') * 60,
+    /** Refresh token lifetime; each use rotates it and issues a new one with a fresh lifetime (default 30 days). */
+    refreshMs: s.get('oauth.refreshTokenDays') * 24 * HOUR_MS,
+    /** A dynamically registered client that never completes a code exchange is deleted after this (default 24 h). */
+    unusedClientMs: s.get('oauth.unusedClientHours') * HOUR_MS,
+    registrationEnabled: s.get('oauth.registrationEnabled'),
+    metadataDocumentsEnabled: s.get('oauth.metadataDocumentsEnabled'),
+  };
+}
+
+export type OAuthTunables = ReturnType<typeof oauthTunables>;
 
 export function oauthUrls(baseUrl: string) {
   const base = baseUrl.replace(/\/+$/, '');
@@ -71,13 +89,13 @@ export function protectedResourceMetadata(baseUrl: string) {
 }
 
 /** RFC 8414 Authorization Server Metadata. */
-export function authorizationServerMetadata(baseUrl: string) {
+export function authorizationServerMetadata(baseUrl: string, flags: Pick<OAuthTunables, 'registrationEnabled' | 'metadataDocumentsEnabled'>) {
   const urls = oauthUrls(baseUrl);
   return {
     issuer: urls.issuer,
     authorization_endpoint: urls.authorize,
     token_endpoint: urls.token,
-    registration_endpoint: urls.register,
+    ...(flags.registrationEnabled ? { registration_endpoint: urls.register } : {}),
     revocation_endpoint: urls.revoke,
     scopes_supported: SCOPES_SUPPORTED,
     response_types_supported: ['code'],
@@ -86,7 +104,7 @@ export function authorizationServerMetadata(baseUrl: string) {
     token_endpoint_auth_methods_supported: ['none'],
     revocation_endpoint_auth_methods_supported: ['none'],
     code_challenge_methods_supported: ['S256'],
-    client_id_metadata_document_supported: true,
+    client_id_metadata_document_supported: flags.metadataDocumentsEnabled,
     authorization_response_iss_parameter_supported: true,
     service_documentation: `${urls.issuer}/llms.txt`,
   };

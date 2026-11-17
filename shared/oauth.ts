@@ -42,6 +42,7 @@ export const OAUTH_REQUEST_ERRORS = [
   'invalid_client_metadata',
   'invalid_request',
   'rate_limited',
+  'temporarily_unavailable',
 ] as const;
 export type OAuthRequestError = (typeof OAUTH_REQUEST_ERRORS)[number];
 

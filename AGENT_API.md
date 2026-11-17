@@ -611,6 +611,22 @@ tool results with `isError: true` and the REST error body as text.
 | 429 | `rate_limited` (+ `Retry-After`) |
 | 503 | `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering). Treat it and `workspace_suspended` as "pause and retry later", not as a rejection of your request. |
 
+### Operator controls
+
+The site operator (operator console) can turn dynamic client registration
+and Client ID Metadata Documents off (the metadata then omits
+`registration_endpoint` / reports `client_id_metadata_document_supported:
+false`, and `POST /api/oauth/register` answers `403 access_denied`) and change
+the access-token, refresh-token and unused-registration lifetimes (defaults
+above). When a workspace is **suspended**, its OAuth access tokens get `403
+workspace_suspended` at `/api/mcp`, and refresh and code exchange get `403
+{"error":"access_denied"}` (tokens are kept and work again after the
+suspension is lifted); the consent API refuses the workspace token. In
+**maintenance mode** the OAuth endpoints answer `503
+{"error":"temporarily_unavailable"}` with `Retry-After` (and
+`/api/oauth/authorize` shows the app's error page); the discovery documents
+stay available.
+
 ## Rate limits and abuse protection
 
 - `POST /workspaces` and `POST /agents/register`: 10 requests / 60 s per client

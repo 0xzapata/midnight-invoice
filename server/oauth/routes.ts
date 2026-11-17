@@ -23,10 +23,11 @@ import type { AppEnv } from '../app';
 import { bearerToken } from '../auth';
 import type { AppDeps } from '../deps';
 import { ApiError, AUTH_REALM } from '../errors';
+import { setTelemetryDetail } from '../operator/hooks';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, runInBackground } from '../http';
 import type { Repository } from '../db/repository';
 import { LIMITS } from '../schemas';
-import { authorizationServerMetadata, OAUTH_LIMITS, oauthUrls, protectedResourceMetadata } from './config';
+import { authorizationServerMetadata, OAUTH_LIMITS, oauthTunables, oauthUrls, protectedResourceMetadata } from './config';
 import { OAUTH_NO_STORE, OAuthError, oauthErrors } from './errors';
 import { consentUserOf } from './identity';
 import { createOAuthRepository, type OAuthRepository } from './repository';
@@ -111,15 +112,33 @@ function clientIdOf(c: Context, form: URLSearchParams): string {
   return clientId;
 }
 
-/** Runs an OAuth protocol handler: OAuth-style errors, no-store, CORS. */
-async function protocol(run: () => Promise<Response>): Promise<Response> {
+/** Runs an OAuth protocol handler: OAuth-style errors, no-store, CORS, telemetry error code. */
+async function protocol(c: Context, run: () => Promise<Response>): Promise<Response> {
   try {
     return withHeaders(await run(), { ...OAUTH_NO_STORE, ...CORS });
   } catch (error) {
-    if (error instanceof OAuthError) return error.toResponse(CORS);
-    if (error instanceof ApiError && error.status === 429) return oauthErrors.rateLimited().toResponse(CORS);
+    if (error instanceof OAuthError) {
+      setTelemetryDetail(c, { errorCode: error.code });
+      return error.toResponse(CORS);
+    }
+    if (error instanceof ApiError && error.status === 429) {
+      setTelemetryDetail(c, { errorCode: 'rate_limited' });
+      return oauthErrors.rateLimited().toResponse(CORS);
+    }
     throw error;
   }
+}
+
+const GRANT_LABELS = new Set(['authorization_code', 'refresh_token']);
+
+/** Telemetry outcome of an authorization request, from fixed parts of where it sends the browser. */
+function authorizeOutcome(location: string, consentPrefix: string): { label: string; errorCode?: string } {
+  const url = new URL(location);
+  if (location.startsWith(consentPrefix)) {
+    const error = url.searchParams.get('error');
+    return error ? { label: 'rejected', errorCode: error } : { label: 'consent' };
+  }
+  return { label: 'error_redirect', errorCode: url.searchParams.get('error') ?? undefined };
 }
 
 export function registerOAuthRoutes(app: Hono<AppEnv>, v1: Hono<AppEnv>, auth: MiddlewareHandler<AppEnv>, deps: AppDeps) {
@@ -127,19 +146,23 @@ export function registerOAuthRoutes(app: Hono<AppEnv>, v1: Hono<AppEnv>, auth: M
   const ctxOf = (c: Context): oauth.OAuthCtx => ({ deps, repo, urls: oauthUrls(publicBaseUrl(c, deps.config.appUrl)), clientIp: clientIp(c) });
 
   // --- Discovery ---------------------------------------------------------------
-  const metadata = (build: (base: string) => unknown) => (c: Context) => {
+  // Outside /api/*, so not behind the operator hook: discovery stays available in maintenance mode.
+  const metadata = (build: (base: string) => unknown) => async (c: Context) => {
     if (c.req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    await deps.settings.refresh();
     return withHeaders(Response.json(build(publicBaseUrl(c, deps.config.appUrl))), { ...CORS, 'cache-control': 'public, max-age=300' });
   };
   for (const path of [OAUTH_PATHS.protectedResourceMetadata, `${OAUTH_PATHS.protectedResourceMetadata}${MCP_PATH}`]) {
     app.on(['GET', 'OPTIONS'], path, metadata(protectedResourceMetadata));
   }
-  app.on(['GET', 'OPTIONS'], OAUTH_PATHS.authorizationServerMetadata, metadata(authorizationServerMetadata));
+  app.on(['GET', 'OPTIONS'], OAUTH_PATHS.authorizationServerMetadata, metadata((base) => authorizationServerMetadata(base, oauthTunables(deps))));
 
   // --- Authorization endpoint (browser navigation) -----------------------------
   app.get(OAUTH_PATHS.authorize, async (c) => {
     const ctx = ctxOf(c);
-    const location = await oauth.startAuthorization(ctx, new URL(c.req.url).searchParams, (q) => `${ctx.urls.issuer}${OAUTH_CONSENT_PATH}?${q}`);
+    const consentPrefix = `${ctx.urls.issuer}${OAUTH_CONSENT_PATH}?`;
+    const location = await oauth.startAuthorization(ctx, new URL(c.req.url).searchParams, (q) => `${consentPrefix}${q}`);
+    setTelemetryDetail(c, authorizeOutcome(location, consentPrefix));
     return new Response(null, { status: 302, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
   });
 
@@ -148,7 +171,7 @@ export function registerOAuthRoutes(app: Hono<AppEnv>, v1: Hono<AppEnv>, auth: M
     app.options(path, () => new Response(null, { status: 204, headers: CORS }));
   }
   app.post(OAUTH_PATHS.register, (c) =>
-    protocol(async () => {
+    protocol(c, async () => {
       await enforceRateLimit(deps.rateLimiters.create, `oauth-register:${clientIp(c)}`);
       let body: unknown;
       try {
@@ -161,14 +184,16 @@ export function registerOAuthRoutes(app: Hono<AppEnv>, v1: Hono<AppEnv>, auth: M
     }),
   );
   app.post(OAUTH_PATHS.token, (c) =>
-    protocol(async () => {
+    protocol(c, async () => {
       await enforceRateLimit(deps.rateLimiters.poll, `oauth-token:${clientIp(c)}`);
       const form = await readForm(c);
+      const grant = form.get('grant_type') ?? '';
+      setTelemetryDetail(c, { label: GRANT_LABELS.has(grant) ? grant : 'other_grant' });
       return Response.json(await oauth.exchangeToken(ctxOf(c), form, clientIdOf(c, form)));
     }),
   );
   app.post(OAUTH_PATHS.revoke, (c) =>
-    protocol(async () => {
+    protocol(c, async () => {
       await enforceRateLimit(deps.rateLimiters.poll, `oauth-revoke:${clientIp(c)}`);
       const form = await readForm(c);
       await oauth.revokeToken(ctxOf(c), form, clientIdOf(c, form));
@@ -215,6 +240,7 @@ export function mcpAuth(deps: AppDeps, appRepo: Repository, repo: OAuthRepositor
     if (token?.startsWith(OAUTH_TOKEN_PREFIX.access)) {
       const now = deps.clock();
       const principal = await oauth.authenticateAccessToken(repo, token, urls.resource, now.getTime());
+      if (principal === 'suspended') throw new ApiError(403, 'workspace_suspended', oauth.SUSPENDED_MESSAGE);
       if (!principal) throw unauthorized('The access token is invalid, expired or revoked');
       c.set('principal', principal);
       const throttleMs = deps.config.lastUsedThrottleSeconds * 1000;

@@ -13,7 +13,7 @@ import type { AppDeps } from '../deps';
 import { errors } from '../errors';
 import { zodDetails } from '../schemas';
 import { checkMetadataDocumentUrl, fetchMetadataDocument, validateClientMetadata } from './clientMetadata';
-import { OAUTH_LIMITS, OAUTH_TTL, type OAuthUrls } from './config';
+import { OAUTH_LIMITS, OAUTH_TTL, oauthTunables, type OAuthUrls } from './config';
 import { OAuthError, oauthErrors } from './errors';
 import type { ConsentUser } from './identity';
 import { PKCE_VALUE, verifyPkce } from './pkce';
@@ -28,6 +28,16 @@ export interface OAuthCtx {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Same message as the operator hook's 403 for a suspended workspace's other credentials. */
+export const SUSPENDED_MESSAGE = 'This workspace has been suspended by the site operator.';
+
+/**
+ * Token-endpoint answer for a suspended workspace. Deliberately not
+ * invalid_grant: clients keep their tokens (nothing is revoked), and they work
+ * again once the operator lifts the suspension.
+ */
+const suspendedError = () => new OAuthError('access_denied', SUSPENDED_MESSAGE, 403);
 const REQUEST_ID = /^[A-Za-z0-9_-]{32,64}$/;
 /** Scope tokens that are accepted but grant nothing (refresh tokens follow the client's grant_types). */
 const IGNORED_SCOPES = new Set(['offline_access']);
@@ -81,6 +91,10 @@ export function buildRedirect(redirectUri: string, params: Record<string, string
 // ---------------------------------------------------------------------------
 
 export async function registerClient(ctx: OAuthCtx, body: unknown) {
+  const tunables = oauthTunables(ctx.deps);
+  if (!tunables.registrationEnabled) {
+    throw new OAuthError('access_denied', 'Dynamic client registration is turned off on this server', 403);
+  }
   const result = validateClientMetadata(body, { requireName: false });
   if (!result.ok) throw new OAuthError(result.error, result.reason);
   const meta = result.value;
@@ -88,7 +102,7 @@ export async function registerClient(ctx: OAuthCtx, body: unknown) {
   // Housekeeping: drop registrations that were never used, and stale requests/codes/tokens.
   await ctx.repo.purgeExpired(t, DAY_MS);
   const clientId = ctx.deps.secrets.generate('mi_client_');
-  await ctx.repo.insertDcrClient({ clientId, ...meta, createdAt: t, unusedExpiresAt: t + OAUTH_TTL.unusedClientMs });
+  await ctx.repo.insertDcrClient({ clientId, ...meta, createdAt: t, unusedExpiresAt: t + tunables.unusedClientMs });
   const scope = typeof (body as { scope?: unknown }).scope === 'string' ? (body as { scope: string }).scope : undefined;
   return {
     client_id: clientId,
@@ -113,6 +127,7 @@ export async function resolveClient(ctx: OAuthCtx, clientId: string): Promise<Cl
   const t = now(ctx);
   if (clientId.length > OAUTH_LIMITS.clientId) return { ok: false, error: 'invalid_client' };
   if (clientId.startsWith('https://')) {
+    if (!oauthTunables(ctx.deps).metadataDocumentsEnabled) return { ok: false, error: 'invalid_client' };
     const cached = await ctx.repo.findClient(clientId);
     if (cached?.kind === 'cimd' && (cached.metadata_expires_at ?? 0) > t) return { ok: true, client: cached };
     const ownHost = new URL(ctx.urls.issuer).hostname;
@@ -296,19 +311,20 @@ export interface TokenResponse {
 }
 
 async function newTokens(ctx: OAuthCtx, scopes: Scope[], refreshable: boolean, t: number) {
+  const { accessSeconds, refreshMs } = oauthTunables(ctx.deps);
   const access = ctx.deps.secrets.generate(OAUTH_TOKEN_PREFIX.access);
   const refresh = refreshable ? ctx.deps.secrets.generate(OAUTH_TOKEN_PREFIX.refresh) : null;
   const tokens: NewTokens = {
     accessHash: await sha256Hex(access),
-    accessExpiresAt: t + OAUTH_TTL.accessSeconds * 1000,
+    accessExpiresAt: t + accessSeconds * 1000,
     refreshHash: refresh ? await sha256Hex(refresh) : null,
-    refreshExpiresAt: t + OAUTH_TTL.refreshMs,
+    refreshExpiresAt: t + refreshMs,
     scopes,
   };
   const response: TokenResponse = {
     access_token: access,
     token_type: 'Bearer',
-    expires_in: OAUTH_TTL.accessSeconds,
+    expires_in: accessSeconds,
     ...(refresh ? { refresh_token: refresh } : {}),
     scope: scopes.join(' '),
   };
@@ -348,6 +364,7 @@ async function exchangeCode(ctx: OAuthCtx, form: URLSearchParams, client: OAuthC
   }
   if (row.expires_at <= t) throw oauthErrors.invalidGrant('The authorization code expired');
   if (row.client_id !== client.client_id) throw oauthErrors.invalidGrant('The authorization code was issued to another client');
+  if (await ctx.repo.isWorkspaceSuspended(row.workspace_id)) throw suspendedError();
   const redirectUri = form.get('redirect_uri');
   if (row.redirect_uri_sent === 1 ? redirectUri !== row.redirect_uri : redirectUri !== null && redirectUri !== row.redirect_uri) {
     throw oauthErrors.invalidGrant('redirect_uri does not match the authorization request');
@@ -392,6 +409,7 @@ async function refresh(ctx: OAuthCtx, form: URLSearchParams, client: OAuthClient
     throw oauthErrors.invalidGrant('This authorization was revoked');
   }
   if (row.expires_at <= t) throw oauthErrors.invalidGrant('The refresh token expired');
+  if (row.workspace_suspended) throw suspendedError();
   checkResourceParam(ctx, form, row.resource);
   const current = parseScopes(row.token_scopes);
   let scopes = current;
@@ -429,18 +447,25 @@ export async function revokeToken(ctx: OAuthCtx, form: URLSearchParams, clientId
 // Resource server side: access tokens on /api/mcp
 // ---------------------------------------------------------------------------
 
-/** Resolves an OAuth access token presented to the MCP endpoint `expectedResource`, or null. */
+/**
+ * Resolves an OAuth access token presented to the MCP endpoint
+ * `expectedResource`: the agent principal, 'suspended' if its workspace is
+ * suspended by the operator, or null if the token is not valid here.
+ */
 export async function authenticateAccessToken(
   repo: OAuthRepository,
   token: string,
   expectedResource: string,
   nowMs: number,
-): Promise<Extract<Principal, { type: 'agent' }> | null> {
+): Promise<Extract<Principal, { type: 'agent' }> | 'suspended' | null> {
   const row = await repo.lookupToken(await sha256Hex(token));
   if (!row || row.kind !== 'access') return null;
   if (row.expires_at <= nowMs || row.token_revoked_at !== null || row.grant_revoked_at !== null || row.agent_revoked_at !== null) return null;
   // Audience binding (RFC 8707): the token is only valid at the resource it was issued for.
   if (!sameResource(row.resource, expectedResource)) return null;
+  // The operator hook matches workspace tokens and agent keys by hash; OAuth
+  // tokens are checked here, against the suspension table, on every request.
+  if (row.workspace_suspended) return 'suspended';
   const agentScopes = parseScopes(row.agent_scopes);
   return {
     type: 'agent',

@@ -151,6 +151,44 @@ export const SETTINGS = {
     max: 3600,
   }),
 
+  // --- OAuth for MCP clients (server/oauth) ---------------------------------
+  'oauth.registrationEnabled': setting.boolean({
+    group: 'OAuth (MCP clients)',
+    label: 'Dynamic client registration',
+    description: 'Let MCP clients register themselves (POST /api/oauth/register, RFC 7591). Already registered clients keep working.',
+    default: true,
+  }),
+  'oauth.metadataDocumentsEnabled': setting.boolean({
+    group: 'OAuth (MCP clients)',
+    label: 'Client ID Metadata Documents',
+    description: 'Accept https:// client IDs and fetch their metadata documents. Off = only registered clients.',
+    default: true,
+  }),
+  'oauth.accessTokenMinutes': setting.integer({
+    group: 'OAuth (MCP clients)',
+    label: 'Access token lifetime (min)',
+    description: 'Lifetime of newly issued OAuth access tokens (MCP endpoint only).',
+    default: 60,
+    min: 5,
+    max: 1440,
+  }),
+  'oauth.refreshTokenDays': setting.integer({
+    group: 'OAuth (MCP clients)',
+    label: 'Refresh token lifetime (days)',
+    description: 'Lifetime of each newly issued refresh token (they rotate on every use).',
+    default: 30,
+    min: 1,
+    max: 365,
+  }),
+  'oauth.unusedClientHours': setting.integer({
+    group: 'OAuth (MCP clients)',
+    label: 'Unused registration lifetime (h)',
+    description: 'A dynamically registered client that never completes a token exchange is deleted after this.',
+    default: 24,
+    min: 1,
+    max: 720,
+  }),
+
   // --- Telemetry -----------------------------------------------------------
   'telemetry.enabled': setting.boolean({
     group: 'Telemetry',

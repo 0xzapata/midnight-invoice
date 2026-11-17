@@ -10,6 +10,7 @@
  */
 import type { AppDeps } from './deps';
 import { operatorMaintenanceJob } from './operator/jobs';
+import { oauthPruneJob } from './oauth/jobs';
 
 export interface ScheduledJobContext {
   deps: AppDeps;
@@ -24,7 +25,7 @@ export interface ScheduledJob {
   run(ctx: ScheduledJobContext): Promise<void>;
 }
 
-export const JOBS: ScheduledJob[] = [operatorMaintenanceJob];
+export const JOBS: ScheduledJob[] = [operatorMaintenanceJob, oauthPruneJob];
 
 export const CRON_SCHEDULES = [...new Set(JOBS.map((j) => j.cron))];
 

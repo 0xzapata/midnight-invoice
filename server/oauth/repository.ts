@@ -75,6 +75,8 @@ export interface OAuthTokenLookup {
   agent_created_at: string;
   agent_last_used_at: string | null;
   agent_revoked_at: string | null;
+  /** 1 if the operator suspended the workspace (workspace_suspensions, migration 0004). */
+  workspace_suspended: number;
 }
 
 export interface NewTokens {
@@ -188,15 +190,36 @@ export function createOAuthRepository(db: D1Database) {
     },
 
     /** Housekeeping: unused registrations, stale requests/codes, long-expired tokens. */
-    async purgeExpired(now: number, graceMs: number): Promise<void> {
-      await db.batch([
+    async purgeExpired(now: number, graceMs: number): Promise<Record<string, number>> {
+      const names = ['requests', 'codes', 'tokens', 'unusedClients', 'deadGrants', 'staleMetadataDocuments'];
+      const results = await db.batch([
         db.prepare('DELETE FROM oauth_requests WHERE expires_at < ?').bind(now - graceMs),
         db.prepare('DELETE FROM oauth_codes WHERE expires_at < ?').bind(now - graceMs),
         db.prepare('DELETE FROM oauth_tokens WHERE expires_at < ?').bind(now - graceMs),
         db
           .prepare(`DELETE FROM oauth_clients WHERE kind = 'dcr' AND first_used_at IS NULL AND unused_expires_at < ?`)
           .bind(now),
+        // Grants that can never issue a token again: revoked, or every token expired and pruned.
+        db
+          .prepare(
+            `DELETE FROM oauth_grants
+              WHERE (revoked_at IS NOT NULL AND revoked_at < ?)
+                 OR (created_at < ? AND NOT EXISTS (SELECT 1 FROM oauth_tokens t WHERE t.grant_id = oauth_grants.id))`,
+          )
+          .bind(now - graceMs, now - graceMs),
+        // Cached metadata documents nobody uses any more (refetched on next use).
+        db
+          .prepare(
+            `DELETE FROM oauth_clients
+              WHERE kind = 'cimd' AND metadata_expires_at < ?
+                AND NOT EXISTS (SELECT 1 FROM oauth_agents o WHERE o.client_id = oauth_clients.client_id)
+                AND NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = oauth_clients.client_id)
+                AND NOT EXISTS (SELECT 1 FROM oauth_requests r WHERE r.client_id = oauth_clients.client_id)
+                AND NOT EXISTS (SELECT 1 FROM oauth_codes k WHERE k.client_id = oauth_clients.client_id)`,
+          )
+          .bind(now - graceMs),
       ]);
+      return Object.fromEntries(names.map((n, i) => [n, results[i].meta.changes ?? 0]));
     },
 
     // -----------------------------------------------------------------------
@@ -393,6 +416,10 @@ export function createOAuthRepository(db: D1Database) {
       return results[results.length - 1].results[0] ?? null;
     },
 
+    async isWorkspaceSuspended(workspaceId: string): Promise<boolean> {
+      return !!(await db.prepare('SELECT 1 AS x FROM workspace_suspensions WHERE workspace_id = ?').bind(workspaceId).first());
+    },
+
     /** Revokes the grant created from a code (code reuse = the code leaked). */
     async revokeGrantOfCode(codeHash: string, now: number): Promise<void> {
       await db
@@ -422,7 +449,8 @@ export function createOAuthRepository(db: D1Database) {
           `SELECT t.kind, t.scopes AS token_scopes, t.expires_at, t.used_at, t.revoked_at AS token_revoked_at,
                   g.id AS grant_id, g.scopes AS grant_scopes, g.revoked_at AS grant_revoked_at, g.refreshable, g.resource, g.client_id,
                   g.workspace_id, a.id AS agent_id, a.name AS agent_name, a.description AS agent_description, a.scopes AS agent_scopes,
-                  a.created_at AS agent_created_at, a.last_used_at AS agent_last_used_at, a.revoked_at AS agent_revoked_at
+                  a.created_at AS agent_created_at, a.last_used_at AS agent_last_used_at, a.revoked_at AS agent_revoked_at,
+                  EXISTS (SELECT 1 FROM workspace_suspensions s WHERE s.workspace_id = g.workspace_id) AS workspace_suspended
              FROM oauth_tokens t
              JOIN oauth_grants g ON g.id = t.grant_id AND g.workspace_id = t.workspace_id
              JOIN agents a ON a.id = g.agent_id AND a.workspace_id = g.workspace_id

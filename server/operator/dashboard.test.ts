@@ -317,7 +317,9 @@ describe('telemetry', () => {
     await telemetry.flush();
     clock.advance(49 * 3_600_000);
     const results = await runScheduledJobs(deps, { cron: '17 * * * *', scheduledTime: clock.now.getTime() });
-    expect(results).toEqual([{ name: 'operator.maintenance', ok: true }]);
+    // Other features register jobs on the same trigger (e.g. oauth.prune); all of them must succeed.
+    expect(results).toContainEqual({ name: 'operator.maintenance', ok: true });
+    expect(results.filter((r) => !r.ok)).toEqual([]);
     const rows = await d1.db.prepare('SELECT granularity, COUNT(*) AS n FROM telemetry_rollups GROUP BY granularity').all<{ granularity: string; n: number }>();
     expect(rows.results.find((r) => r.granularity === 'm')).toBeUndefined();
     expect(rows.results.find((r) => r.granularity === 'h')!.n).toBeGreaterThan(0);
