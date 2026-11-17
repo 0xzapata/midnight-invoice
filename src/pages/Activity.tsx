@@ -50,12 +50,24 @@ function Filters() {
         <select id={`${id}-who`} className={control} value={agent} onChange={(e) => set('agent', e.target.value)}>
           <option value="">Everyone</option>
           <option value="you">You (your browsers)</option>
-          {agents.data?.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-              {a.revokedAt ? ' (revoked)' : ''}
-            </option>
-          ))}
+          {agents.data?.some((a) => !a.revokedAt) && (
+            <optgroup label="Agents">
+              {agents.data.filter((a) => !a.revokedAt).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {agents.data?.some((a) => a.revokedAt) && (
+            <optgroup label="Revoked agents">
+              {agents.data.filter((a) => a.revokedAt).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} (revoked)
+                </option>
+              ))}
+            </optgroup>
+          )}
           {!knownAgent && <option value={agent}>Selected agent</option>}
         </select>
       </Field>

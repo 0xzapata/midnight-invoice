@@ -370,7 +370,8 @@ number, client or agent name) taken at the time.
 
 `GET /api/v1/activity` filters (all optional, combined with AND):
 `actor=user|system|agent:<id>` (who did it), `agent_id=<id>` (by **or about**
-that agent, e.g. its approval-to-revocation history), `action=` (comma list
+that agent, from the user's approval of its registration to its
+revocation; `agent.registered` carries `changes.registrationId` for that link), `action=` (comma list
 of codes or prefixes, OR: `invoice.,agent.revoked`), `entity_type=`,
 `entity_id=`, `since=`/`until=` (ISO date-times, inclusive), `limit` (1–200,
 default 50). Results are newest first: `{activity, hasMore, next}`; pass
@@ -384,8 +385,9 @@ default 50). Results are newest first: `{activity, hasMore, next}`; pass
   able to watch the user or other agents.
 - `GET /api/v1/agents/:id/activity` = `GET /activity?agent_id=:id` (404 for
   unknown agents); an agent key may only use its own id.
-- Retention: 365 days and at most the newest 10,000 entries per workspace
-  (pruned opportunistically). Deleting the workspace deletes its activity.
+- Retention: by default 365 days and at most the newest 10,000 entries per
+  workspace (operator settings), pruned by a daily job. Deleting the
+  workspace deletes its activity.
 - Bulk uploads: the app sends `X-Midnight-Sync: bulk-upload; batch=<uuid>` on
   the PUTs of its initial upload; creates in one batch are counted in a single
   `sync.bulk_upload` entry. The header is ignored for agent keys.

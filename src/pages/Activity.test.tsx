@@ -98,10 +98,12 @@ describe('Activity page', () => {
     expect(items[2]).toHaveTextContent('Was sent · via MCP · set_invoice_status');
     // Existing invoice → link; deleted invoice → label only, marked deleted where it is not the delete itself.
     expect(within(items[2]).getByRole('link', { name: 'INV-0007' })).toHaveAttribute('href', `/invoice/${LIVE}`);
-    expect(within(items[0]).queryByRole('link')).toBeNull();
+    expect(within(items[0]).queryByRole('link', { name: /INV-0003/ })).toBeNull();
+    // Agent chips lead to that agent's activity (reachable for revoked agents too).
+    expect(within(items[0]).getByRole('link', { name: 'Billing Assistant' })).toHaveAttribute('href', '/activity?agent=agent-1');
     const created3 = within(nov3).getAllByRole('listitem')[0];
     expect(created3).toHaveTextContent('Billing Assistant created INV-0003 (deleted)');
-    expect(within(created3).queryByRole('link')).toBeNull();
+    expect(within(created3).queryByRole('link', { name: /INV-0003/ })).toBeNull();
     expect(within(items[1]).getByRole('link', { name: 'Globex' })).toHaveAttribute('href', '/clients');
     expect(within(nov3).getAllByRole('listitem')[1]).toHaveTextContent('You approved the agent Billing Assistant');
     expect(within(nov3).getAllByRole('listitem')[1]).toHaveTextContent('Permissions: View, Create & edit');

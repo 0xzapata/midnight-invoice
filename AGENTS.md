@@ -106,7 +106,9 @@ const row = await templateRepo(ctx).updateTemplate(
 // No write to attach to (e.g. an email was sent):
 void recordActivity(ctx, { action: 'invoice.emailed', entity: { type: 'invoice', id, label: invoice.invoiceNumber } });
 ```
-- Retention: `ACTIVITY_RETENTION` (365 days / 10,000 rows per workspace), pruned opportunistically after ~2% of recorded writes (`deps.config.activity` overrides; tests set `pruneProbability`). There is no scheduled-jobs registry on this branch yet: when one exists, move pruning there. `deleteWorkspace` deletes the workspace's activity.
+- Retention: the daily `activity.retention` job (`server/activityJobs.ts`, cron `43 3 * * *` in `server/scheduled.ts` + wrangler.jsonc) deletes entries older than the operator setting `activity.retentionDays` and all but the newest `activity.maxRowsPerWorkspace` per workspace (defaults `ACTIVITY_RETENTION`: 365 days / 10,000). Nothing is pruned on write. `deleteWorkspace` (also used by the operator console) deletes the workspace's activity; suspension keeps it.
+- Operator console: workspaces show an activity *count* only (entries name invoices and clients; the privacy test in `server/operator/dashboard.test.ts` checks this). `/activity` routes are the "Activity log" telemetry group.
+- Agents: `agent.registered` carries `changes.registrationId`, which links the user's `agent.approved` entry (recorded before the agent id existed) into the agent's view (`agent_id=` filter, `/agents/:id/activity`).
 
 ### Adding a synced collection
 Example: invoice templates. The engine itself needs no changes.

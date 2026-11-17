@@ -67,6 +67,8 @@ export interface ActivityChanges {
   scopes?: Scope[];
   /** Per-collection counts of a summarised bulk upload (`sync.bulk_upload`). */
   counts?: Record<string, number>;
+  /** `agent.registered`: the registration whose `agent.approved` / entry belongs to this agent. */
+  registrationId?: string;
   /** PDF theme (`invoice.pdf_downloaded`). */
   theme?: string;
 }
@@ -98,5 +100,10 @@ export interface ListActivityResponse {
 
 export const ACTIVITY_PAGE = { default: 50, max: 200 } as const;
 
-/** Retention defaults: entries older than `days` or beyond the newest `maxRows` per workspace are pruned. */
+/**
+ * Retention defaults: entries older than `days` or beyond the newest `maxRows`
+ * per workspace are pruned by the daily `activity.retention` job. Operators
+ * change them with the `activity.retentionDays` / `activity.maxRowsPerWorkspace`
+ * runtime settings.
+ */
 export const ACTIVITY_RETENTION = { days: 365, maxRows: 10_000 } as const;

@@ -115,8 +115,13 @@ export function createActivityRepository(db: D1Database) {
         params.push(q.actorType);
       }
       if (q.involvingAgentId) {
-        where.push(`(agent_id = ? OR (entity_type = 'agent' AND entity_id = ?))`);
-        params.push(q.involvingAgentId, q.involvingAgentId);
+        // By the agent, about the agent, or the approval of the registration it was created from.
+        where.push(
+          `(agent_id = ? OR (entity_type = 'agent' AND entity_id = ?) OR (entity_type = 'agent_registration' AND entity_id = (
+             SELECT json_extract(r.changes, '$.registrationId') FROM activity r
+              WHERE r.workspace_id = ? AND r.action = 'agent.registered' AND r.entity_type = 'agent' AND r.entity_id = ? LIMIT 1)))`,
+        );
+        params.push(q.involvingAgentId, q.involvingAgentId, q.workspaceId, q.involvingAgentId);
       }
       if (q.actionPrefixes && q.actionPrefixes.length > 0) {
         where.push(`(${q.actionPrefixes.map(() => 'substr(action, 1, length(?)) = ?').join(' OR ')})`);
@@ -161,6 +166,18 @@ export function createActivityRepository(db: D1Database) {
           )
           .bind(workspaceId, maxRows),
       ]);
+    },
+
+    /** Workspaces with entries older than `olderThan` or more than `maxRows` entries (retention job), at most `limit`. */
+    async workspacesToPrune(olderThan: string, maxRows: number, limit: number): Promise<string[]> {
+      const { results } = await db
+        .prepare(
+          `SELECT workspace_id FROM activity INDEXED BY activity_time
+            GROUP BY workspace_id HAVING MIN(time) < ? OR COUNT(*) > ? LIMIT ?`,
+        )
+        .bind(olderThan, maxRows, limit)
+        .all<{ workspace_id: string }>();
+      return results.map((r) => r.workspace_id);
     },
 
     /** A revoked agent for an API key hash (to attribute rejected requests); null for unknown keys. */

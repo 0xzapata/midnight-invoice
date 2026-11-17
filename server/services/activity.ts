@@ -21,7 +21,6 @@
 import { z } from 'zod';
 import {
   ACTIVITY_PAGE,
-  ACTIVITY_RETENTION,
   type ActivityAction,
   type ActivityActor,
   type ActivityChanges,
@@ -150,19 +149,6 @@ function background(ctx: ActivityContext, promise: Promise<unknown>): void {
 
 const logFailure = (ctx: ActivityContext) => (error: unknown) => ctx.deps.logError?.('Activity entry not recorded', error);
 
-/** Opportunistic retention: with probability `pruneProbability` per write, prune this workspace in the background. */
-function maybePrune(ctx: ActivityContext, workspaceId: string): void {
-  const cfg = { ...ACTIVITY_RETENTION, pruneProbability: 0.02, ...ctx.deps.config.activity };
-  if (Math.random() >= cfg.pruneProbability) return;
-  const cutoff = new Date(ctx.deps.clock().getTime() - cfg.days * 24 * 60 * 60 * 1000).toISOString();
-  background(
-    ctx,
-    activityRepo(ctx.deps)
-      .prune(workspaceId, cutoff, cfg.maxRows)
-      .catch((error) => ctx.deps.logError?.('Activity pruning failed', error)),
-  );
-}
-
 /**
  * Atomic recording: returns the attachment for a repository write
  * (`repo.updateInvoice(args, activityWrite(ctx, input))`). The entry is
@@ -183,7 +169,6 @@ export function activityWrite(
       }),
     ],
     onError: logFailure(ctx),
-    afterCommit: () => maybePrune(ctx, row.workspace_id),
   };
 }
 
@@ -204,7 +189,7 @@ export function recordActivity(ctx: ActivityContext, input: ActivityInput): Prom
     promise = activityRepo(ctx.deps)
       .insertStatement(row, { dedupe: input.dedupe })
       .run()
-      .then(() => maybePrune(ctx, row.workspace_id), logFailure(ctx));
+      .then(() => undefined, logFailure(ctx));
   } catch (error) {
     logFailure(ctx)(error);
     promise = Promise.resolve();
@@ -425,7 +410,7 @@ export async function listActivity(ctx: ActivityContext & { principal: Principal
   return { activity: page.map(toActivityEntry), hasMore, next: hasMore ? { before: page[page.length - 1].id } : null };
 }
 
-/** GET /agents/:id/activity: entries by the agent or about it (approval excluded: it predates the agent id). */
+/** GET /agents/:id/activity: entries by the agent or about it, including the user's approval of its registration. */
 export async function listAgentActivity(ctx: ActivityContext & { principal: Principal }, agentId: string, q: ListActivityQuery): Promise<ListActivityResponse> {
   if (!ID_RE.test(agentId)) throw errors.notFound('Agent not found');
   if (ctx.principal.type === 'agent') {

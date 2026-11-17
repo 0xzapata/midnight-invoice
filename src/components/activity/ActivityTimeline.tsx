@@ -8,21 +8,36 @@ import { useClientStore } from '@/stores/useClientStore';
 import { cn } from '@/lib/utils';
 import { describeEntry } from './describe';
 
-/** "You" or the agent's name, as a chip (agent names render as plain text). */
+/**
+ * "You" or the agent's name, as a chip (agent names render as plain text).
+ * An agent chip links to that agent's activity (also for revoked agents).
+ */
 export function ActorChip({ entry }: { entry: Pick<ActivityEntry, 'actor'> }) {
   const a = entry.actor;
   const Icon = a.type === 'agent' ? Bot : a.type === 'user' ? User : Cog;
-  return (
-    <span
-      className={cn(
-        'inline-flex max-w-[14rem] items-center gap-1 border px-1.5 py-0.5 align-[1px] text-[11px] font-medium leading-none',
-        a.type === 'agent' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border bg-secondary text-foreground',
-      )}
-    >
-      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
-      <span className="truncate">{a.type === 'agent' ? a.agentName || 'Agent' : a.type === 'user' ? 'You' : 'System'}</span>
-    </span>
+  const name = a.type === 'agent' ? a.agentName || 'Agent' : a.type === 'user' ? 'You' : 'System';
+  const className = cn(
+    'inline-flex max-w-[14rem] items-center gap-1 border px-1.5 py-0.5 align-[1px] text-[11px] font-medium leading-none',
+    a.type === 'agent' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border bg-secondary text-foreground',
   );
+  const content = (
+    <>
+      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+      <span className="truncate">{name}</span>
+    </>
+  );
+  if (a.type === 'agent' && a.agentId) {
+    return (
+      <Link
+        to={`/activity?agent=${encodeURIComponent(a.agentId)}`}
+        title={`All activity of ${name}`}
+        className={cn(className, 'hover:border-primary/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring')}
+      >
+        {content}
+      </Link>
+    );
+  }
+  return <span className={className}>{content}</span>;
 }
 
 /** The entity of an entry: a link while it still exists in this browser, else its label marked as deleted. */

@@ -59,6 +59,7 @@ export const activityOpenApiSchemas: Record<string, Json> = {
           scopes: { type: 'array', items: ref('Scope') },
           counts: { type: 'object', additionalProperties: { type: 'integer' }, description: 'Bulk upload: entities per collection' },
           theme: str(),
+          registrationId: str({ description: 'agent.registered: the registration whose agent.approved entry belongs to this agent' }),
         },
       },
       source: { enum: ['rest', 'mcp', 'system'] },
@@ -84,7 +85,7 @@ export const activityOpenApiPaths: Record<string, Json> = {
       description:
         'What the user’s browsers and approved agents did: invoice/client/settings writes, status changes, PDF downloads, agent approvals and revocations. ' +
         'An agent key needs activity:read and only ever sees its own entries. ' +
-        `Retention: ${ACTIVITY_RETENTION.days} days / newest ${ACTIVITY_RETENTION.maxRows} entries per workspace.`,
+        `Retention (configurable per deployment): by default ${ACTIVITY_RETENTION.days} days / newest ${ACTIVITY_RETENTION.maxRows} entries per workspace.`,
       ...security,
       parameters: [...filters, { name: 'agent_id', in: 'query', required: false, schema: str(), description: 'Entries by or about this agent' }],
       responses: { 200: list, 400: E[400], 401: E[401], 403: E[403] },

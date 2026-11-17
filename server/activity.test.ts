@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { Scope } from '../shared/api';
-import type { ActivityEntry } from '../shared/activity';
-import { api, BASE, buildApp, connectAgent, createWorkspace, sampleInvoice, startD1, TestClock, type Api } from './test/helpers';
-import type { AppConfig } from './deps';
+import { ACTIVITY_RETENTION, type ActivityEntry } from '../shared/activity';
+import { CRON_SCHEDULES, JOBS, runScheduledJobs } from './scheduled';
+import { SETTINGS } from './operator/settings-registry';
+import { api, BASE, connectAgent, createWorkspace, readPublicAsset, sampleInvoice, startD1, TestClock, type Api } from './test/helpers';
+import { createApp } from './app';
+import { defaultDeps } from './deps';
 import type { ActivityRow } from './db/activityRepository';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
@@ -28,13 +31,15 @@ const UUIDS = {
   batch: '99999999-9999-4999-8999-999999999999',
 };
 
-function setup(config: Partial<AppConfig> = {}) {
+function setup() {
   const clock = new TestClock();
-  const built = buildApp(d1.db, { clock: clock.fn, config: { activity: { pruneProbability: 0 }, ...config } });
-  return { app: built.app, client: api(built.app), errors: built.errors, clock };
+  const errors: unknown[] = [];
+  const deps = defaultDeps({ db: d1.db, readAsset: readPublicAsset, clock: clock.fn, logError: (_m, e) => errors.push(e) });
+  const app = createApp(deps);
+  return { app, client: api(app), errors, clock, deps };
 }
 
-async function mcpClient(app: ReturnType<typeof buildApp>['app'], token: string) {
+async function mcpClient(app: ReturnType<typeof createApp>, token: string) {
   const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
     fetch: (input, init) => Promise.resolve(app.fetch(new Request(input, init))),
     requestInit: { headers: { authorization: `Bearer ${token}` } },
@@ -214,7 +219,7 @@ describe('activity log: every mutating path records exactly one entry', () => {
       'Narrowed agent.revoked_key_used Narrowed rest agent',
     ]);
     expect(list[0].changes).toEqual({ scopes: ['invoices:read'] });
-    expect(list[1].changes).toEqual({ scopes: ['invoices:read'] });
+    expect(list[1].changes).toEqual({ scopes: ['invoices:read'], registrationId: list[0].entity!.id });
     expect(list[2].changes).toBeNull();
     // Per-agent view: by or about the agent.
     const perAgent = await client.get(`/api/v1/agents/${agent.agent.id}/activity`, ws.token);
@@ -223,6 +228,7 @@ describe('activity log: every mutating path records exactly one entry', () => {
       'agent.revoked_key_used',
       'agent.revoked',
       'agent.registered',
+      'agent.approved',
     ]);
     expect((await client.get('/api/v1/agents/nope/activity', ws.token)).status).toBe(404);
   });
@@ -287,7 +293,7 @@ describe('activity log: contents never include bodies or secrets', () => {
     }
     for (const row of await rows(wid)) {
       const changes = row.changes ? (JSON.parse(row.changes) as Record<string, unknown>) : {};
-      expect(Object.keys(changes).every((k) => ['fields', 'status', 'scopes', 'counts', 'theme'].includes(k))).toBe(true);
+      expect(Object.keys(changes).every((k) => ['fields', 'status', 'scopes', 'counts', 'theme', 'registrationId'].includes(k))).toBe(true);
       expect((row.changes ?? '').length).toBeLessThan(300);
     }
   });
@@ -317,7 +323,7 @@ describe('activity log: reading', () => {
     const actions = async (q: string) => (await entries(client, t, q)).map((e) => e.action);
     expect(await actions('actor=user')).toEqual(['invoice.status_changed', 'agent.approved', 'agent.approved']);
     expect(await actions(`actor=agent:${a2.agent.id}`)).toEqual(['invoice.created', 'agent.registered']);
-    expect(await actions(`agent_id=${a1.agent.id}`)).toEqual(['client.created', 'invoice.created', 'agent.registered']);
+    expect(await actions(`agent_id=${a1.agent.id}`)).toEqual(['client.created', 'invoice.created', 'agent.registered', 'agent.approved']);
     expect(await actions('action=agent.')).toEqual(['agent.registered', 'agent.approved', 'agent.registered', 'agent.approved']);
     expect(await actions('action=client.,invoice.status_changed')).toEqual(['client.created', 'invoice.status_changed']);
     expect(await actions(`entity_type=invoice&entity_id=${i1.id}`)).toEqual(['invoice.status_changed', 'invoice.created']);
@@ -376,16 +382,36 @@ describe('activity log: reading', () => {
 });
 
 describe('activity log: retention and deletion', () => {
-  it('prunes by row count and by age', async () => {
-    const { client, clock } = setup({ activity: { pruneProbability: 1, maxRows: 4, days: 30 } });
+  it('prunes by row count and by age in the daily scheduled job, per the operator settings', async () => {
+    const { client, clock, deps } = setup();
+    await deps.settings.set('activity.maxRowsPerWorkspace', 100, { id: null, email: null, type: 'system' });
+    await deps.settings.set('activity.retentionDays', 30, { id: null, email: null, type: 'system' });
     const ws = await createWorkspace(client);
-    for (let i = 0; i < 7; i++) await client.post('/api/v1/clients', { name: `C${i}` }, ws.token);
-    await vi.waitFor(async () => expect((await rows(ws.workspace.id)).length).toBeLessThanOrEqual(4), { timeout: 3000 });
+    const other = await createWorkspace(client);
+    for (let i = 0; i < 103; i++) await client.post('/api/v1/clients', { name: `C${i}` }, ws.token);
+    await client.post('/api/v1/clients', { name: 'Other' }, other.token);
+    // Nothing is pruned on write.
+    expect(await rows(ws.workspace.id)).toHaveLength(103);
+    const run = () => runScheduledJobs(deps, { cron: '43 3 * * *', scheduledTime: clock.now.getTime() });
+    expect(await run()).toEqual([{ name: 'activity.retention', ok: true }]);
     const kept = await rows(ws.workspace.id);
-    expect(kept.map((r) => r.entity_label)).toEqual(['C3', 'C4', 'C5', 'C6']);
+    expect(kept).toHaveLength(100);
+    expect(kept[0].entity_label).toBe('C3');
+    expect(await rows(other.workspace.id)).toHaveLength(1);
     clock.advance(31 * 24 * 3_600_000);
     await client.post('/api/v1/clients', { name: 'Fresh' }, ws.token);
-    await vi.waitFor(async () => expect((await rows(ws.workspace.id)).map((r) => r.entity_label)).toEqual(['Fresh']), { timeout: 3000 });
+    await run();
+    expect((await rows(ws.workspace.id)).map((r) => r.entity_label)).toEqual(['Fresh']);
+    expect(await rows(other.workspace.id)).toHaveLength(0);
+    await deps.settings.reset('activity.maxRowsPerWorkspace', { id: null, email: null, type: 'system' });
+    await deps.settings.reset('activity.retentionDays', { id: null, email: null, type: 'system' });
+  });
+
+  it('the retention job is in the registry with a configured cron and defaults from ACTIVITY_RETENTION', () => {
+    expect(JOBS.map((j) => j.name)).toContain('activity.retention');
+    expect(CRON_SCHEDULES).toContain('43 3 * * *');
+    expect(SETTINGS['activity.retentionDays'].default).toBe(ACTIVITY_RETENTION.days);
+    expect(SETTINGS['activity.maxRowsPerWorkspace'].default).toBe(ACTIVITY_RETENTION.maxRows);
   });
 
   it('deleting the workspace deletes its activity', async () => {

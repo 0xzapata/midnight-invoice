@@ -127,7 +127,8 @@ export async function redeemDeviceCode(ctx: Ctx, body: unknown): Promise<AgentTo
       actor: { type: 'agent', agentId, agentName: reg.name },
       action: 'agent.registered',
       entity: { type: 'agent', id: agentId, label: reg.name },
-      changes: { scopes: parseScopes(reg.approved_scopes) },
+      // registrationId links the user's agent.approved entry (made before the agent id existed) to this agent.
+      changes: { scopes: parseScopes(reg.approved_scopes), registrationId: reg.id },
     }),
   );
   if (!agent) {

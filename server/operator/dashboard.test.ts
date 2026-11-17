@@ -135,9 +135,12 @@ describe('users (workspaces and agents)', () => {
     const ws = await createWorkspace(s.client);
     const agent = await connectAgent(s.client, ws.token, ['invoices:read', 'invoices:write']);
     await s.client.post('/api/v1/invoices', sampleInvoice({ toName: 'SECRET CLIENT Ltd', notes: 'PRIVATE NOTE 42' }), ws.token);
-    await s.client.post('/api/v1/invoices', sampleInvoice({ toName: 'Other client' }), agent.api_key);
+    const byAgent = (await s.client.post('/api/v1/invoices', sampleInvoice({ toName: 'Other client' }), agent.api_key)).json.invoice;
     const saved = await s.client.post('/api/v1/clients', { name: 'Hidden Client GmbH', email: 'secret-ap@hidden.example', address: '42 Confidential Road' }, ws.token);
     if (saved.status !== 201) throw new Error(`client create failed: ${saved.status} ${saved.text}`);
+    // Activity log entries name invoices, clients and agents; operators only ever see their count.
+    await s.client.post(`/api/v1/invoices/${byAgent.id}/mark-sent`, undefined, agent.api_key);
+    await s.client.patch(`/api/v1/clients/${saved.json.client.id}`, { notes: 'PRIVATE NOTE 43' }, ws.token);
     return { ...s, ws, agent };
   }
 
@@ -153,6 +156,8 @@ describe('users (workspaces and agents)', () => {
       invoiceCount: 2,
       agentCount: 1,
       clientCount: 1,
+      // approved + registered + 2 invoices created + mark-sent + client created + client updated
+      activityCount: 7,
       suspended: false,
       suspendedAt: null,
       suspensionReason: null,
@@ -162,7 +167,7 @@ describe('users (workspaces and agents)', () => {
     for (const path of ['/workspaces', '/agents', '/overview', '/telemetry?range=1h', '/telemetry?range=7d', '/audit', '/security']) {
       const r = await b.get(`/api/operator${path}`);
       expect(r.status).toBe(200);
-      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', 'Hidden Client', 'secret-ap@hidden.example', 'Confidential Road', ws.token]) {
+      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', 'Hidden Client', 'secret-ap@hidden.example', 'Confidential Road', 'INV-0001', 'INV-0002', 'status_changed', ws.token]) {
         expect(r.text.includes(leak), `${path} leaked ${leak}`).toBe(false);
       }
     }
@@ -287,6 +292,9 @@ describe('telemetry', () => {
     expect(percentile([10, 0, 0, 0, 0, 0, 0, 0, 0, 0], 0.5)).toBe(3); // within [0, 5)
     expect(percentile([0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 0.95)).toBe(2500);
     expect(groupOf('rest|POST /agents/register').group).toBe('Agent registration');
+    expect(groupOf('rest|GET /activity').group).toBe('Activity log');
+    expect(groupOf('rest|GET /agents/:id/activity').group).toBe('Activity log');
+    expect(groupOf('rest|DELETE /agents/:id').group).toBe('Agents');
   });
 
   it('never fails a request when telemetry or settings storage fails', async () => {

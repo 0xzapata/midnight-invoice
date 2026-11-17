@@ -345,7 +345,7 @@ terms. `clients:write` lets it add, edit, archive and delete clients.
    changes made while cloud sync is on are logged (and PDFs you download in
    the browser are generated locally and not logged). Entries list which
    fields changed, never their contents, and are kept for 365 days (at most
-   10,000 per workspace).
+   10,000 per workspace; operators can change both in the operator console).
 
 To use the same workspace in another browser or device, reveal the
 **recovery key** in Settings → Cloud sync & agents → *Link another browser or
