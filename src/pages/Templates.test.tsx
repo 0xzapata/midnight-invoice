@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fill } from '@/test/userInput';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Invoice } from '@/types/invoice';
@@ -50,7 +51,7 @@ beforeEach(() => {
 
 describe('Templates page', () => {
   it('creates a template with the line-item editor, placeholder helper and live preview', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     useClientStore.getState().saveClient({ name: 'Globex', email: 'ap@globex.example', address: '' });
     renderPage();
     expect(screen.getByText('No templates yet')).toBeInTheDocument();
@@ -61,31 +62,31 @@ describe('Templates page', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Save template' }));
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Template name is required');
 
-    await user.type(within(dialog).getByLabelText('Template name'), 'Monthly retainer');
+    await fill(user, within(dialog).getByLabelText('Template name'), 'Monthly retainer');
     await user.selectOptions(within(dialog).getByLabelText('Default client (optional)'), 'Globex');
     const nameField = within(dialog).getByLabelText('Invoice name (optional)');
-    await user.type(nameField, 'Retainer ');
+    await fill(user, nameField, 'Retainer ');
     // The helper inserts at the cursor of the last focused field.
     await user.click(within(dialog).getByRole('button', { name: /Insert \{\{month_name\}\}/ }));
     expect(nameField).toHaveValue('Retainer {{month_name}}');
 
     const description = within(dialog).getByLabelText('Description');
-    await user.type(description, 'Design for ');
+    await fill(user, description, 'Design for ');
     await user.click(within(dialog).getByRole('button', { name: /Insert \{\{client_name\}\}/ }));
     expect(description).toHaveValue('Design for {{client_name}}');
     await user.clear(within(dialog).getByLabelText('Price'));
-    await user.type(within(dialog).getByLabelText('Price'), '1500');
+    await fill(user, within(dialog).getByLabelText('Price'), '1500');
 
     await user.click(within(dialog).getByRole('button', { name: 'Add item' }));
     // Typed braces need escaping for user-event.
-    await user.type(within(dialog).getByLabelText('Description (item 2)'), 'Typo {{{{monthname}}');
+    await fill(user, within(dialog).getByLabelText('Description (item 2)'), 'Typo {{monthname}}');
 
     // Live preview for an invoice issued today, with the client’s name; unknown names are flagged.
     expect(dialog).toHaveTextContent(`Retainer ${TODAY.month_name}`);
     expect(dialog).toHaveTextContent('Design for Globex');
     expect(within(dialog).getByRole('status')).toHaveTextContent('Not a placeholder (will stay as typed): {{monthname}}');
 
-    await user.type(within(dialog).getByLabelText('Payment terms (days)'), '14');
+    await fill(user, within(dialog).getByLabelText('Payment terms (days)'), '14');
     await user.click(within(dialog).getByRole('button', { name: 'Save template' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
@@ -105,10 +106,10 @@ describe('Templates page', () => {
     const row = screen.getByText('Monthly retainer', { selector: 'h3' }).closest('li')!;
     expect(row).toHaveTextContent('Net 14');
     expect(row).toHaveTextContent('uses placeholders');
-  }, 20_000); // many keystrokes: slow on a loaded CI machine
+  });
 
   it('edits, archives and deletes a template; invoices made from it are untouched', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const t = useTemplateStore.getState().saveTemplate({
       name: 'Workshop',
       description: 'Half-day workshop',
@@ -133,7 +134,7 @@ describe('Templates page', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Edit template' });
     expect(within(dialog).getByLabelText('Tax rate (%)')).toHaveValue(7);
     await user.clear(within(dialog).getByLabelText('Template name'));
-    await user.type(within(dialog).getByLabelText('Template name'), 'Full-day workshop');
+    await fill(user, within(dialog).getByLabelText('Template name'), 'Full-day workshop');
     await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(useTemplateStore.getState().templates[0].name).toBe('Full-day workshop'));
 
@@ -147,10 +148,10 @@ describe('Templates page', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Delete template' }));
     expect(useTemplateStore.getState().templates).toEqual([]);
     expect(useInvoiceStore.getState().invoices).toEqual([inv]);
-  }, 20_000);
+  });
 
   it('“New invoice” opens a draft built from the template', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     useTemplateStore.getState().saveTemplate({
       name: 'Retainer',
       description: '',

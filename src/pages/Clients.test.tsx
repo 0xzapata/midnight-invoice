@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fill } from '@/test/userInput';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Invoice } from '@/types/invoice';
@@ -62,12 +63,12 @@ afterEach(() => vi.clearAllMocks());
 
 describe('Clients page', () => {
   it('shows an empty state and adds a client with validation', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderPage();
     expect(screen.getByText('No saved clients yet')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add your first client' }));
     const dialog = await screen.findByRole('dialog', { name: 'New client' });
-    await user.type(within(dialog).getByLabelText('Email'), 'not-an-email');
+    await fill(user, within(dialog).getByLabelText('Email'), 'not-an-email');
     await user.type(within(dialog).getByLabelText('Payment terms (days)'), '1.5');
     await user.click(within(dialog).getByRole('button', { name: 'Save client' }));
     expect(within(dialog).getByText('Client name is required')).toBeInTheDocument();
@@ -75,9 +76,9 @@ describe('Clients page', () => {
     expect(within(dialog).getByText(/Whole days/)).toBeInTheDocument();
     expect(useClientStore.getState().clients).toEqual([]);
 
-    await user.type(within(dialog).getByLabelText('Name / Company'), 'Globex');
+    await fill(user, within(dialog).getByLabelText('Name / Company'), 'Globex');
     await user.clear(within(dialog).getByLabelText('Email'));
-    await user.type(within(dialog).getByLabelText('Email'), 'ap@globex.example');
+    await fill(user, within(dialog).getByLabelText('Email'), 'ap@globex.example');
     await user.clear(within(dialog).getByLabelText('Payment terms (days)'));
     await user.type(within(dialog).getByLabelText('Payment terms (days)'), '30');
     await user.type(within(dialog).getByLabelText('Tax rate (%)'), '7');
@@ -89,7 +90,7 @@ describe('Clients page', () => {
   });
 
   it('lists clients with invoice counts, searches, edits, archives and deletes with confirmation', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { saveClient } = useClientStore.getState();
     const globex = saveClient({ name: 'Globex', email: 'ap@globex.example', address: 'Springfield' });
     saveClient({ name: 'Initech', email: 'billing@initech.example', address: 'Austin' });
@@ -101,7 +102,7 @@ describe('Clients page', () => {
     expect(within(globexRow).getByText('2 invoices')).toBeInTheDocument();
     expect(within(screen.getByRole('heading', { name: 'Initech' }).closest('li')!).getByText('No invoices yet')).toBeInTheDocument();
 
-    await user.type(screen.getByRole('searchbox', { name: 'Search clients' }), 'austin');
+    await fill(user, screen.getByRole('searchbox', { name: 'Search clients' }), 'austin');
     expect(screen.queryByRole('heading', { name: 'Globex' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Initech' })).toBeInTheDocument();
     await user.clear(screen.getByRole('searchbox', { name: 'Search clients' }));
@@ -110,7 +111,7 @@ describe('Clients page', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Edit client' });
     expect(within(dialog).getByLabelText('Name / Company')).toHaveValue('Globex');
     await user.clear(within(dialog).getByLabelText('Name / Company'));
-    await user.type(within(dialog).getByLabelText('Name / Company'), 'Globex Corp');
+    await fill(user, within(dialog).getByLabelText('Name / Company'), 'Globex Corp');
     await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Globex Corp' })).toBeInTheDocument());
     expect(useClientStore.getState().getClient(globex.id)?.createdAt).toBe(globex.createdAt);
@@ -135,7 +136,7 @@ describe('Clients page', () => {
   });
 
   it('imports clients from existing invoices, deduplicated by name and email', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     useInvoiceStore.setState({
       invoices: [
         invoice({ toName: 'Globex', toEmail: 'ap@globex.example', toAddress: 'Springfield' }),
@@ -151,7 +152,7 @@ describe('Clients page', () => {
   });
 
   it('“New invoice” opens a draft billed to the client with its defaults', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const c = useClientStore.getState().saveClient({ name: 'Globex', email: 'ap@globex.example', address: 'Springfield', defaultCurrency: 'EUR', paymentTermsDays: 14 });
     useInvoiceStore.setState({ invoices: [invoice({ invoiceNumber: 'INV-0007' })] });
     renderPage();

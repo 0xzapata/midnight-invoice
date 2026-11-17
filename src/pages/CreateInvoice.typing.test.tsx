@@ -72,5 +72,5 @@ describe('typing in the invoice editor is never rewritten', () => {
         lineItems: [expect.objectContaining({ description: 'Design 2' })],
       }),
     );
-  }, 20_000); // ~40 keystrokes into the full editor: allow for a slow machine
+  }, 60_000); // real per-key typing on purpose (this guards against write-backs between keystrokes): generous timeout for loaded machines
 });

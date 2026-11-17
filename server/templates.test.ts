@@ -3,6 +3,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import type { Scope } from '../shared/api';
 import type { ActivityEntry } from '../shared/activity';
 import { api, BASE, buildApp, connectAgent, createWorkspace, sampleInvoice, startD1, TestClock } from './test/helpers';
+import { connectOAuth } from './test/oauth';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
 beforeAll(async () => {
@@ -526,5 +527,44 @@ describe('template activity', () => {
     await client.put(`/api/v1/invoices/${uuid(4)}`, { ...sampleInvoice(), templateId: uuid(2) }, token, header);
     const entries = await log(client, token, 1);
     expect(entries[0]).toMatchObject({ action: 'sync.bulk_upload', changes: { counts: { clients: 1, templates: 2, invoices: 1 } } });
+  });
+});
+
+describe('templates over OAuth-connected MCP clients', () => {
+  it('advertises the template scopes and lets an OAuth agent with them use the template tools', async () => {
+    const { app, client, token } = await freshWorkspace();
+    await client.put('/api/v1/settings', SETTINGS, token);
+    const meta = (await (await app.request(`${BASE}/.well-known/oauth-protected-resource/api/mcp`)).json()) as { scopes_supported: string[] };
+    expect(meta.scopes_supported).toEqual(expect.arrayContaining(['templates:read', 'templates:write']));
+
+    const { tokens } = await connectOAuth(app, client, token, { scope: 'invoices:read invoices:write templates:read templates:write' });
+    expect(tokens.scope.split(' ').sort()).toEqual(['invoices:read', 'invoices:write', 'templates:read', 'templates:write']);
+    const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+      fetch: (input, init) => Promise.resolve(app.fetch(new Request(input, init))),
+      requestInit: { headers: { authorization: `Bearer ${tokens.access_token}` } },
+    });
+    const mcp = new Client({ name: 'oauth-templates', version: '1.0.0' });
+    await mcp.connect(transport);
+    const names = (await mcp.listTools()).tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['list_templates', 'get_template', 'create_template', 'update_template', 'delete_template', 'create_invoice_from_template']));
+    const text = (r: { content?: unknown }) => JSON.parse((r.content as { type: string; text?: string }[]).find((c) => c.type === 'text')!.text!);
+    const t = text(await mcp.callTool({ name: 'create_template', arguments: RETAINER })).template;
+    expect(t.createdBy).toMatchObject({ type: 'agent' });
+    const made = text(await mcp.callTool({ name: 'create_invoice_from_template', arguments: { id: t.id, toName: 'Acme', issueDate: '2026-01-10' } }));
+    expect(made.invoice).toMatchObject({ status: 'draft', templateId: t.id, invoiceName: 'Retainer January 2026' });
+    await mcp.close();
+
+    // Narrowed on the consent screen to read-only templates: no write tools.
+    const narrowed = await connectOAuth(app, client, token, { scope: 'invoices:write templates:read templates:write', approve: ['invoices:write', 'templates:read'] });
+    const mcp2 = new Client({ name: 'oauth-templates-2', version: '1.0.0' });
+    await mcp2.connect(
+      new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+        fetch: (input, init) => Promise.resolve(app.fetch(new Request(input, init))),
+        requestInit: { headers: { authorization: `Bearer ${narrowed.tokens.access_token}` } },
+      }),
+    );
+    const names2 = (await mcp2.listTools()).tools.map((x) => x.name).filter((n) => n.includes('template')).sort();
+    expect(names2).toEqual(['create_invoice_from_template', 'get_template', 'list_templates']);
+    await mcp2.close();
   });
 });

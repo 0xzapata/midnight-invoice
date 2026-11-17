@@ -8,6 +8,7 @@ import ViewInvoice from "./pages/ViewInvoice";
 import NotFound from "./pages/NotFound";
 import Agents from "./pages/Agents";
 import ApproveAgent from "./pages/ApproveAgent";
+import AuthorizeAgent from "./pages/oauth/AuthorizeAgent";
 import Clients from "./pages/Clients";
 import Templates from "./pages/Templates";
 import Activity from "./pages/Activity";
@@ -44,6 +45,7 @@ const App = () => {
           <Route path="/invoice/:id" element={<ViewInvoice />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/agents/approve" element={<ApproveAgent />} />
+          <Route path="/agents/authorize" element={<AuthorizeAgent />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/activity" element={<Activity />} />

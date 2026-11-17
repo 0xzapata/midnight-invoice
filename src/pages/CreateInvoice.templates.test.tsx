@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fill } from '@/test/userInput';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { toast } from 'sonner';
 import CreateInvoice from './CreateInvoice';
@@ -66,7 +67,7 @@ describe('an invoice created from a template passes the save validation', () => 
   });
 
   it('saves as is when the settings provide the sender', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const template = openDraftFromTemplate('Ada Ltd');
     await user.click(screen.getByRole('button', { name: /save invoice/i }));
     expect(await screen.findByText('Dashboard')).toBeInTheDocument();
@@ -76,13 +77,13 @@ describe('an invoice created from a template passes the save validation', () => 
   });
 
   it('without a sender the usual validation applies, and the template content survives it', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     openDraftFromTemplate('');
     await user.click(screen.getByRole('button', { name: /save invoice/i }));
     expect(await screen.findByText('Your name/company is required')).toBeInTheDocument();
     expect(toast.error).toHaveBeenCalledWith('Fix the highlighted fields to save this invoice');
     expect(useInvoiceStore.getState().invoices).toHaveLength(0);
-    await user.type(screen.getByLabelText('Name / Company'), 'Ada Ltd');
+    await fill(user, screen.getByLabelText('Name / Company'), 'Ada Ltd');
     await user.click(screen.getByRole('button', { name: /save invoice/i }));
     await waitFor(() => expect(useInvoiceStore.getState().invoices).toHaveLength(1));
     expect(useInvoiceStore.getState().invoices[0].lineItems[0].description).toBe('Retainer March');

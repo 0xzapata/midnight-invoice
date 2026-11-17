@@ -73,7 +73,7 @@ describe('template permissions on the consent screen', () => {
     expect(group).toHaveTextContent('it can create draft invoices from them');
     expect(group).toHaveTextContent('Invoices already created from a template never change.');
     expect(read).toBeChecked();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(write);
     await user.click(screen.getByRole('button', { name: /Approve 2 of 3 permissions/ }));
     await waitFor(() => expect(fake.requests.some((r) => r.method === 'POST' && r.path.endsWith('/approve'))).toBe(true));

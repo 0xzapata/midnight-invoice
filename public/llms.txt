@@ -12,6 +12,15 @@
 > a draft with the template's lines and terms, placeholders such as
 > {{month_name}} resolved for the issue date.
 
+## Connect an MCP client with OAuth (simplest for MCP clients)
+
+The MCP endpoint /api/mcp follows the MCP authorization spec (2026-07-28):
+a 401 points to /.well-known/oauth-protected-resource/api/mcp, the
+authorization server metadata is at /.well-known/oauth-authorization-server
+(authorization code + PKCE S256, `resource` required, dynamic client
+registration and Client ID Metadata Documents, public clients only). The user
+approves in the app. OAuth access tokens only work on /api/mcp.
+
 ## Connect an agent (device flow, no browser login needed)
 
 1. POST /api/v1/agents/register with {"name", "description"?, "scopes": [...]}
@@ -40,5 +49,5 @@
 ## Docs
 
 - [OpenAPI 3.1](/api/v1/openapi.json): full REST contract
-- [MCP endpoint](/api/mcp): remote MCP server (Streamable HTTP, stateless, POST, same Bearer key)
+- [MCP endpoint](/api/mcp): remote MCP server (Streamable HTTP, stateless, POST; OAuth access token or the same Bearer key)
 - Agent guide: AGENT_API.md in the source repository (https://github.com/0xzapata/midnight-invoice/blob/main/AGENT_API.md)

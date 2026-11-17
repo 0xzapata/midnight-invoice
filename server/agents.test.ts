@@ -295,6 +295,7 @@ describe('agent management', () => {
         createdAt: clock.now.toISOString(),
         lastUsedAt: clock.now.toISOString(),
         revokedAt: null,
+        connection: 'api_key',
       },
     ]);
 

@@ -28,6 +28,7 @@ import {
   type Scope,
   type SettingsResponse,
 } from '../../../shared/api';
+import type { OAuthDecisionResponse, OAuthRequestPreview } from '../../../shared/oauth';
 import { ApiError, NetworkError, parseRetryAfter } from './errors';
 
 export interface ApiClientOptions {
@@ -234,6 +235,11 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
     listAgents: () => request<ListAgentsResponse>('GET', '/agents'),
     revokeAgent: (id: string) => request<void>('DELETE', `/agents/${encode(id)}`),
 
+    // OAuth consent (MCP clients)
+    getOAuthRequest: (id: string) => request<OAuthRequestPreview>('GET', `/oauth/requests/${encode(id)}`),
+    approveOAuthRequest: (id: string, scopes: Scope[]) =>
+      request<OAuthDecisionResponse>('POST', `/oauth/requests/${encode(id)}/approve`, { body: { scopes } }),
+    denyOAuthRequest: (id: string) => request<OAuthDecisionResponse>('POST', `/oauth/requests/${encode(id)}/deny`),
     // Activity log
     listActivity: (p: ActivityParams = {}) => request<ListActivityResponse>('GET', '/activity', { query: activityQuery(p) }),
     listAgentActivity: (id: string, p: Omit<ActivityParams, 'agentId'> = {}) =>

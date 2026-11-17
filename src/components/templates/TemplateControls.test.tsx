@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fill } from '@/test/userInput';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { act } from 'react';
 import { toast } from 'sonner';
@@ -82,7 +83,7 @@ beforeEach(() => {
 
 describe('“From template” in the invoice form', () => {
   it('applies directly to a fresh form, resolving placeholders for its issue date', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const t = useTemplateStore.getState().saveTemplate(RETAINER);
     renderForm();
     await pickTemplate(user, 'Retainer');
@@ -94,7 +95,7 @@ describe('“From template” in the invoice form', () => {
   });
 
   it('never silently clobbers typed content: asks, and “Add to invoice” keeps everything typed', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     useTemplateStore.getState().saveTemplate(RETAINER);
     renderForm({
       toName: 'Initech',
@@ -118,7 +119,7 @@ describe('“From template” in the invoice form', () => {
   });
 
   it('“Replace” replaces the line items, name and notes', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     useTemplateStore.getState().saveTemplate(RETAINER);
     renderForm({ toName: 'Initech', notes: 'Old', lineItems: [{ id: 'typed', description: 'Typed work', quantity: 2, price: 50 }] });
     await pickTemplate(user, 'Retainer');
@@ -129,7 +130,7 @@ describe('“From template” in the invoice form', () => {
   });
 
   it('“Save as template” in the form saves the current invoice as a template', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm({ toName: 'Globex', invoiceName: 'Globex design', dueDate: '2026-04-04', lineItems: [{ id: 'a', description: 'Design', quantity: 3, price: 100 }] });
     await user.click(screen.getByRole('button', { name: 'Save as template' }));
     const dialog = await screen.findByRole('dialog', { name: 'New template' });
@@ -143,7 +144,7 @@ describe('“From template” in the invoice form', () => {
 
 describe('“Save as template” on the invoice page', () => {
   it('prefills the template from the invoice; the invoice is unchanged', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const invoice: Invoice = {
       id: 'inv-1',
       invoiceNumber: 'INV-0001',
@@ -176,7 +177,7 @@ describe('“Save as template” on the invoice page', () => {
     const dialog = await screen.findByRole('dialog', { name: 'New template' });
     expect(within(dialog).getByLabelText('Tax rate (%)')).toHaveValue(19);
     await user.clear(within(dialog).getByLabelText('Template name'));
-    await user.type(within(dialog).getByLabelText('Template name'), 'Website build');
+    await fill(user, within(dialog).getByLabelText('Template name'), 'Website build');
     await user.click(within(dialog).getByRole('button', { name: 'Save template' }));
     await waitFor(() => expect(useTemplateStore.getState().templates).toHaveLength(1));
     expect(useTemplateStore.getState().templates[0]).toMatchObject({
@@ -205,7 +206,7 @@ describe('“New from template” on the dashboard', () => {
   }
 
   it('is hidden without templates and opens a new draft from the picked one', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { rerender } = render(
       <MemoryRouter>
         <NewFromTemplateButton />

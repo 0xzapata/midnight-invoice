@@ -8,6 +8,7 @@ import { INVOICE_STATUSES, STATUS_TRANSITIONS } from '../shared/invoice-status';
 import { LIMITS } from './schemas';
 import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
 import { templateOpenApiPaths, templateOpenApiSchemas } from './openapiTemplates';
+import { oauthOpenApiPaths, oauthOpenApiSchemas } from './openapiOAuth';
 import { activityOpenApiPaths, activityOpenApiSchemas } from './openapiActivity';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
@@ -183,6 +184,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         Actor: actor,
         ...clientOpenApiSchemas,
         ...templateOpenApiSchemas,
+        ...oauthOpenApiSchemas,
         ...activityOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
         LineItem: {
@@ -290,6 +292,7 @@ export function buildOpenApiDocument(baseUrl: string) {
             createdAt: str({ format: 'date-time' }),
             lastUsedAt: { type: ['string', 'null'], format: 'date-time' },
             revokedAt: { type: ['string', 'null'], format: 'date-time' },
+            connection: { type: 'string', enum: ['api_key', 'oauth'], description: 'API key (device flow) or OAuth (MCP client)' },
           },
         },
       },
@@ -299,6 +302,7 @@ export function buildOpenApiDocument(baseUrl: string) {
       '/openapi.json': { get: { summary: 'This document', security: [], responses: { 200: { description: 'OpenAPI 3.1 document' } } } },
       ...clientOpenApiPaths,
       ...templateOpenApiPaths,
+      ...oauthOpenApiPaths,
       ...activityOpenApiPaths,
       '/workspaces': {
         post: {
@@ -514,6 +518,14 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
       },
     },
-    'x-mcp': { endpoint: `${baseUrl}/api/mcp`, transport: 'streamable-http (stateless, JSON responses)', auth: 'Same Bearer credentials' },
+    'x-mcp': {
+      endpoint: `${baseUrl}/api/mcp`,
+      transport: 'streamable-http (stateless, JSON responses)',
+      auth: 'Same Bearer credentials, or an OAuth 2.1 access token (MCP authorization; not accepted by this REST API)',
+    },
+    'x-oauth': {
+      protectedResourceMetadata: `${baseUrl}/.well-known/oauth-protected-resource/api/mcp`,
+      authorizationServerMetadata: `${baseUrl}/.well-known/oauth-authorization-server`,
+    },
   };
 }
