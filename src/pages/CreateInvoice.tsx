@@ -163,27 +163,28 @@ export default function CreateInvoice() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60">
-        <div className="container flex h-14 items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/', { viewTransition: true })} className="h-8 w-8">
-              <ArrowLeft className="w-4 h-4" />
+        <div className="container flex h-14 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <Button variant="ghost" size="icon" onClick={() => navigate('/', { viewTransition: true })} className="h-8 w-8 shrink-0" aria-label="Back">
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <h1 className="text-sm font-medium text-foreground">
+            <h1 className="truncate text-sm font-medium text-foreground">
               {isEditing ? 'Edit Invoice' : 'Create Invoice'}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleDownload}>
-              <Download className="w-4 h-4 mr-2" />
-              Download PDF
+          {/* Below md the actions are icon-only (labelled for assistive tech) so the header fits at 320 px. */}
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <Button variant="outline" size="sm" onClick={handleDownload} className="h-8 w-8 p-0 md:h-9 md:w-auto md:px-3" aria-label="Download PDF">
+              <Download className="w-4 h-4 md:mr-2" aria-hidden="true" />
+              <span className="hidden md:inline">Download PDF</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={handleDuplicate}>
-              <Copy className="w-4 h-4 mr-2" />
-              Duplicate
+            <Button variant="outline" size="sm" onClick={handleDuplicate} className="h-8 w-8 p-0 md:h-9 md:w-auto md:px-3" aria-label="Duplicate">
+              <Copy className="w-4 h-4 md:mr-2" aria-hidden="true" />
+              <span className="hidden md:inline">Duplicate</span>
             </Button>
-            <Button size="sm" onClick={handleSave}>
-              <Save className="w-4 h-4 mr-2" />
-              Save Invoice
+            <Button size="sm" onClick={handleSave} className="h-8 w-8 p-0 md:h-9 md:w-auto md:px-3" aria-label="Save Invoice">
+              <Save className="w-4 h-4 md:mr-2" aria-hidden="true" />
+              <span className="hidden md:inline">Save Invoice</span>
             </Button>
             <ThemeToggle />
           </div>
