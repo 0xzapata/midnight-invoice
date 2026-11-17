@@ -10,8 +10,6 @@ export const CLIENT_STORAGE_KEY = 'client-storage';
 interface ClientState {
   clients: Client[];
   _hasHydrated: boolean;
-  /** Not persisted: "New invoice for this client" hands the client to the next new invoice form. */
-  invoiceClientRequest: string | null;
 
   setHasHydrated: (value: boolean) => void;
   saveClient: (data: ClientFormData, id?: string) => Client;
@@ -20,9 +18,6 @@ interface ClientState {
   getClient: (id: string) => Client | undefined;
   /** Creates a client for every distinct (normalised name + email) Bill To of `invoices` that is not saved yet. */
   importFromInvoices: (invoices: Invoice[]) => Client[];
-  requestInvoiceFor: (id: string | null) => void;
-  /** Returns and clears the pending "new invoice for this client" request. */
-  takeInvoiceClientRequest: () => string | null;
 }
 
 const clean = (data: ClientFormData) => ({
@@ -46,8 +41,6 @@ export const useClientStore = create<ClientState>()(
     (set, get) => ({
       clients: [],
       _hasHydrated: false,
-      invoiceClientRequest: null,
-
       setHasHydrated: (value) => set({ _hasHydrated: value }),
 
       saveClient: (data, id) => {
@@ -109,13 +102,6 @@ export const useClientStore = create<ClientState>()(
           );
         }
         return created;
-      },
-
-      requestInvoiceFor: (id) => set({ invoiceClientRequest: id }),
-      takeInvoiceClientRequest: () => {
-        const id = get().invoiceClientRequest;
-        if (id) set({ invoiceClientRequest: null });
-        return id;
       },
     }),
     {

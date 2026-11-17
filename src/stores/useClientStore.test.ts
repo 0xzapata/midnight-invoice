@@ -24,7 +24,7 @@ const invoice = (overrides: Partial<Invoice>): Invoice => ({
 
 beforeEach(() => {
   localStorage.clear();
-  useClientStore.setState({ clients: [], invoiceClientRequest: null });
+  useClientStore.setState({ clients: [] });
 });
 
 describe('useClientStore', () => {
@@ -46,7 +46,7 @@ describe('useClientStore', () => {
     const persisted = JSON.parse(localStorage.getItem('client-storage')!);
     expect(persisted.version).toBe(CURRENT_CLIENT_VERSION);
     expect(persisted.state.clients[0].name).toBe('Globex Corp');
-    expect(persisted.state).not.toHaveProperty('invoiceClientRequest');
+    expect(Object.keys(persisted.state)).toEqual(['clients']);
 
     useClientStore.getState().deleteClient(created.id);
     expect(useClientStore.getState().clients).toEqual([]);
@@ -80,12 +80,6 @@ describe('useClientStore', () => {
       invoice({ toName: 'Initech' }),
     ];
     expect(invoicesForClient(globex, invoices)).toHaveLength(2);
-  });
-
-  it('hands a client to the next new invoice once', () => {
-    useClientStore.getState().requestInvoiceFor('c1');
-    expect(useClientStore.getState().takeInvoiceClientRequest()).toBe('c1');
-    expect(useClientStore.getState().takeInvoiceClientRequest()).toBeNull();
   });
 });
 

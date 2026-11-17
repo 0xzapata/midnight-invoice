@@ -214,4 +214,26 @@ describe('ApproveAgent', () => {
       expect(within(group).getByRole('checkbox', { name: new RegExp(label) })).toBeInTheDocument();
     }
   });
+
+  it('describes the client permissions in plain language and approves a narrowed set', async () => {
+    connect();
+    serveRegistration((req) =>
+      req.method === 'POST'
+        ? fake.json(200, { registration: { id: 'reg-1', status: 'approved', scopes: (req.body as { scopes: string[] }).scopes } })
+        : fake.json(200, registration({ requestedScopes: ['invoices:write', 'clients:read', 'clients:write'] })),
+    );
+    renderAt(`/agents/approve?code=${CODE}`);
+    const group = await screen.findByRole('group', { name: 'Permissions requested' });
+    const read = within(group).getByRole('checkbox', { name: /View your clients/ });
+    const write = within(group).getByRole('checkbox', { name: /Add, edit and delete clients/ });
+    expect(group).toHaveTextContent('clients:read');
+    expect(group).toHaveTextContent('See your saved clients (names, emails, addresses, default terms and private notes)');
+    expect(group).toHaveTextContent('Existing invoices never change');
+    expect(read).toBeChecked();
+    const user = userEvent.setup();
+    await user.click(write);
+    await user.click(screen.getByRole('button', { name: /Approve 2 of 3 permissions/ }));
+    await waitFor(() => expect(registrationRequests().some((r) => r.method === 'POST')).toBe(true));
+    expect(registrationRequests().find((r) => r.method === 'POST')!.body).toEqual({ scopes: ['invoices:write', 'clients:read'] });
+  });
 });

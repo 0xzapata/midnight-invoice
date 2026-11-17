@@ -96,14 +96,20 @@ const Index = () => {
           <div className="flex items-center gap-1 sm:gap-2">
             <SyncStatusIndicator />
             <Button variant="ghost" size="sm" asChild className="px-2 font-mono sm:px-3">
+              <Link to="/clients" viewTransition>
+                <Users className="w-4 h-4" aria-hidden="true" />
+                <span className="sr-only sm:not-sr-only">Clients</span>
+              </Link>
+            </Button>
+            <Button variant="ghost" size="sm" asChild className="px-2 font-mono sm:px-3">
               <Link to="/agents" viewTransition>
                 <Bot className="w-4 h-4" aria-hidden="true" />
                 <span className="sr-only sm:not-sr-only">Agents</span>
               </Link>
             </Button>
             <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
-              <Plus className="w-4 h-4 mr-2" />
-              New Invoice
+              <Plus className="w-4 h-4 sm:mr-2" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">New Invoice</span>
             </Button>
           </div>
         </div>
@@ -319,16 +325,6 @@ const Index = () => {
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
-                  <div className="w-10 h-10 rounded-md bg-green-500/10 flex items-center justify-center">
-                    <Users className="w-5 h-5 text-green-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">Client Management</p>
-                    <p className="text-sm text-muted-foreground">Save and reuse client information</p>
-                  </div>
-                </div>
-
                 <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
                   <div className="w-10 h-10 rounded-md bg-purple-500/10 flex items-center justify-center">
                     <FileStack className="w-5 h-5 text-purple-500" />
