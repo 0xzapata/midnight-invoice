@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Settings, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,12 +27,13 @@ export function SettingsDrawer({ trigger }: SettingsDrawerProps) {
   const [open, setOpen] = useState(false);
   const [localSettings, setLocalSettings] = useState<DefaultSettings>(settings);
 
-  // Sync local state when drawer opens
-  useEffect(() => {
-    if (open) {
+  // Sync local state with the saved settings whenever the drawer opens
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
       setLocalSettings(settings);
     }
-  }, [open, settings]);
+    setOpen(nextOpen);
+  };
 
   const handleSave = () => {
     updateSettings(localSettings);
@@ -48,7 +49,7 @@ export function SettingsDrawer({ trigger }: SettingsDrawerProps) {
   );
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetTrigger asChild>
         {trigger || defaultTrigger}
       </SheetTrigger>

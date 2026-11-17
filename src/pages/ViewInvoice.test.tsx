@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ViewInvoice from './ViewInvoice';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { useInvoices } from '@/hooks/useInvoices';
 
 // Mock dependencies
@@ -38,11 +38,9 @@ const mockInvoice = {
   paymentDetails: '',
 };
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
 const mockGetInvoice = vi.fn((_id: string) => mockInvoice);
 const mockDeleteInvoice = vi.fn();
 const mockSaveDraft = vi.fn();
-/* eslint-enable @typescript-eslint/no-unused-vars */
 
 // Mock crypto.randomUUID
 Object.defineProperty(globalThis.crypto, 'randomUUID', {
@@ -66,8 +64,8 @@ Object.defineProperty(window, 'print', {
 });
 
 // Mock URL.createObjectURL and revokeObjectURL
-global.URL.createObjectURL = vi.fn(() => 'blob:test');
-global.URL.revokeObjectURL = vi.fn();
+globalThis.URL.createObjectURL = vi.fn(() => 'blob:test');
+globalThis.URL.revokeObjectURL = vi.fn();
 
 describe('ViewInvoice', () => {
   beforeEach(() => {
@@ -158,7 +156,7 @@ describe('ViewInvoice', () => {
 
     // Since download is async and involves blob creation, we just check if it was called without errors
     await waitFor(() => {
-        expect(global.URL.createObjectURL).toHaveBeenCalled();
+        expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
     });
   });
 

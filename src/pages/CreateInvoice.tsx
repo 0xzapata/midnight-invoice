@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { Download, Save, ArrowLeft, Copy, Settings } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Plus, FileText, Settings, Sparkles, Cloud, Users, FileStack, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -24,12 +24,13 @@ const Index = () => {
   // Local state for settings form to avoid auto-saving on every keystroke
   const [localSettings, setLocalSettings] = useState<DefaultSettings>(settings);
 
-  // Sync local state when tab changes to settings
-  useEffect(() => {
-    if (activeTab === 'settings') {
+  const selectTab = (tab: typeof activeTab) => {
+    // Sync local state with the saved settings when switching to the settings tab
+    if (tab === 'settings') {
       setLocalSettings(settings);
     }
-  }, [activeTab, settings]);
+    setActiveTab(tab);
+  };
 
   const handleSaveSettings = () => {
     updateSettings(localSettings);
@@ -95,7 +96,7 @@ const Index = () => {
           {/* Tabs */}
           <div className="flex gap-4 mb-8 border-b border-border">
             <button
-              onClick={() => setActiveTab('invoices')}
+              onClick={() => selectTab('invoices')}
               className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'invoices'
                   ? 'border-primary text-foreground'
@@ -106,7 +107,7 @@ const Index = () => {
               Your Invoices
             </button>
             <button
-              onClick={() => setActiveTab('settings')}
+              onClick={() => selectTab('settings')}
               className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'settings'
                   ? 'border-primary text-foreground'
@@ -117,7 +118,7 @@ const Index = () => {
               Settings
             </button>
             <button
-              onClick={() => setActiveTab('coming')}
+              onClick={() => selectTab('coming')}
               className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'coming'
                   ? 'border-primary text-foreground'

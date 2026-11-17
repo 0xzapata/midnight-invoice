@@ -1,10 +1,9 @@
 import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react-swc';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    plugins: [react()] as any,
+    plugins: [react()],
     test: {
         environment: 'jsdom',
         globals: true,
@@ -18,7 +17,7 @@ export default defineConfig({
     },
     resolve: {
         alias: {
-            '@': path.resolve(__dirname, './src'),
+            '@': path.resolve(import.meta.dirname, './src'),
         },
     },
 });

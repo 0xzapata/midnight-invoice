@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useForm, useStore } from '@tanstack/react-form';
+import { useForm, useStore, type StandardSchemaV1 } from '@tanstack/react-form';
 import { Plus, Trash2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,7 +50,9 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
   const form = useForm({
     defaultValues,
     validators: {
-      onBlur: invoiceFormSchema as any,
+      // The schema's input type marks defaulted fields optional, while the form
+      // always holds every field, so narrow it to the form's value type.
+      onBlur: invoiceFormSchema as StandardSchemaV1<InvoiceFormData>,
     },
     onSubmit: async () => {
       // Form is controlled, no submit handler needed
