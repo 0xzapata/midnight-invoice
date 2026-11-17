@@ -47,7 +47,8 @@ export async function setup(settings: Record<string, unknown> = {}) {
     operator: { vars: { RESEND_API_KEY: 're_test_key_0123456789abcdef' } },
     email: { fetch: resend.fetch },
   });
-  for (const [key, value] of Object.entries({ 'email.fromAddress': 'invoices@mail.example.org', 'email.cooldownMinutes': 0, ...settings })) {
+  // Anonymous test workspaces: the account requirement (security fix M2, on by default) has its own tests in security-review.test.ts.
+  for (const [key, value] of Object.entries({ 'email.fromAddress': 'invoices@mail.example.org', 'email.cooldownMinutes': 0, 'email.requireAccount': false, ...settings })) {
     await deps.settings.set(key, value, SYSTEM);
   }
   const app = createApp(deps);
@@ -242,5 +243,99 @@ describe('L1: clients cannot claim the idempotency keys of scheduled emails', ()
     await runRecurringGeneration(s.deps, s.clock.now.getTime());
     expect(s.resend.calls).toHaveLength(2);
     expect((await s.client.get(`/api/v1/invoices?recurring_id=${id}`, s.token)).json.invoices[0].status).toBe('sent');
+  });
+});
+
+describe('M2: no anonymous email relay; caps count recipients', () => {
+  /** Makes the workspace owned by a signed-in account with a verified email (as the account flows do). */
+  async function ownByAccount(s: Awaited<ReturnType<typeof setup>>, token = s.token) {
+    const wsId = (await s.client.get('/api/v1/workspace', token)).json.workspace.id as string;
+    const userId = crypto.randomUUID();
+    await d1.db.batch([
+      d1.db.prepare('INSERT INTO users (id, workos_user_id, email, email_verified, created_at) VALUES (?, ?, ?, 1, 0)').bind(userId, `user_${userId}`, `${userId}@studio.io`),
+      d1.db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, 'owner', 0)").bind(wsId, userId),
+    ]);
+    return wsId;
+  }
+  const invoiceFor = async (s: Awaited<ReturnType<typeof setup>>, body: Record<string, unknown> = {}, token = s.token) =>
+    (await s.client.post('/api/v1/invoices', { toName: 'Globex', toEmail: CLIENT_EMAIL, lineItems: [{ description: 'x', quantity: 1, price: 1 }], ...body }, token)).json.invoice;
+
+  it('refuses email from an anonymous workspace by default (users, agents, schedules), and explains it', async () => {
+    const s = await setup({ 'email.requireAccount': true });
+    const inv = await invoiceFor(s, { fromName: 'PayPal Security' });
+    const res = await s.client.post(`/api/v1/invoices/${inv.id}/send`, { to: 'victim@gmail-mail.io', cc: ['v2@outlook-mail.io'], subject: 'Urgent: account locked' }, s.token);
+    expect(res.status).toBe(403);
+    expect(res.json.error).toMatchObject({ code: 'account_required_for_email', message: expect.stringMatching(/signed-in account/) });
+    expect((await s.send(inv.id, s.key)).json.error.code).toBe('account_required_for_email');
+    expect((await s.client.get(`/api/v1/invoices/${inv.id}/emails`, s.token)).json.delivery).toMatchObject({ configured: true, accountRequired: true });
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'R', quantity: 1, price: 1 }] }, s.token)).json.template;
+    const sched = await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-02', timezone: 'UTC', autoAction: 'send_email' }, s.token);
+    expect(sched.json.error.code).toBe('account_required_for_email');
+    expect(s.resend.calls).toHaveLength(0);
+
+    // Owned by a signed-in account: allowed.
+    await ownByAccount(s);
+    expect((await s.client.get(`/api/v1/invoices/${inv.id}/emails`, s.token)).json.delivery.accountRequired).toBe(false);
+    expect((await s.send(inv.id, s.token)).status).toBe(200);
+  });
+
+  it('counts every recipient (to + cc) against the caps', async () => {
+    const s = await setup({ 'email.workspaceHourlyLimit': 3 });
+    const a = await invoiceFor(s);
+    const four = await s.client.post(`/api/v1/invoices/${a.id}/send`, { cc: ['a@one-client.io', 'b@one-client.io', 'c@one-client.io'] }, s.token);
+    expect(four.json.error).toMatchObject({ code: 'rate_limited', details: { reason: 'workspace_hourly_limit' } });
+    expect((await s.client.post(`/api/v1/invoices/${a.id}/send`, { cc: ['a@one-client.io', 'b@one-client.io'] }, s.token)).status).toBe(200);
+    const b = await invoiceFor(s);
+    expect((await s.send(b.id, s.token)).json.error.details.reason).toBe('workspace_hourly_limit');
+  });
+
+  it('limits app sends per client IP across workspaces (agents and schedules are not counted there)', async () => {
+    const s = await setup({ 'email.ipHourlyLimit': 2 });
+    const ip = { 'cf-connecting-ip': '203.0.113.7' };
+    const other = await createWorkspace(s.client);
+    const mine = await invoiceFor(s);
+    const theirs = await invoiceFor(s, { fromName: 'Other Studio' }, other.token);
+    expect((await s.client.post(`/api/v1/invoices/${mine.id}/send`, {}, s.token, ip)).status).toBe(200);
+    expect((await s.client.post(`/api/v1/invoices/${theirs.id}/send`, {}, other.token, ip)).status).toBe(200);
+    const third = await invoiceFor(s);
+    const limited = await s.client.post(`/api/v1/invoices/${third.id}/send`, {}, s.token, ip);
+    expect(limited.json.error).toMatchObject({ code: 'rate_limited', details: { reason: 'ip_hourly_limit' } });
+    expect((await s.client.post(`/api/v1/invoices/${third.id}/send`, {}, s.token, { 'cf-connecting-ip': '198.51.100.9' })).status).toBe(200);
+    // No IP is stored, only a hash in the counter scope.
+    const scopes = (await d1.db.prepare("SELECT scope FROM email_counters WHERE scope LIKE 'ip:%'").all<{ scope: string }>()).results.map((r) => r.scope);
+    expect(scopes.join(' ')).not.toContain('203.0.113.7');
+  });
+
+  it('gives new workspaces a lower daily cap (warm-up)', async () => {
+    const s = await setup({ 'email.newWorkspaceDailyCap': 1, 'email.newWorkspaceDays': 7 });
+    const a = await invoiceFor(s);
+    const b = await invoiceFor(s);
+    expect((await s.send(a.id, s.token)).status).toBe(200);
+    expect((await s.send(b.id, s.token)).json.error.details.reason).toBe('new_workspace_daily_cap');
+    s.clock.now = new Date('2026-12-09T10:00:00.000Z');
+    expect((await s.send(b.id, s.token)).status).toBe(200);
+  });
+
+  it('keeps a share of the site cap for scheduled emails', async () => {
+    const s = await setup({ 'email.globalDailyCap': 5, 'email.scheduledReservePercent': 40 });
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'R', quantity: 1, price: 1 }] }, s.token)).json.template;
+    const id = (await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-01', timezone: 'UTC', autoAction: 'send_email' }, s.token)).json.recurring.id;
+    for (let i = 0; i < 3; i++) expect((await s.send((await invoiceFor(s)).id, s.token)).status).toBe(200);
+    expect((await s.send((await invoiceFor(s)).id, s.token)).json.error.details.reason).toBe('site_daily_cap');
+    // Same UTC day: the schedule's email still goes out on the share kept for it (4 of 5 used now).
+    await runRecurringGeneration(s.deps, s.clock.now.getTime());
+    expect(s.resend.calls).toHaveLength(4);
+    expect((await s.client.get(`/api/v1/invoices?recurring_id=${id}`, s.token)).json.invoices[0].status).toBe('sent');
+  });
+
+  it('strips deceptive characters from the sender display name and caps its length', async () => {
+    const s = await setup();
+    const inv = await invoiceFor(s, { fromName: `Pay\u202ePal "Security" <support@paypal.example> \u200b${'x'.repeat(80)}` });
+    expect((await s.send(inv.id, s.token)).status).toBe(200);
+    const from = (s.resend.calls[0] as unknown as { from: string }).from;
+    const name = /^"(.*) via Midnight Invoice" </.exec(from)![1];
+    expect(name).not.toMatch(/[\u202e\u200b"<>@]/);
+    expect(name.startsWith('Pay Pal Security support paypal.example x')).toBe(true);
+    expect(Array.from(name).length).toBeLessThanOrEqual(60);
   });
 });

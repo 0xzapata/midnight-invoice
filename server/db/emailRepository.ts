@@ -50,6 +50,8 @@ export interface CounterReservation {
   scope: string;
   windowStart: string;
   limit: number;
+  /** How much this send counts (its recipients, to + cc); default 1. */
+  amount?: number;
 }
 
 const COLUMNS =
@@ -61,7 +63,7 @@ export function createEmailRepository(db: D1Database) {
     if (reservations.length === 0) return;
     await db.batch(
       reservations.map((r) =>
-        db.prepare('UPDATE email_counters SET count = MAX(count - 1, 0) WHERE scope = ? AND window_start = ?').bind(r.scope, r.windowStart),
+        db.prepare('UPDATE email_counters SET count = MAX(count - ?, 0) WHERE scope = ? AND window_start = ?').bind(r.amount ?? 1, r.scope, r.windowStart),
       ),
     );
   };
@@ -282,6 +284,24 @@ export function createEmailRepository(db: D1Database) {
       };
     },
 
+    /**
+     * Who may send from this workspace (security fix M2): whether it is owned
+     * by an account with a verified email that is not disabled
+     * (`workspace_members` / `users`, migration 0010), and how old it is.
+     */
+    async sendingProfile(workspaceId: string): Promise<{ hasAccount: boolean; createdAt: string | null }> {
+      const row = await db
+        .prepare(
+          `SELECT w.created_at,
+                  EXISTS (SELECT 1 FROM workspace_members m JOIN users u ON u.id = m.user_id
+                           WHERE m.workspace_id = w.id AND m.role = 'owner' AND u.email_verified = 1 AND u.disabled_at IS NULL) AS has_account
+             FROM workspaces w WHERE w.id = ?`,
+        )
+        .bind(workspaceId)
+        .first<{ created_at: string; has_account: number }>();
+      return { hasAccount: !!row?.has_account, createdAt: row?.created_at ?? null };
+    },
+
     async approvedSenderFields(workspaceId: string, values: Partial<Record<SenderField, string>>): Promise<Set<SenderField>> {
       const entries = Object.entries(values) as [SenderField, string][];
       if (entries.length === 0) return new Set();
@@ -311,11 +331,11 @@ export function createEmailRepository(db: D1Database) {
         ...reservations.map((r) =>
           db
             .prepare(
-              `INSERT INTO email_counters (scope, window_start, count) VALUES (?, ?, 1)
-               ON CONFLICT (scope, window_start) DO UPDATE SET count = count + 1
+              `INSERT INTO email_counters (scope, window_start, count) VALUES (?1, ?2, ?3)
+               ON CONFLICT (scope, window_start) DO UPDATE SET count = count + ?3
                RETURNING count`,
             )
-            .bind(r.scope, r.windowStart),
+            .bind(r.scope, r.windowStart, r.amount ?? 1),
         ),
         db.prepare('DELETE FROM email_counters WHERE window_start < ?').bind(pruneBefore),
       ]);

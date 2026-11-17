@@ -96,6 +96,7 @@ export type ApiErrorCode =
   | 'email_send_failed'
   | 'recipient_not_allowed'
   | 'invoice_needs_review'
+  | 'account_required_for_email'
   | 'idempotency_conflict';
 
 export interface ApiErrorBody {
@@ -549,6 +550,8 @@ export interface ListInvoiceEmailsResponse {
     /** Service name in the From display name: recipients see "<invoice fromName> via <fromName>". */
     fromName: string;
     pdfTheme: 'light' | 'dark';
+    /** True when this workspace cannot send because the server only lets signed-in accounts send (403 account_required_for_email). */
+    accountRequired: boolean;
     /** Minimum minutes between two sends of the same invoice. */
     cooldownMinutes: number;
   };

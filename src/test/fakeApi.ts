@@ -51,7 +51,7 @@ export function createFakeApi() {
     activity: [] as ActivityEntry[],
     workspace: { id: 'ws-1', createdAt: '2026-11-17T09:00:00.000Z' },
     /** POST /invoices/:id/send behaviour (email configured on the "server"). */
-    email: { configured: true, fromAddress: 'invoices@mail.midnight.app', fromName: 'Midnight Invoice', pdfTheme: 'light' as 'light' | 'dark', cooldownMinutes: 10 },
+    email: { configured: true, fromAddress: 'invoices@mail.midnight.app', fromName: 'Midnight Invoice', pdfTheme: 'light' as 'light' | 'dark', accountRequired: false, cooldownMinutes: 10 },
     /** GET /reviews ("Needs your review"); POST /invoices|clients/:id/review removes the entry. */
     reviews: { invoices: [], clients: [] } as ListReviewsResponse,
   };

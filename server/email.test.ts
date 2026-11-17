@@ -74,7 +74,8 @@ async function setup(opts: { settings?: Record<string, unknown>; key?: string | 
     operator: { vars: { RESEND_API_KEY: opts.key === null ? undefined : (opts.key ?? RESEND_KEY) }, telemetryFlushDelayMs: 0 },
     email: { fetch: resend.fetch },
   });
-  const settings = { 'email.fromAddress': FROM, ...opts.settings };
+  // Anonymous test workspaces: the account requirement (security fix M2, on by default) has its own tests in security-review.test.ts.
+  const settings = { 'email.fromAddress': FROM, 'email.requireAccount': false, ...opts.settings };
   for (const [key, value] of Object.entries(settings)) await deps.settings.set(key, value, SYSTEM);
   const app = createApp(deps);
   const client = api(app);
@@ -218,8 +219,9 @@ describe('POST /invoices/:id/send', () => {
     expect(html).toContain('&lt;a href=&quot;javascript:alert(1)&quot;&gt;pay&lt;/a&gt; &amp; thanks');
     expect(html).toContain('<title>Your &lt;i&gt;invoice&lt;/i&gt; &amp; receipt</title>');
     expect(html).toContain('Studio &quot;Q&quot; \\ &lt;x&gt;');
-    // Quotes and backslashes in the display name are escaped inside the quoted string.
-    expect(from).toBe(`"Studio \\"Q\\" \\\\ <x> via Midnight Invoice" <${FROM}>`);
+    // Quotes, angle brackets and backslashes are removed from the display name (security fix M2: they can
+    // fake a second mailbox); formatMailbox still escapes anything left inside the quoted string.
+    expect(from).toBe(`"Studio Q x via Midnight Invoice" <${FROM}>`);
     expect((await send(inv.id, { message: 'x'.repeat(2001) })).status).toBe(400);
     expect((await send(inv.id, { subject: 's'.repeat(201) })).status).toBe(400);
   });
@@ -350,7 +352,7 @@ describe('agents and invoices:send', () => {
   });
 
   it('lets an agent send only to the invoice’s user-entered toEmail, cc only the workspace email, within per-agent limits', async () => {
-    const { send, invoice, client, ws, resend } = await setup({ settings: { 'email.cooldownMinutes': 0, 'email.agentHourlyLimit': 2 } });
+    const { send, invoice, client, ws, resend } = await setup({ settings: { 'email.cooldownMinutes': 0, 'email.agentHourlyLimit': 3 } }); // 3 recipients: caps count to + cc (security fix M2)
     const { api_key } = await connectAgent(client, ws.token, ['invoices:send', 'invoices:write']);
     const inv = await invoice(); // created by the user: CLIENT was entered by the user
 
@@ -445,6 +447,7 @@ describe('settings registry and secrets', () => {
       fromAddress: FROM,
       fromName: 'Midnight Invoice',
       pdfTheme: 'light',
+      accountRequired: false,
       cooldownMinutes: 10,
     });
     expect(resend.calls).toHaveLength(0);
@@ -505,6 +508,8 @@ describe('operator console', () => {
     const key = 're_operator_console_key_ABCDEF987654';
     expect((await b.put('/api/operator/settings/resend.apiKey', { value: key })).status).toBe(200);
     expect((await b.put('/api/operator/settings/email.fromAddress', { value: FROM })).status).toBe(200);
+    // The test workspace below is anonymous: the operator allows that explicitly (security fix M2, default on).
+    expect((await b.put('/api/operator/settings/email.requireAccount', { value: false })).status).toBe(200);
     expect((await b.put('/api/operator/settings/email.fromName', { value: 'Bad\r\nName' })).status).toBe(400);
     const list = await b.get('/api/operator/settings');
     expect(list.text).not.toContain(key);

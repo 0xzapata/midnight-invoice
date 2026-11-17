@@ -125,7 +125,30 @@ function emailSetupStatus(byKey: Map<string, SettingItem>): { ready: boolean; te
     !byKey.get('resend.apiKey')?.isSet && 'Resend API key',
     !byKey.get('email.fromAddress')?.value && 'From address (on a domain verified with Resend)',
   ].filter(Boolean);
-  return missing.length ? { ready: false, text: `Email: not configured — set the ${missing.join(' and the ')}` } : { ready: true, text: 'Email: configured' };
+  if (missing.length) return { ready: false, text: `Email: not configured — set the ${missing.join(' and the ')}` };
+  // Who can send (security fix M2): the account requirement only works with user accounts on.
+  const requireAccount = byKey.get('email.requireAccount')?.value;
+  if (requireAccount === true && byKey.get('accounts.enabled')?.value !== true) {
+    return {
+      ready: false,
+      text: 'Email: configured, but nobody can send — “Only signed-in accounts may send” is on and User accounts are off. Turn on User accounts, or turn that setting off (then anyone who turns on cloud sync can send from your domain).',
+    };
+  }
+  if (requireAccount === true) return { ready: true, text: 'Email: configured — only workspaces with a signed-in account can send' };
+  if (requireAccount === false) return { ready: true, text: 'Email: configured — anyone who turns on cloud sync can send, anonymous workspaces included' };
+  return { ready: true, text: 'Email: configured' };
+}
+
+/** How many workspaces at their daily cap use up the site cap before the warning shows. */
+const CAP_SHARE_WARNING = 5;
+
+/** Warns when a few workspaces could use up the whole site's daily cap (security fix M2). */
+function emailCapWarning(byKey: Map<string, SettingItem>): string | null {
+  const ws = byKey.get('email.workspaceDailyCap')?.value;
+  const site = byKey.get('email.globalDailyCap')?.value;
+  if (typeof ws !== 'number' || typeof site !== 'number' || ws * CAP_SHARE_WARNING < site) return null;
+  const n = Math.max(1, Math.ceil(site / ws));
+  return `Warning: ${n === 1 ? 'one workspace' : `${n} workspaces`} at the daily cap (${ws}) can use up the whole site cap (${site}). Keep the workspace cap below 1/${CAP_SHARE_WARNING} of the site cap.`;
 }
 
 export function SettingsPage() {
@@ -169,6 +192,11 @@ export function SettingsPage() {
                 className={`mb-3 border px-3 py-2 text-xs ${emailSetupStatus(byKey).ready ? 'border-border text-muted-foreground' : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}
               >
                 {emailSetupStatus(byKey).text}
+              </p>
+            )}
+            {g === 'Email' && emailCapWarning(byKey) && (
+              <p role="status" className="mb-3 border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {emailCapWarning(byKey)}
               </p>
             )}
             {settings

@@ -200,30 +200,63 @@ function limitedFor(retryAfterSeconds: number, message: string, details: Record<
 
 const windowStart = (now: number, size: number) => new Date(Math.floor(now / size) * size).toISOString();
 
-function reservationsFor(principal: Principal, limits: EmailLimits, now: number) {
+/**
+ * Counters this send is checked against (security fix M2: every recipient,
+ * to + cc, counts). Interactive sends (the app, agents) stop at
+ * (100 − scheduledReservePercent)% of the site cap, so they cannot use up the
+ * day for recurring emails; young workspaces have a lower daily cap; the
+ * app's own sends also count per client IP (hashed).
+ */
+function reservationsFor(
+  principal: Principal,
+  limits: EmailLimits,
+  now: number,
+  opts: { recipients: number; unattended: boolean; young: boolean; ipKey: string | null },
+) {
   const hour = windowStart(now, HOUR_MS);
   const day = windowStart(now, DAY_MS);
+  const amount = Math.max(1, opts.recipients);
+  const globalLimit = opts.unattended ? limits.globalDaily : Math.max(1, Math.floor((limits.globalDaily * (100 - limits.scheduledReservePercent)) / 100));
+  const workspaceDaily = opts.young ? Math.min(limits.workspaceDaily, limits.newWorkspaceDaily) : limits.workspaceDaily;
   const list: (CounterReservation & { label: string; size: number })[] = [
-    { scope: 'global:d', windowStart: day, limit: limits.globalDaily, label: 'site_daily_cap', size: DAY_MS },
-    { scope: `ws:${principal.workspaceId}:h`, windowStart: hour, limit: limits.workspaceHourly, label: 'workspace_hourly_limit', size: HOUR_MS },
-    { scope: `ws:${principal.workspaceId}:d`, windowStart: day, limit: limits.workspaceDaily, label: 'workspace_daily_cap', size: DAY_MS },
+    { scope: 'global:d', windowStart: day, limit: globalLimit, label: 'site_daily_cap', size: DAY_MS, amount },
+    { scope: `ws:${principal.workspaceId}:h`, windowStart: hour, limit: limits.workspaceHourly, label: 'workspace_hourly_limit', size: HOUR_MS, amount },
+    { scope: `ws:${principal.workspaceId}:d`, windowStart: day, limit: workspaceDaily, label: opts.young ? 'new_workspace_daily_cap' : 'workspace_daily_cap', size: DAY_MS, amount },
   ];
   if (principal.type === 'agent') {
     list.push(
-      { scope: `agent:${principal.agentId}:h`, windowStart: hour, limit: limits.agentHourly, label: 'agent_hourly_limit', size: HOUR_MS },
-      { scope: `agent:${principal.agentId}:d`, windowStart: day, limit: limits.agentDaily, label: 'agent_daily_cap', size: DAY_MS },
+      { scope: `agent:${principal.agentId}:h`, windowStart: hour, limit: limits.agentHourly, label: 'agent_hourly_limit', size: HOUR_MS, amount },
+      { scope: `agent:${principal.agentId}:d`, windowStart: day, limit: limits.agentDaily, label: 'agent_daily_cap', size: DAY_MS, amount },
     );
   }
+  if (opts.ipKey) list.push({ scope: `ip:${opts.ipKey}:h`, windowStart: hour, limit: limits.ipHourly, label: 'ip_hourly_limit', size: HOUR_MS, amount });
   return list;
 }
 
 const LIMIT_MESSAGES: Record<string, string> = {
   site_daily_cap: 'This server has reached its daily email limit. Try again tomorrow (UTC).',
-  workspace_hourly_limit: 'Too many emails sent from this workspace in the last hour.',
-  workspace_daily_cap: 'This workspace has reached its daily email limit. Try again tomorrow (UTC).',
+  workspace_hourly_limit: 'Too many emails (recipients) sent from this workspace in the last hour.',
+  workspace_daily_cap: 'This workspace has reached its daily email limit (recipients). Try again tomorrow (UTC).',
+  new_workspace_daily_cap: 'New workspaces can email fewer recipients per day for their first days. Try again tomorrow (UTC).',
   agent_hourly_limit: 'This agent has sent too many emails in the last hour.',
   agent_daily_cap: 'This agent has reached its daily email limit. Try again tomorrow (UTC).',
+  ip_hourly_limit: 'Too many emails were sent from your network in the last hour. Try again later.',
 };
+
+/** Refuses (403 account_required_for_email) when the server only lets account-backed workspaces send and this one is anonymous. */
+export async function requireSendingAccount(ctx: Pick<ServiceContext, 'deps' | 'principal'>): Promise<void> {
+  if (!ctx.deps.settings.get('email.requireAccount')) return;
+  if (!(await createEmailRepository(ctx.deps.db).sendingProfile(ctx.principal.workspaceId)).hasAccount) throw accountRequired();
+}
+
+/** Error for a workspace that may not send because it has no signed-in account (operator setting `email.requireAccount`). */
+const accountRequired = () =>
+  new ApiError(
+    403,
+    'account_required_for_email',
+    'Sending email from this server needs a signed-in account: anonymous cloud-sync workspaces cannot send. The workspace owner can sign in under Settings → Cloud sync & agents (or download the PDF and send it themselves).',
+    { reason: 'account_required' },
+  );
 
 interface Recipients {
   to: string;
@@ -310,13 +343,13 @@ async function markDraftSent(ctx: ServiceContext, invoice: ApiInvoice, activity:
 }
 
 /** Error codes reported to telemetry as-is; anything else is `client_error` (fixed labels only). */
-const TELEMETRY_CODES = new Set(['email_send_failed', 'email_not_configured', 'rate_limited', 'recipient_not_allowed', 'invoice_needs_review']);
+const TELEMETRY_CODES = new Set(['email_send_failed', 'email_not_configured', 'rate_limited', 'recipient_not_allowed', 'invoice_needs_review', 'account_required_for_email']);
 
 export async function sendInvoiceEmail(
   ctx: ServiceContext,
   rawId: string,
   body: unknown,
-  opts: { idempotencyKey?: string | null; unattended?: UnattendedSend } = {},
+  opts: { idempotencyKey?: string | null; unattended?: UnattendedSend; clientIp?: string | null } = {},
 ): Promise<SendInvoiceEmailResponse> {
   try {
     return await send(ctx, rawId, body, opts);
@@ -333,7 +366,7 @@ async function send(
   ctx: ServiceContext,
   rawId: string,
   body: unknown,
-  opts: { idempotencyKey?: string | null; unattended?: UnattendedSend },
+  opts: { idempotencyKey?: string | null; unattended?: UnattendedSend; clientIp?: string | null },
 ): Promise<SendInvoiceEmailResponse> {
   const { principal, deps } = ctx;
   const unattended = opts.unattended;
@@ -357,6 +390,9 @@ async function send(
   }
 
   const emails = createEmailRepository(deps.db);
+  // Security fix M2: by default only workspaces owned by a signed-in account may send (operator setting).
+  const profile = await emails.sendingProfile(principal.workspaceId);
+  if (config.requireAccount && !profile.hasAccount) throw accountRequired();
   const invoice = await loadSendableInvoice(ctx, id);
   if (statusOf(invoice) === 'void') {
     throw new ApiError(409, 'invalid_status_transition', 'Void invoices cannot be sent', { from: 'void', action: 'send' });
@@ -409,7 +445,10 @@ async function send(
       });
     }
   }
-  const reservations = reservationsFor(principal, config.limits, nowMs);
+  const days = config.limits.newWorkspaceDays;
+  const young = days > 0 && !!profile.createdAt && nowMs - Date.parse(profile.createdAt) < days * DAY_MS;
+  const ipKey = principal.type === 'user' && !unattended && opts.clientIp ? (await sha256Hex(`email-ip:${opts.clientIp}`)).slice(0, 24) : null;
+  const reservations = reservationsFor(principal, config.limits, nowMs, { recipients: 1 + cc.length, unattended: !!unattended, young, ipKey });
   const reserved = await emails.reserve(reservations, windowStart(nowMs - 2 * DAY_MS, DAY_MS));
   if (!reserved.ok) {
     const hit = reservations.find((r) => r.scope === reserved.exceeded.scope)!;
@@ -520,6 +559,7 @@ export async function listInvoiceEmails(ctx: ServiceContext, rawId: string): Pro
   const rows = await emails.listForInvoice(ctx.principal.workspaceId, id, HISTORY_LIMIT);
   const config = await loadEmailConfig(ctx.deps);
   const pub = emailPublicConfig(ctx.deps);
+  const accountRequired = pub.requireAccount && !(await emails.sendingProfile(ctx.principal.workspaceId)).hasAccount;
   return {
     emails: rows.map(toApiEmail),
     delivery: {
@@ -527,6 +567,7 @@ export async function listInvoiceEmails(ctx: ServiceContext, rawId: string): Pro
       fromAddress: pub.fromAddress || null,
       fromName: pub.fromName,
       pdfTheme: pub.pdfTheme,
+      accountRequired,
       cooldownMinutes: pub.limits.cooldownMinutes,
     },
   };

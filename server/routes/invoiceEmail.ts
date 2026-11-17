@@ -7,7 +7,7 @@
  */
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import type { AppEnv } from '../app';
-import { readJson } from '../http';
+import { clientIp, readJson } from '../http';
 import { listInvoiceEmails, sendInvoiceEmail } from '../services/invoiceEmail';
 import { etagOf, parseIfMatch, type ServiceContext } from '../services/invoices';
 import { listReviews, reviewClient, reviewInvoice } from '../services/review';
@@ -22,7 +22,7 @@ export function registerInvoiceEmailRoutes(
 ) {
   v1.post('/invoices/:id/send', auth, async (c) => {
     const body = await readJson(c, SEND_BODY_BYTES);
-    const result = await sendInvoiceEmail(svc(c), c.req.param('id'), body, { idempotencyKey: c.req.header('idempotency-key') });
+    const result = await sendInvoiceEmail(svc(c), c.req.param('id'), body, { idempotencyKey: c.req.header('idempotency-key'), clientIp: clientIp(c) });
     c.header('etag', etagOf(result.invoice));
     if (result.replayed) c.header('idempotent-replayed', 'true');
     return c.json(result);

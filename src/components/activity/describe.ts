@@ -75,6 +75,7 @@ const RECURRING_FAILURES: Record<string, string> = {
   email_no_recipient: 'the client has no usable email address, so it was not emailed',
   email_not_configured: 'email is not set up on this server, so it was not emailed',
   email_rate_limited: 'the email limit was reached; it is emailed later',
+  email_account_required: 'emailing needs a signed-in account on this server, so it was not emailed',
   internal_error: 'of a server error',
 };
 

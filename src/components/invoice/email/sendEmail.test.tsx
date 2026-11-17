@@ -169,6 +169,17 @@ describe('Send by email', () => {
     expect(within(dialog).queryByRole('button', { name: /^Send/ })).not.toBeInTheDocument();
   });
 
+  it('explains that sending needs a signed-in account when the server requires one (security fix M2)', async () => {
+    fake.state.email.accountRequired = true;
+    useInvoiceStore.setState({ invoices: [serverInvoice()], _hasHydrated: true });
+    const user = userEvent.setup({ delay: null });
+    renderView();
+    const dialog = await openDialog(user);
+    expect(await within(dialog).findByText('Sign in to send email')).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Settings → Cloud sync & agents' })).toHaveAttribute('href', '/?tab=settings');
+    expect(within(dialog).queryByRole('button', { name: /^Send/ })).not.toBeInTheDocument();
+  });
+
   it('shows failures in the history with the reason and a retry', async () => {
     const inv = serverInvoice();
     fake.server.emails.set(ID, [

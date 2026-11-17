@@ -39,6 +39,7 @@ import { normalizeEmail } from '../../shared/email-template';
 import { buildPeriodInvoice, configOf, GenerationError, generatePeriod, recurringRepo } from './generate';
 import { emailPeriodInvoice } from './emailSend';
 import { reviewInvoice } from '../services/review';
+import { requireSendingAccount } from '../services/invoiceEmail';
 import type { ScheduleRow, StoredScheduleData } from './repository';
 import { recurringInputSchema, recurringPatchSchema, runNowSchema, type RecurringInputParsed } from './schemas';
 
@@ -125,6 +126,7 @@ async function guardAutoEmail(ctx: ServiceContext, next: StoredScheduleData, cur
     if (!available.ok) {
       throw new ApiError(503, 'email_not_configured', `Emailing invoices automatically needs email to be set up on this server. ${available.reason}`, { reason: available.reason });
     }
+    await requireSendingAccount(ctx);
   }
   if (!enabling && next.clientId === current?.clientId && next.templateId === current?.templateId) return;
   const ws = p.workspaceId;

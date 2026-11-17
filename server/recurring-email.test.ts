@@ -57,7 +57,8 @@ async function setup(settings: Record<string, unknown> = {}) {
     operator: { vars: { RESEND_API_KEY: 're_test_key_0123456789abcdef' } },
     email: { fetch: resend.fetch },
   });
-  for (const [key, value] of Object.entries({ 'email.fromAddress': 'invoices@mail.example.org', 'email.cooldownMinutes': 0, ...settings })) {
+  // Anonymous test workspaces: the account requirement (security fix M2, on by default) has its own tests in security-review.test.ts.
+  for (const [key, value] of Object.entries({ 'email.fromAddress': 'invoices@mail.example.org', 'email.cooldownMinutes': 0, 'email.requireAccount': false, ...settings })) {
     await deps.settings.set(key, value, SYSTEM);
   }
   const app = createApp(deps);

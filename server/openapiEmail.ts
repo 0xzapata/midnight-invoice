@@ -183,7 +183,7 @@ export const emailOpenApiPaths: Record<string, Json> = {
         'Sends the invoice to its toEmail with the PDF attached. From is the server’s sending address with the sender name as display name; Reply-To is the invoice fromEmail. ' +
         'A draft becomes sent; sent/paid invoices are resent unchanged; void invoices are refused (409). ' +
         'Agents may only email the invoice toEmail, and only an address the user entered themselves (403 recipient_not_allowed). ' +
-        'Limits: per-invoice cooldown, per-workspace and per-agent hourly/daily caps and a site-wide daily cap (429 with details.reason and Retry-After). ' +
+        'Limits (every recipient, to + cc, counts): per-invoice cooldown, per-workspace (lower for new workspaces), per-agent and per-IP hourly/daily caps and a site-wide daily cap (429 with details.reason and Retry-After). By default only workspaces owned by a signed-in account may send (403 account_required_for_email). ' +
         'Send an Idempotency-Key to make retries safe.',
       ...scoped('invoices:send'),
       parameters: [
@@ -201,7 +201,7 @@ export const emailOpenApiPaths: Record<string, Json> = {
         200: { description: 'Sent (or replayed)', headers: { ETag: { schema: str(), description: 'Quoted invoice revision' } }, content: jsonContent(ref('SendInvoiceEmailResponse')) },
         400: err('Invalid request or undeliverable address (validation_failed)'),
         401: err('Missing or invalid bearer token'),
-        403: err('insufficient_scope, recipient_not_allowed (agent recipient rules) or invoice_needs_review (agent-changed sender details not reviewed by the user)'),
+        403: err('insufficient_scope, recipient_not_allowed (agent recipient rules), invoice_needs_review (sender details the user has not entered or approved) or account_required_for_email (the server only sends for workspaces owned by a signed-in account)'),
         404: err('Invoice not found'),
         409: err('Void invoice (invalid_status_transition) or idempotency_conflict'),
         410: err('Invoice was deleted'),
@@ -233,6 +233,7 @@ export const emailOpenApiPaths: Record<string, Json> = {
                   fromAddress: { type: ['string', 'null'], description: 'Sending address (fixed by the server)' },
                   fromName: { type: 'string', description: 'Recipients see "<invoice fromName> via <fromName>"' },
                   pdfTheme: { type: 'string', enum: [...INVOICE_THEMES] },
+                  accountRequired: { type: 'boolean', description: 'This workspace cannot send: the server only sends for workspaces owned by a signed-in account (403 account_required_for_email)' },
                   cooldownMinutes: { type: 'integer' },
                 },
               },
