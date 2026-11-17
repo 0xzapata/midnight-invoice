@@ -67,3 +67,39 @@ describe('conversions', () => {
     expect(local).toEqual({ id: 'x', revision: 2 });
   });
 });
+
+describe('status as one merge field', () => {
+  it('keeps status and its dates together and merges with content edits', () => {
+    const local = { ...base, status: 'paid' as const, sentAt: '2026-11-01', paidAt: '2026-11-16' };
+    const server = { ...base, notes: 'Net 30' };
+    const result = mergeContent(base, local, server);
+    expect(result.merged).toMatchObject({ status: 'paid', sentAt: '2026-11-01', paidAt: '2026-11-16', notes: 'Net 30' });
+    expect(result.localFields).toEqual(['status']);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it('a status change on both sides is one conflict; the server status and dates win', () => {
+    const local = { ...base, status: 'paid' as const, sentAt: '2026-11-01', paidAt: '2026-11-16' };
+    const server = { ...base, status: 'void' as const, sentAt: '2026-11-01', paidAt: null };
+    const result = mergeContent(base, local, server);
+    expect(result.conflicts).toEqual(['status']);
+    expect(result.merged).toMatchObject({ status: 'void', paidAt: null });
+  });
+
+  it('treats a merge base saved before statuses existed as draft', () => {
+    const { status: _s, sentAt: _a, paidAt: _p, ...legacyBase } = base;
+    const old = legacyBase as unknown as typeof base;
+    expect(mergeContent(old, { ...base }, { ...base })).toMatchObject({ conflicts: [], localFields: [] });
+    expect(contentOf({}).status).toBe('draft');
+  });
+
+  it('sends status fields in the PUT body and drops derived overdue fields from server invoices', () => {
+    expect(toInvoiceInput({ ...base, status: 'sent', sentAt: '2026-11-02', id: 'x', createdAt: 'c' } as never)).toMatchObject({
+      status: 'sent',
+      sentAt: '2026-11-02',
+      paidAt: null,
+    });
+    const local = fromApiInvoice({ id: 'x', subtotal: 1, taxAmount: 0, total: 1, deletedAt: null, isOverdue: true, daysOverdue: 3, status: 'sent' } as unknown as ApiInvoice);
+    expect(local).toEqual({ id: 'x', status: 'sent' });
+  });
+});

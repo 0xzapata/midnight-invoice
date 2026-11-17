@@ -5,6 +5,7 @@
  */
 import type { ApiInvoice, InvoiceInput } from '../../../shared/api';
 import type { Invoice, LineItem } from '@/types/invoice';
+import { statusOf, type InvoiceStatus } from '../../../shared/invoice-status';
 
 export const CONTENT_FIELDS = [
   'invoiceNumber',
@@ -22,6 +23,9 @@ export const CONTENT_FIELDS = [
   'notes',
   'paymentDetails',
   'currency',
+  // One merge unit: status together with its dates (sentAt, paidAt), so a
+  // merge never pairs one side's status with the other side's dates.
+  'status',
 ] as const;
 
 export type ContentField = (typeof CONTENT_FIELDS)[number];
@@ -42,6 +46,9 @@ export interface InvoiceContent {
   notes: string;
   paymentDetails: string;
   currency: string;
+  status: InvoiceStatus;
+  sentAt: string | null;
+  paidAt: string | null;
 }
 
 /** Human labels for conflict messages. */
@@ -61,6 +68,7 @@ export const FIELD_LABELS: Record<ContentField, string> = {
   notes: 'notes',
   paymentDetails: 'payment details',
   currency: 'currency',
+  status: 'status',
 };
 
 /** Normalised content (missing optional strings become ""), so equality is structural. */
@@ -81,11 +89,18 @@ export function contentOf(invoice: Partial<Invoice>): InvoiceContent {
     notes: invoice.notes ?? '',
     paymentDetails: invoice.paymentDetails ?? '',
     currency: invoice.currency ?? 'USD',
+    status: statusOf(invoice),
+    sentAt: invoice.sentAt || null,
+    paidAt: invoice.paidAt || null,
   };
 }
 
 export function fieldEquals(field: ContentField, a: InvoiceContent, b: InvoiceContent): boolean {
   if (field === 'lineItems') return JSON.stringify(a.lineItems) === JSON.stringify(b.lineItems);
+  // Merge bases persisted before statuses existed have no status fields: they mean draft.
+  if (field === 'status') {
+    return statusOf(a) === statusOf(b) && (a.sentAt || null) === (b.sentAt || null) && (a.paidAt || null) === (b.paidAt || null);
+  }
   return a[field] === b[field];
 }
 
@@ -121,6 +136,10 @@ export function mergeContent(base: InvoiceContent | null, local: InvoiceContent,
     const serverChanged = base === null || !fieldEquals(field, server, base);
     if (localChanged && !serverChanged) {
       (merged as Record<ContentField, unknown>)[field] = field === 'lineItems' ? local.lineItems.map((li) => ({ ...li })) : local[field];
+      if (field === 'status') {
+        merged.sentAt = local.sentAt;
+        merged.paidAt = local.paidAt;
+      }
       localFields.push(field);
     } else if (localChanged && serverChanged) {
       conflicts.push(field);
@@ -139,7 +158,7 @@ export function toInvoiceInput(invoice: Invoice): InvoiceInput {
 
 /** Local representation of a server invoice: drops computed totals and the tombstone marker. */
 export function fromApiInvoice(api: ApiInvoice): Invoice {
-  const { subtotal: _s, taxAmount: _t, total: _total, deletedAt: _d, ...invoice } = api;
+  const { subtotal: _s, taxAmount: _t, total: _total, deletedAt: _d, isOverdue: _o, daysOverdue: _do, ...invoice } = api;
   return invoice;
 }
 
