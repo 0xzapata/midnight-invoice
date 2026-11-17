@@ -1,0 +1,18 @@
+# Seed for the local WorkOS emulator started by `bun run dev:operator`
+# (`workos dev`, from the official WorkOS CLI). Development only: this
+# directory is never imported by the app or the Worker.
+#
+# The emulator answers on http://localhost:4100 with API key `sk_test_default`
+# and client ID `client_emulated`. Its AuthKit authorize endpoint signs in the
+# user named by `login_hint` (or the first user) without a login page.
+users:
+  - email: operator@example.com
+    first_name: Local
+    last_name: Operator
+    password: local-dev-password-1
+    email_verified: true
+  - email: teammate@example.com
+    first_name: Second
+    last_name: Operator
+    password: local-dev-password-2
+    email_verified: true

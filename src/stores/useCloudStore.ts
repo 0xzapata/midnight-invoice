@@ -13,9 +13,10 @@ export type { PendingOp };
 /**
  * What the header shows. `disabled` = cloud sync never turned on (the app is
  * purely local, as before); `disconnected` = the server rejected this
- * browser's key.
+ * browser's key; `paused` = the site operator suspended this workspace or put
+ * the site in maintenance (the queue is kept and retried later).
  */
-export type SyncStatus = 'disabled' | 'disconnected' | 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
+export type SyncStatus = 'disabled' | 'disconnected' | 'idle' | 'syncing' | 'synced' | 'offline' | 'paused' | 'error';
 
 interface CloudRuntimeState {
   status: SyncStatus;

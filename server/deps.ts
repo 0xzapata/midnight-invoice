@@ -1,4 +1,6 @@
 import { generateSecret, generateUserCode } from './crypto';
+import { createOperatorDb } from './operator/db';
+import { createSettingsProvider, type SettingsProvider } from './operator/settings';
 
 /** Same shape as the Workers Rate Limiting binding (`env.RATE_LIMIT_*`). */
 export interface RateLimiter {
@@ -35,6 +37,29 @@ export interface AppDeps {
   config: AppConfig;
   /** Logs operational errors. Never receives secrets. */
   logError?: (message: string, error: unknown) => void;
+  /** Operator console inputs (server/operator). */
+  operator: OperatorDeps;
+  /** Runtime settings (D1-backed, see server/operator/settings-registry.ts). `config` reads through it. */
+  settings: SettingsProvider;
+}
+
+export interface OperatorDeps {
+  /** INITIAL_PASSWORD secret. Unset = operator console disabled (503). */
+  initialPassword?: string;
+  /** Optional ENCRYPTION_KEY secret (hardened encryption mode). */
+  encryptionKey?: string;
+  /** Dev only (vite dev + `workos dev`): WorkOS emulator base URL. Never set in production builds. */
+  workosBaseUrl?: string;
+  /** Outbound fetch for WorkOS/GitHub (tests inject a fake). */
+  fetch?: typeof fetch;
+  /** Workers version metadata binding, if configured. */
+  versionMetadata?: { id?: string; tag?: string; timestamp?: string };
+  /** Build info injected at build time. */
+  build?: { sha?: string; time?: string };
+  /** Telemetry flush coalescing delay (ms). Tests use 0. */
+  telemetryFlushDelayMs?: number;
+  /** Wrangler vars/secrets that settings may fall back to (see `envVar` in the registry). */
+  vars?: Record<string, string | undefined>;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -50,13 +75,26 @@ export const allowAll: RateLimiter = { limit: async () => ({ success: true }) };
 export function defaultDeps(
   overrides: Pick<AppDeps, 'db' | 'readAsset'> & Partial<Omit<AppDeps, 'config'>> & { config?: Partial<AppConfig> },
 ): AppDeps {
-  return {
+  const base = {
     clock: () => new Date(),
     ids: { uuid: () => crypto.randomUUID() },
     secrets: { generate: generateSecret, userCode: generateUserCode },
     rateLimiters: { create: allowAll, poll: allowAll },
-    logError: (message, error) => console.error(message, error instanceof Error ? error.message : error),
+    logError: (message: string, error: unknown) => console.error(message, error instanceof Error ? error.message : error),
+    operator: {},
     ...overrides,
-    config: { ...DEFAULT_CONFIG, ...overrides.config },
   };
+  // Runtime settings override the static config (resolved per request from a cached snapshot).
+  const settings =
+    overrides.settings ??
+    createSettingsProvider({
+      odb: createOperatorDb(base.db),
+      clock: base.clock,
+      keystoreEnv: base.operator.initialPassword
+        ? { initialPassword: base.operator.initialPassword, encryptionKey: base.operator.encryptionKey }
+        : null,
+      vars: base.operator.vars,
+      logError: base.logError,
+    });
+  return { ...base, settings, config: settings.configView({ ...DEFAULT_CONFIG, ...overrides.config }) };
 }

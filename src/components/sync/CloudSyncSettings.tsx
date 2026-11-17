@@ -277,8 +277,8 @@ function ConnectedPanel() {
       ? `Up to date${lastSyncedAt ? ` · checked ${formatDistanceToNow(parseISO(lastSyncedAt), { addSuffix: true })}` : ''}`
       : status === 'offline'
         ? 'Offline · changes sync when you are back online'
-        : status === 'error'
-          ? (lastError ?? 'Sync failed')
+        : status === 'error' || status === 'paused'
+          ? (lastError ?? (status === 'paused' ? 'Cloud sync is paused' : 'Sync failed'))
           : 'Syncing…';
 
   return (
@@ -295,7 +295,7 @@ function ConnectedPanel() {
               Drafts stay in this browser.
             </p>
             <p className="text-muted-foreground" aria-live="polite">
-              <span className={cn(status === 'error' && 'text-destructive')}>{statusText}</span>
+              <span className={cn(status === 'error' && 'text-destructive', status === 'paused' && 'text-amber-600 dark:text-amber-400')}>{statusText}</span>
               {pending > 0 && ` · ${pending} change${pending === 1 ? '' : 's'} waiting`}
               {localOnly > 0 && ` · ${localOnly} invoice${localOnly === 1 ? '' : 's'} could not be uploaded (marked “Not synced”)`}
             </p>

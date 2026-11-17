@@ -14,6 +14,7 @@ import type { AppDeps } from './deps';
 import { ApiError, errors } from './errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, runInBackground } from './http';
 import { createMcpEndpoint } from './mcp';
+import { installOperator } from './operator';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
 import { buildOpenApiDocument } from './openapi';
 import { parsePdfTheme, pdfFilename } from './pdf/render';
@@ -46,6 +47,9 @@ export function createApp(deps: AppDeps) {
     if (!c.res.headers.has('cache-control')) c.res.headers.set('cache-control', 'no-store');
     c.res.headers.set('x-content-type-options', 'nosniff');
   });
+
+  // Operator console: runtime settings + policy + telemetry hook for /api/*, and /api/operator routes.
+  installOperator(app, deps, repo);
 
   /** Activity-log origin of a request (services/activity.ts). */
   const activityOf = (c: Context, source: 'rest' | 'mcp' = 'rest'): ActivityRequest => ({
