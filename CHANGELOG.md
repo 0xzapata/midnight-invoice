@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Saved clients** (replaces the "Client Management" teaser in Coming Soon): a Clients page (`/clients`, linked from the dashboard header) to list, search, add, edit, archive and delete clients (with confirmation), with default currency, tax rate and payment terms per client, private notes, invoice counts and "New invoice" for a client; one-click import from existing invoices (deduplicated by normalised name + email). In the invoice form, a client picker on Bill To fills name, address and email plus the client's defaults (never overwriting currency, tax rate or due date you already changed), and "Save as client" / "Update client" / "Link client" keep the list current. Invoices keep their own copy of the client's details and an optional `clientId`; editing a client never changes past invoices. Works offline and without cloud sync (`client-storage`), and syncs like invoices when cloud sync is on.
+- **Clients API**: migration `0003_clients.sql`; `GET /api/v1/clients` (search with `q`, sync feed), `POST`, `GET/PUT/PATCH/DELETE /api/v1/clients/:id` with revisions/ETags and soft deletes; scopes `clients:read` and `clients:write` (existing agents keep exactly their scopes); invoices accept `clientId` and fill omitted to-fields and terms from the client (client defaults before workspace settings); MCP tools `list_clients`, `get_client`, `create_client`, `update_client`, `delete_client`. The approval and Agents pages describe the new permissions.
+
+### Changed
+- **Sync engine** generalised to synced collections (`src/lib/sync/collection.ts`, `collections/`): invoices and clients share pull/push, queue, backoff, tombstones and the three-way merge; uploads of referenced clients go before the invoices that reference them. The cloud store moves to version 2 (per-collection cursors and queue entries; version 1 data is migrated).
+- Invoice `toName` may be omitted on `POST`/`PUT /api/v1/invoices` when `clientId` is given (OpenAPI `InvoiceInput.required` is now `["lineItems"]`).
+- The dashboard's "New Invoice" button is icon-only on small screens.
+
 ### Changed
 - **Dependencies**: Upgraded to current major versions: React 19.3, React Router 8 (replaces `react-router-dom` 6), Tailwind CSS 4, Vite 8, Vitest 5, TypeScript 6.0, ESLint 10, Zod 4, date-fns 4, lucide-react 1, Sonner 2, tailwind-merge 3, next-themes 0.4, vite-plugin-pwa 2, jsdom 31 and more.
 - **Tailwind CSS 4**: CSS-first configuration in `src/index.css` via `@tailwindcss/vite`; removed `tailwind.config.ts`, `postcss.config.js` and autoprefixer; `tailwindcss-animate` replaced by `tw-animate-css`. Compatibility rules keep the UI visually unchanged.
