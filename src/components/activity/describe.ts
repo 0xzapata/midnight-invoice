@@ -70,7 +70,7 @@ const RECURRING_FAILURES: Record<string, string> = {
   maintenance: 'the site was in maintenance',
   email_unavailable: 'email sending is not available, so the invoice was created but not emailed',
   email_failed: 'the email could not be sent (the invoice was created as a draft)',
-  email_needs_review: 'the invoice needs your review before it is emailed (an agent changed the template’s payment details)',
+  email_needs_review: 'the invoice needs your review before it is emailed (an agent changed its template, client or sender details)',
   email_address_not_confirmed: 'the client’s email address was added by an agent, so it was not emailed',
   email_no_recipient: 'the client has no usable email address, so it was not emailed',
   email_not_configured: 'email is not set up on this server, so it was not emailed',
@@ -138,7 +138,7 @@ const EMAIL_REASONS: Record<string, string> = {
   agent_recipient_override: 'Agents can only email the client address on the invoice',
   agent_cc_not_allowed: 'Agents can only copy your own email',
   address_not_confirmed_by_user: 'You have not entered or confirmed this address yourself',
-  invoice_needs_review: 'An agent changed the sender or payment details; review and save the invoice first',
+  invoice_needs_review: 'An agent changed the sender or payment details; review and approve the invoice first',
 };
 
 export function describeEntry(entry: ActivityEntry): DescribedEntry {
@@ -192,6 +192,14 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
     case 'invoice.email_blocked':
       parts = ['was stopped from emailing ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
       if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
+      break;
+    case 'invoice.reviewed':
+      parts = ['approved the agent-written details of ', { target: true }];
+      if (fieldNames.length) details.splice(0, details.length, `Checked ${listJoin(fieldNames)}`);
+      break;
+    case 'client.reviewed':
+      parts = ['confirmed the email address of the client ', { target: true }];
+      details.length = 0;
       break;
     case 'client.created':
       parts = ['added the client ', { target: true }];

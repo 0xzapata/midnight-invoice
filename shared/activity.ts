@@ -19,6 +19,9 @@ export const ACTIVITY_ACTIONS = [
   'invoice.emailed',
   'invoice.email_failed',
   'invoice.email_blocked',
+  // "Needs your review": the user approved agent-written sender details / addresses (POST /invoices/:id/review, /clients/:id/review)
+  'invoice.reviewed',
+  'client.reviewed',
   'client.created',
   'client.updated',
   'client.archived',

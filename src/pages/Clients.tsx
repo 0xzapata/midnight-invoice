@@ -1,3 +1,4 @@
+import { ClientReviewNotice } from '@/components/review/NeedsReview';
 import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Archive, ArchiveRestore, Bot, FilePlus2, Import, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
@@ -83,6 +84,7 @@ function ClientRow({ client, invoiceCount, onEdit, onNewInvoice }: { client: Cli
             )}
           </div>
           {client.email && <p className="break-all font-code text-xs text-muted-foreground">{client.email}</p>}
+          {client.email && <ClientReviewNotice clientId={client.id} />}
           {client.address && <p className="line-clamp-2 whitespace-pre-line break-words text-sm text-muted-foreground">{client.address}</p>}
           <DefaultsLine client={client} />
           <p className="text-xs text-muted-foreground">

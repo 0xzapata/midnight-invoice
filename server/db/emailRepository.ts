@@ -7,6 +7,22 @@
  */
 import type { Actor } from '../../shared/types/invoice';
 
+/** Sender fields an agent could change to redirect a payment or replies (fraud guard, `requireSenderReview`). */
+export const SENDER_FIELDS = ['fromName', 'fromEmail', 'paymentDetails'] as const;
+export type SenderField = (typeof SENDER_FIELDS)[number];
+
+export interface ReviewCandidateRow {
+  id: string;
+  invoice_number: string;
+  revision: number;
+  from_name: string;
+  from_email: string;
+  payment_details: string;
+  to_email: string;
+  agent_name: string | null;
+  previous: string | null;
+}
+
 export interface EmailMessageRow {
   workspace_id: string;
   id: string;
@@ -159,7 +175,8 @@ export function createEmailRepository(db: D1Database) {
      * (every earlier send was made by the user or passed this check).
      * Field-level by construction: an agent editing another field of a record
      * never revokes a confirmation, an agent writing an address never creates
-     * one, and a user save of the record (re)confirms what it holds.
+     * one, and only a user write that creates the record or changes the
+     * address confirms it (migration 0011), or the explicit review action.
      */
     async isUserEnteredAddress(workspaceId: string, email: string): Promise<boolean> {
       const row = await db
@@ -175,27 +192,112 @@ export function createEmailRepository(db: D1Database) {
     },
 
     /**
-     * Payment details of a template the user saved last (null if the template
-     * is unknown or an agent wrote it last). Lets an agent send an invoice it
-     * created from the user's own template.
+     * Which of the given sender values the user entered or approved in this
+     * workspace (`sender_approved_values`, migration 0011: kept by triggers on
+     * the user's own writes of that field and by the review action). Values
+     * are compared trim()med, like the triggers store them.
      */
-    async userTemplatePaymentDetails(workspaceId: string, templateId: string): Promise<string | null> {
-      const row = await db
+    /**
+     * "Needs your review" candidates (a superset; the service applies the
+     * exact rules): live, non-void invoices with a sender value the user never
+     * entered or approved, or a toEmail the user never entered; newest first.
+     */
+    async reviewCandidateInvoices(workspaceId: string, limit: number): Promise<ReviewCandidateRow[]> {
+      const field = (f: SenderField) => `json_extract(i.data, '$.${f}')`;
+      const notApproved = (f: SenderField) =>
+        `NOT EXISTS (SELECT 1 FROM sender_approved_values a WHERE a.workspace_id = i.workspace_id AND a.field = '${f}' AND a.value = trim(coalesce(${field(f)}, '')))`;
+      const to = "json_extract(i.data, '$.toEmail')";
+      const { results } = await db
         .prepare(
-          `SELECT coalesce(json_extract(data, '$.paymentDetails'), '') AS pd FROM templates
-           WHERE workspace_id = ? AND id = ? AND json_extract(updated_by, '$.type') = 'user'`,
+          `SELECT i.id, i.invoice_number, i.revision,
+                  coalesce(${field('fromName')}, '') AS from_name, coalesce(${field('fromEmail')}, '') AS from_email,
+                  coalesce(${field('paymentDetails')}, '') AS payment_details, coalesce(${to}, '') AS to_email,
+                  f.agent_name, f.previous
+             FROM invoices i LEFT JOIN invoice_sender_review f ON f.workspace_id = i.workspace_id AND f.invoice_id = i.id
+            WHERE i.workspace_id = ? AND i.deleted_at IS NULL AND coalesce(json_extract(i.data, '$.status'), 'draft') <> 'void'
+              AND (${SENDER_FIELDS.map(notApproved).join(' OR ')}
+                   OR (trim(coalesce(${to}, '')) <> ''
+                       AND NOT EXISTS (SELECT 1 FROM email_confirmed_recipients r WHERE r.workspace_id = i.workspace_id AND r.address = lower(trim(${to})))
+                       AND NOT EXISTS (SELECT 1 FROM email_messages m WHERE m.workspace_id = i.workspace_id AND m.status = 'sent' AND lower(m.to_address) = lower(trim(${to})))))
+            ORDER BY i.updated_at DESC LIMIT ?`,
         )
-        .bind(workspaceId, templateId)
-        .first<{ pd: string }>();
-      return row ? row.pd : null;
+        .bind(workspaceId, limit)
+        .all<ReviewCandidateRow>();
+      return results;
     },
 
-    /** Set when an agent created the invoice or changed its sender details and the user has not saved it since (triggers, migration 0007). */
-    async senderReviewFlag(workspaceId: string, invoiceId: string): Promise<{ agent_name: string | null; flagged_at: string } | null> {
+    /** Live clients whose email address the user never entered (newest first). */
+    async unconfirmedClients(workspaceId: string, limit: number) {
+      const { results } = await db
+        .prepare(
+          `SELECT c.id, c.name, c.email, c.revision, json_extract(c.updated_by, '$.agentName') AS agent_name FROM clients c
+            WHERE c.workspace_id = ? AND c.deleted_at IS NULL AND trim(c.email) <> ''
+              AND NOT EXISTS (SELECT 1 FROM email_confirmed_recipients r WHERE r.workspace_id = c.workspace_id AND r.address = lower(trim(c.email)))
+              AND NOT EXISTS (SELECT 1 FROM email_messages m WHERE m.workspace_id = c.workspace_id AND m.status = 'sent' AND lower(m.to_address) = lower(trim(c.email)))
+            ORDER BY c.updated_at DESC LIMIT ?`,
+        )
+        .bind(workspaceId, limit)
+        .all<{ id: string; name: string; email: string; revision: number; agent_name: string | null }>();
+      return results;
+    },
+
+    /**
+     * The review action as one batch: approves `values`, confirms `address`
+     * and clears the invoice's review flag — each statement only while the
+     * invoice is still at `revision`. The first statement's row says whether
+     * it was (`ok`); `extra` (activity) should be guarded with `guard`.
+     */
+    reviewInvoiceStatements(a: { workspaceId: string; invoiceId: string; revision: number; values: Record<SenderField, string>; address: string | null; now: string }) {
+      const guard = { sql: 'EXISTS (SELECT 1 FROM invoices WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL)', params: [a.workspaceId, a.invoiceId, a.revision] };
+      const statements: D1PreparedStatement[] = [db.prepare(`SELECT ${guard.sql} AS ok`).bind(...guard.params)];
+      for (const f of SENDER_FIELDS) {
+        statements.push(
+          db
+            .prepare(`INSERT OR IGNORE INTO sender_approved_values (workspace_id, field, value, approved_at) SELECT ?, ?, trim(?), ? WHERE ${guard.sql}`)
+            .bind(a.workspaceId, f, a.values[f], a.now, ...guard.params),
+        );
+      }
+      if (a.address) {
+        statements.push(
+          db
+            .prepare(`INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at) SELECT ?, ?, ? WHERE ${guard.sql}`)
+            .bind(a.workspaceId, a.address, a.now, ...guard.params),
+        );
+      }
+      statements.push(db.prepare(`DELETE FROM invoice_sender_review WHERE workspace_id = ? AND invoice_id = ? AND ${guard.sql}`).bind(a.workspaceId, a.invoiceId, ...guard.params));
+      return { statements, guard };
+    },
+
+    /** The client review action: confirms `address` only while the client is still at `revision` (first row: `ok`). */
+    reviewClientStatements(a: { workspaceId: string; clientId: string; revision: number; address: string; now: string }) {
+      const guard = { sql: 'EXISTS (SELECT 1 FROM clients WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL)', params: [a.workspaceId, a.clientId, a.revision] };
+      return {
+        statements: [
+          db.prepare(`SELECT ${guard.sql} AS ok`).bind(...guard.params),
+          db
+            .prepare(`INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at) SELECT ?, ?, ? WHERE ${guard.sql}`)
+            .bind(a.workspaceId, a.address, a.now, ...guard.params),
+        ],
+        guard,
+      };
+    },
+
+    async approvedSenderFields(workspaceId: string, values: Partial<Record<SenderField, string>>): Promise<Set<SenderField>> {
+      const entries = Object.entries(values) as [SenderField, string][];
+      if (entries.length === 0) return new Set();
+      const { results } = await db
+        .prepare(`SELECT field FROM sender_approved_values WHERE workspace_id = ? AND (${entries.map(() => '(field = ? AND value = trim(?))').join(' OR ')})`)
+        .bind(workspaceId, ...entries.flatMap(([f, v]) => [f, v]))
+        .all<{ field: SenderField }>();
+      return new Set(results.map((r) => r.field));
+    },
+
+    /** Who (which agent) last wrote an invoice's sender details or recipient, and their values before (triggers, migrations 0007/0011). Display only. */
+    async senderReviewFlag(workspaceId: string, invoiceId: string): Promise<{ agent_name: string | null; flagged_at: string; previous: string | null } | null> {
       return db
-        .prepare('SELECT agent_name, flagged_at FROM invoice_sender_review WHERE workspace_id = ? AND invoice_id = ?')
+        .prepare('SELECT agent_name, flagged_at, previous FROM invoice_sender_review WHERE workspace_id = ? AND invoice_id = ?')
         .bind(workspaceId, invoiceId)
-        .first<{ agent_name: string | null; flagged_at: string }>();
+        .first<{ agent_name: string | null; flagged_at: string; previous: string | null }>();
     },
 
     /**

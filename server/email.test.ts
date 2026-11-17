@@ -8,7 +8,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import type { Scope } from '../shared/api';
 import { createApp } from './app';
 import { defaultDeps, type AppDeps } from './deps';
-import { api, BASE, connectAgent, createWorkspace, readPublicAsset, sampleInvoice, startD1, TestClock } from './test/helpers';
+import { api, approveReview, BASE, connectAgent, createWorkspace, readPublicAsset, sampleInvoice, startD1, TestClock } from './test/helpers';
 import { extractPdfText, pdfStreams } from './test/pdf-text';
 import { INVOICE_PALETTES } from '@/components/invoice/invoiceTheme';
 import { composeInvoiceEmail, isDeliverableEmail } from '../shared/email-template';
@@ -591,21 +591,26 @@ describe('address confirmation follows who wrote the address (field level)', () 
     const billed2 = await s.invoice({ clientId: client.id, toEmail: undefined, toName: undefined }, api_key);
     const refused = await s.send(billed2.id, {}, api_key);
     expect(refused.json.error.details.reason).toBe('address_not_confirmed_by_user');
-    // …until the user saves the client (any field) after the agent's change.
+    // A user save of another field does not confirm it (security fix L2: the browser's sync PUT carries every field)…
     await s.client.patch(`/api/v1/clients/${client.id}`, { notes: 'VIP, checked' }, s.ws.token);
+    expect((await s.send(billed2.id, {}, api_key)).json.error.details.reason).toBe('address_not_confirmed_by_user');
+    // …only the user's explicit review of the client does (or typing the address themselves).
+    expect((await approveReview(s.client, s.ws.token, 'clients', client.id)).json).toMatchObject({ confirmed: true });
     expect((await s.send(billed2.id, {}, api_key)).status).toBe(200);
 
-    // Same for an invoice the agent re-addressed: a user save of the invoice confirms it.
+    // Same for an invoice the agent re-addressed: an unrelated user save confirms nothing, the review does.
     const inv2 = await s.invoice();
     await s.client.patch(`/api/v1/invoices/${inv2.id}`, { toEmail: 'other@third-party.io' }, api_key);
     expect((await s.send(inv2.id, {}, api_key)).json.error.details.reason).toBe('address_not_confirmed_by_user');
     await s.client.patch(`/api/v1/invoices/${inv2.id}`, { notes: 'Reviewed' }, s.ws.token);
+    expect((await s.send(inv2.id, {}, api_key)).json.error.details.reason).toBe('address_not_confirmed_by_user');
+    expect((await approveReview(s.client, s.ws.token, 'invoices', inv2.id)).json.approved).toEqual(['toEmail']);
     expect((await s.send(inv2.id, {}, api_key)).status).toBe(200);
   });
 });
 
 describe('agent-changed sender details need a user review', () => {
-  it('refuses an agent send when an agent set sender details that differ from the defaults, until the user saves the invoice', async () => {
+  it('refuses an agent send when an agent set sender details that differ from the defaults, until the user approves the invoice', async () => {
     const s = await setup({ settings: { 'email.cooldownMinutes': 0 } });
     const { api_key } = await connectAgent(s.client, s.ws.token, ['invoices:write', 'invoices:send']);
 
@@ -622,8 +627,11 @@ describe('agent-changed sender details need a user review', () => {
     expect(refused.json.error).toMatchObject({ code: 'invoice_needs_review', details: { fields: ['paymentDetails'] } });
     expect(refused.json.error.message).toMatch(/Test Agent/);
     expect(s.resend.calls).toHaveLength(1);
-    // After a user save, a later unrelated agent edit does not flag it again.
+    // A user save of another field approves nothing (security fix L2); the explicit review does,
+    // and a later unrelated agent edit does not flag it again.
     await s.client.patch(`/api/v1/invoices/${inv.id}`, { notes: 'Reviewed' }, s.ws.token);
+    expect((await s.send(inv.id, {}, api_key)).json.error.code).toBe('invoice_needs_review');
+    expect((await approveReview(s.client, s.ws.token, 'invoices', inv.id)).json.approved).toEqual(['paymentDetails']);
     await s.client.patch(`/api/v1/invoices/${inv.id}`, { dueDate: '2027-01-15' }, api_key);
     expect((await s.send(inv.id, {}, api_key)).status).toBe(200);
 
@@ -750,8 +758,10 @@ describe('invoices created from templates', () => {
     const d = (await s.client.post(`/api/v1/templates/${plain.id}/instantiate`, { toName: 'Acme', toEmail: CLIENT, paymentDetails: 'IBAN XX00 OTHER' }, api_key)).json.invoice;
     expect((await s.send(d.id, {}, api_key)).json.error.code).toBe('invoice_needs_review');
 
-    // The user saving the invoice clears it.
+    // The user approving the invoice clears it (an unrelated save does not: security fix L2).
     await s.client.patch(`/api/v1/invoices/${c.id}`, { notes: 'Checked' }, s.ws.token);
+    expect((await s.send(c.id, {}, api_key)).json.error.code).toBe('invoice_needs_review');
+    await approveReview(s.client, s.ws.token, 'invoices', c.id);
     expect((await s.send(c.id, {}, api_key)).status).toBe(200);
   });
 });

@@ -239,6 +239,6 @@ describe('email activity sentences', () => {
     expect(describeEntry(failed).details).toEqual(['The email provider refused the message']);
     const blocked = entry('invoice.email_blocked', { email: { to: 'a•••@evil.io', code: 'invoice_needs_review' } }, agent);
     expect(sentenceOf(blocked)).toBe('Billing Bot was stopped from emailing INV-0007 to a•••@evil.io');
-    expect(describeEntry(blocked).details[0]).toMatch(/review and save the invoice/);
+    expect(describeEntry(blocked).details[0]).toMatch(/review and approve the invoice/);
   });
 });

@@ -75,7 +75,107 @@ export const emailOpenApiSchemas: Record<string, Json> = {
   },
 };
 
+const reviewField = { type: 'string', enum: ['fromName', 'fromEmail', 'paymentDetails', 'toEmail'] };
+const userOnly = { security: bearer, 'x-required-credential': 'workspace token (agents get 403)' };
+const ifMatchRequired = {
+  name: 'If-Match',
+  in: 'header',
+  required: true,
+  description: 'The revision the user reviewed (ETag, e.g. "3"). A newer revision → 412: review it again.',
+  schema: str(),
+};
+
+const reviewPaths: Record<string, Json> = {
+  '/reviews': {
+    get: {
+      summary: 'Agent-written data the user has not confirmed ("Needs your review")',
+      description:
+        'Invoices whose sender details (fromName, fromEmail, paymentDetails) are neither the settings nor values the user entered or approved, or whose toEmail the user never entered; and clients whose email the user never entered. Agents and automatic (recurring) emails cannot use these until the user approves them. A user save that does not change such a field approves nothing.',
+      ...userOnly,
+      responses: {
+        200: {
+          description: 'Pending reviews (newest first, at most 200 each)',
+          content: jsonContent({
+            type: 'object',
+            required: ['invoices', 'clients'],
+            properties: {
+              invoices: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['id', 'invoiceNumber', 'revision', 'agentName', 'fields'],
+                  properties: {
+                    id: str({ format: 'uuid' }),
+                    invoiceNumber: str(),
+                    revision: { type: 'integer' },
+                    agentName: { type: ['string', 'null'] },
+                    fields: {
+                      type: 'array',
+                      items: { type: 'object', required: ['field', 'value', 'previous'], properties: { field: reviewField, value: str(), previous: { type: ['string', 'null'] } } },
+                    },
+                  },
+                },
+              },
+              clients: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['id', 'name', 'email', 'revision', 'agentName'],
+                  properties: { id: str({ format: 'uuid' }), name: str(), email: str(), revision: { type: 'integer' }, agentName: { type: ['string', 'null'] } },
+                },
+              },
+            },
+          }),
+        },
+        401: err('Missing or invalid bearer token'),
+        403: err('forbidden: agents cannot read or approve reviews'),
+      },
+    },
+  },
+  '/invoices/{id}/review': {
+    post: {
+      summary: 'Approve the invoice’s sender details and recipient ("Looks right — approve")',
+      description: 'Approves the current fromName/fromEmail/paymentDetails values and confirms the toEmail address of the reviewed revision. Workspace token only.',
+      ...userOnly,
+      parameters: [idParam, ifMatchRequired],
+      responses: {
+        200: {
+          description: 'Approved',
+          content: jsonContent({ type: 'object', required: ['invoice', 'approved'], properties: { invoice: ref('Invoice'), approved: { type: 'array', items: reviewField } } }),
+        },
+        400: err('Missing If-Match or invalid id'),
+        401: err('Missing or invalid bearer token'),
+        403: err('forbidden: agents cannot approve'),
+        404: err('Invoice not found'),
+        410: err('Invoice was deleted'),
+        412: err('The invoice changed since the reviewed revision'),
+      },
+    },
+  },
+  '/clients/{id}/review': {
+    post: {
+      summary: 'Confirm the client’s email address',
+      description: 'Confirms the email address of the reviewed client revision as one the user entered. Workspace token only.',
+      ...userOnly,
+      parameters: [idParam, ifMatchRequired],
+      responses: {
+        200: {
+          description: 'Confirmed (confirmed=false: it already was)',
+          content: jsonContent({ type: 'object', required: ['client', 'confirmed'], properties: { client: ref('Client'), confirmed: { type: 'boolean' } } }),
+        },
+        400: err('Missing If-Match, invalid id or the client has no email'),
+        401: err('Missing or invalid bearer token'),
+        403: err('forbidden: agents cannot confirm addresses'),
+        404: err('Client not found'),
+        410: err('Client was deleted'),
+        412: err('The client changed since the reviewed revision'),
+      },
+    },
+  },
+};
+
 export const emailOpenApiPaths: Record<string, Json> = {
+  ...reviewPaths,
   '/invoices/{id}/send': {
     post: {
       summary: 'Email the invoice (PDF attached) to the client',
