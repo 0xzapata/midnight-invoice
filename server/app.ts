@@ -16,7 +16,7 @@ import { ApiError, errors } from './errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, runInBackground } from './http';
 import { createMcpEndpoint } from './mcp';
 import { buildOpenApiDocument } from './openapi';
-import { pdfFilename, renderInvoicePdf } from './pdf/render';
+import { parsePdfTheme, pdfFilename, renderInvoicePdf } from './pdf/render';
 import { LIMITS, listInvoicesQuerySchema, settingsSchema, zodDetails } from './schemas';
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
@@ -195,8 +195,9 @@ export function createApp(deps: AppDeps) {
     return c.body(null, 204);
   });
   v1.get('/invoices/:id/pdf', auth, async (c) => {
+    const theme = parsePdfTheme(c.req.query('theme'));
     const invoice = await invoices.getInvoice(svc(c), c.req.param('id'));
-    const bytes = await renderInvoicePdf(invoice, deps.readAsset);
+    const bytes = await renderInvoicePdf(invoice, deps.readAsset, theme);
     return new Response(bytes, {
       headers: {
         'content-type': 'application/pdf',

@@ -12,6 +12,23 @@
   font-display: swap;
 }
 
+/* Real Medium/SemiBold faces (shared with the PDF, see pdfFonts.ts) instead of synthesized bold. */
+@font-face {
+  font-family: 'Noto Sans Mono';
+  src: url('/fonts/NotoSansMono-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans Mono';
+  src: url('/fonts/NotoSansMono-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 @font-face {
   font-family: 'BasierCircle';
   src: url('/fonts/BasierCircle-Regular.5dbaf4fc.woff2') format('woff2');

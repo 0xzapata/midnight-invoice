@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from './app';
 import { defaultDeps } from './deps';
 import { buildOpenApiDocument } from './openapi';
+import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
 const METHODS = ['get', 'put', 'post', 'delete', 'patch'];
 
@@ -48,6 +49,14 @@ describe('OpenAPI document', () => {
         expect(Object.keys(op.responses).length).toBeGreaterThan(0);
       }
     }
+  });
+
+  it('documents the optional PDF theme query parameter', () => {
+    const doc = buildOpenApiDocument('http://app.test');
+    const op = (doc.paths['/invoices/{id}/pdf'] as { get: { parameters: { name: string; in: string; required: boolean; schema: { enum: string[]; default: string } }[]; responses: object } }).get;
+    const theme = op.parameters.find((p) => p.name === 'theme');
+    expect(theme).toMatchObject({ in: 'query', required: false, schema: { enum: [...INVOICE_THEMES], default: DEFAULT_INVOICE_THEME } });
+    expect(op.responses).toHaveProperty('400');
   });
 
   it('is served at /api/v1/openapi.json with the request origin', async () => {

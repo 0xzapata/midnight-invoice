@@ -9,6 +9,8 @@
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { PDF_FONT_FILES, arePdfFontsRegistered, registerPdfFonts } from '@/components/invoice/pdfFonts';
+import { DEFAULT_INVOICE_THEME, INVOICE_THEMES, type InvoiceTheme, isInvoiceTheme } from '@/components/invoice/invoiceTheme';
+import { errors } from '../errors';
 import type { InvoiceFormData } from '../../shared/types/invoice';
 import type { AssetReader } from '../deps';
 
@@ -49,9 +51,27 @@ export function ensurePdfFonts(readAsset: AssetReader): Promise<void> {
   return fontsReady;
 }
 
-export async function renderInvoicePdf(data: InvoiceFormData, readAsset: AssetReader): Promise<Uint8Array> {
+/**
+ * Parses the optional `theme` of the PDF endpoint / MCP tool. Missing means the
+ * preview's default look (dark); anything but `light`/`dark` is a 400.
+ */
+export function parsePdfTheme(value: string | undefined | null): InvoiceTheme {
+  if (value === undefined || value === null || value === '') return DEFAULT_INVOICE_THEME;
+  if (isInvoiceTheme(value)) return value;
+  throw errors.validation(
+    [{ path: 'theme', message: `theme must be one of: ${INVOICE_THEMES.join(', ')}` }],
+    'Invalid theme',
+  );
+}
+
+export async function renderInvoicePdf(
+  data: InvoiceFormData,
+  readAsset: AssetReader,
+  theme: InvoiceTheme = DEFAULT_INVOICE_THEME,
+): Promise<Uint8Array> {
   await ensurePdfFonts(readAsset);
-  const blob = await pdf(<InvoicePDF data={data} />).toBlob();
+  // Always pass the theme: there is no on-screen preview to follow on the server.
+  const blob = await pdf(<InvoicePDF data={data} theme={theme} />).toBlob();
   return new Uint8Array(await blob.arrayBuffer());
 }
 
