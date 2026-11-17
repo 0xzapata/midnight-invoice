@@ -1,7 +1,7 @@
-/// <reference types="vite/client" />
-
 /** Injected by vite.config.ts `define` (absent when the Worker is run without Vite). */
 declare const __MI_BUILD_INFO__: { sha: string; time: string } | undefined;
+/** true only when the Worker runs under the Vite dev server. */
+declare const __MI_DEV_SERVER__: boolean | undefined;
 
 /**
  * Secrets and optional bindings that `wrangler types` cannot see in

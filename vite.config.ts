@@ -32,6 +32,8 @@ function clientOnly(plugins: PluginOption): Plugin[] {
 export default defineConfig(({ command }) => ({
   define: {
     __MI_BUILD_INFO__: JSON.stringify(buildInfo()),
+    // true only under the Vite dev server (`bun run dev`); every build gets false.
+    __MI_DEV_SERVER__: JSON.stringify(command === "serve"),
   },
   server: {
     host: "::",
@@ -87,6 +89,8 @@ export default defineConfig(({ command }) => ({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 4000000,
+        // The operator console chunk is never precached for regular users.
+        globIgnores: ["**/node_modules/**/*", "**/assets/OperatorRoot-*"],
         // Never answer API calls (or llms.txt) with the cached SPA shell.
         // /operator: private console, always from the network (never the cached shell).
         navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/llms\.txt$/, /^\/operator(?:\/|$)/],

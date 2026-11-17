@@ -14,8 +14,8 @@ function operatorDeps(env: Env & OperatorEnv): AppDeps['operator'] {
   return {
     initialPassword: env.INITIAL_PASSWORD || undefined,
     encryptionKey: env.ENCRYPTION_KEY || undefined,
-    // The WorkOS emulator URL is honoured only in `vite dev`; production builds compile this to undefined.
-    workosBaseUrl: import.meta.env.DEV ? env.WORKOS_API_BASE_URL || undefined : undefined,
+    // The WorkOS emulator URL is honoured only under the Vite dev server; every build compiles this to undefined.
+    workosBaseUrl: typeof __MI_DEV_SERVER__ !== 'undefined' && __MI_DEV_SERVER__ ? env.WORKOS_API_BASE_URL || undefined : undefined,
     versionMetadata: env.CF_VERSION_METADATA,
     build: typeof __MI_BUILD_INFO__ === 'undefined' ? undefined : __MI_BUILD_INFO__,
     vars: { APP_URL: env.APP_URL, RESEND_API_KEY: env.RESEND_API_KEY },

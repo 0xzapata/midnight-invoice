@@ -6,7 +6,7 @@
  * only (no extra D1 query per request); telemetry is flushed in the background.
  */
 import { createMiddleware } from 'hono/factory';
-import { routePath } from 'hono/route';
+import { matchedRoutes, routePath } from 'hono/route';
 import type { Context } from 'hono';
 import { bearerToken } from '../auth';
 import { sha256Hex } from '../crypto';
@@ -59,8 +59,13 @@ async function mcpMetricName(c: Context): Promise<string> {
 function restMetricName(c: Context): string {
   let template = '(unmatched)';
   try {
+    // The responding route, or (when a guard answered first) the endpoint the request matched.
     const p = routePath(c);
     if (p && !p.endsWith('*')) template = p;
+    else {
+      const endpoint = matchedRoutes(c).filter((r) => r.method !== 'ALL' && !r.path.endsWith('*')).pop();
+      if (endpoint) template = endpoint.path;
+    }
   } catch {
     // keep "(unmatched)"
   }
@@ -100,6 +105,8 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
       await next();
     }
 
+    // Console responses (errors included) are never indexed.
+    if (service === 'operator') c.res.headers.set('x-robots-tag', 'noindex, nofollow');
     try {
       if (!deps.settings.get('telemetry.enabled')) return;
       const status = c.res.status;
