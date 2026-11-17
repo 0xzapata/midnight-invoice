@@ -7,8 +7,7 @@ import { Hono, type Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import type { CreateWorkspaceResponse, HealthResponse } from '../shared/api';
 import { TOKEN_PREFIX } from '../shared/api';
-import { DEFAULT_SETTINGS } from '../shared/settings';
-import { authenticate, requireUser, type Principal } from './auth';
+import { authenticate, bearerToken, requireUser, type Principal } from './auth';
 import { sha256Hex } from './crypto';
 import { createRepository, type Repository } from './db/repository';
 import type { AppDeps } from './deps';
@@ -17,11 +16,15 @@ import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, 
 import { createMcpEndpoint } from './mcp';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
 import { buildOpenApiDocument } from './openapi';
-import { parsePdfTheme, pdfFilename, renderInvoicePdf } from './pdf/render';
-import { LIMITS, listInvoicesQuerySchema, settingsSchema, zodDetails } from './schemas';
+import { parsePdfTheme, pdfFilename } from './pdf/render';
+import { LIMITS, listInvoicesQuerySchema, zodDetails } from './schemas';
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
 import { registerClientRoutes } from './routes/clients';
+import { registerActivityRoutes } from './routes/activity';
+import { noteRejectedAgentKey, parseBulkUploadHeader, type ActivityRequest } from './services/activity';
+import { downloadInvoicePdf } from './services/invoicePdf';
+import { putSettings } from './services/settings';
 
 export type AppEnv = { Variables: { principal: Principal } };
 
@@ -44,9 +47,28 @@ export function createApp(deps: AppDeps) {
     c.res.headers.set('x-content-type-options', 'nosniff');
   });
 
+  /** Activity-log origin of a request (services/activity.ts). */
+  const activityOf = (c: Context, source: 'rest' | 'mcp' = 'rest'): ActivityRequest => ({
+    source,
+    requestId: c.req.header('cf-ray') ?? crypto.randomUUID(),
+    bulkUploadId: parseBulkUploadHeader(c.req.header('x-midnight-sync')),
+    waitUntil: (promise) => runInBackground(c, promise),
+  });
+
   /** Bearer auth for workspace tokens and agent keys. */
   const auth = createMiddleware<AppEnv>(async (c, next) => {
-    const principal = await authenticate(repo, c.req.header('authorization'));
+    let principal: Principal;
+    try {
+      principal = await authenticate(repo, c.req.header('authorization'));
+    } catch (error) {
+      // A revoked agent still trying its key is worth a (throttled) activity entry.
+      const token = bearerToken(c.req.header('authorization'));
+      if (error instanceof ApiError && error.status === 401 && token?.startsWith(TOKEN_PREFIX.agentKey)) {
+        const ctx = { deps, activity: activityOf(c, c.req.path.startsWith('/api/mcp') ? 'mcp' : 'rest') };
+        runInBackground(c, sha256Hex(token).then((hash) => noteRejectedAgentKey(ctx, hash)));
+      }
+      throw error;
+    }
     c.set('principal', principal);
     if (principal.type === 'agent') {
       const now = deps.clock();
@@ -64,7 +86,8 @@ export function createApp(deps: AppDeps) {
     await next();
   });
 
-  const svc = (c: Context<AppEnv>): invoices.ServiceContext => ({ repo, deps, principal: c.get('principal') });
+  const svc = (c: Context<AppEnv>): invoices.ServiceContext => ({ repo, deps, principal: c.get('principal'), activity: activityOf(c) });
+  const actx = (c: Context) => ({ repo, deps, activity: activityOf(c) });
   const withEtag = (c: Context<AppEnv>, invoice: { revision: number }) => c.header('etag', invoices.etagOf(invoice));
 
   const v1 = new Hono<AppEnv>();
@@ -106,7 +129,7 @@ export function createApp(deps: AppDeps) {
   v1.post('/agents/token', async (c) => {
     await enforceRateLimit(deps.rateLimiters.poll, `token:${clientIp(c)}`);
     const body = await readJsonRequired(c, LIMITS.smallBodyBytes);
-    return c.json(await agents.redeemDeviceCode({ repo, deps }, body));
+    return c.json(await agents.redeemDeviceCode(actx(c), body));
   });
   v1.get('/agents/registrations/:user_code', auth, async (c) => {
     await enforceRateLimit(deps.rateLimiters.poll, `usercode:${clientIp(c)}`);
@@ -116,13 +139,13 @@ export function createApp(deps: AppDeps) {
     await enforceRateLimit(deps.rateLimiters.poll, `usercode:${clientIp(c)}`);
     const body = await readJson(c, LIMITS.smallBodyBytes);
     return c.json(
-      await agents.decideRegistration({ repo, deps }, c.get('principal'), clientIp(c), c.req.param('user_code'), 'approved', body),
+      await agents.decideRegistration(actx(c), c.get('principal'), clientIp(c), c.req.param('user_code'), 'approved', body),
     );
   });
   v1.post('/agents/registrations/:user_code/deny', auth, async (c) => {
     await enforceRateLimit(deps.rateLimiters.poll, `usercode:${clientIp(c)}`);
     return c.json(
-      await agents.decideRegistration({ repo, deps }, c.get('principal'), clientIp(c), c.req.param('user_code'), 'denied', undefined),
+      await agents.decideRegistration(actx(c), c.get('principal'), clientIp(c), c.req.param('user_code'), 'denied', undefined),
     );
   });
 
@@ -143,7 +166,7 @@ export function createApp(deps: AppDeps) {
     });
   });
   v1.delete('/agents/:id', auth, async (c) => {
-    await agents.revokeAgent({ repo, deps }, c.get('principal'), c.req.param('id'));
+    await agents.revokeAgent(actx(c), c.get('principal'), c.req.param('id'));
     return c.body(null, 204);
   });
 
@@ -200,8 +223,7 @@ export function createApp(deps: AppDeps) {
   });
   v1.get('/invoices/:id/pdf', auth, async (c) => {
     const theme = parsePdfTheme(c.req.query('theme'));
-    const invoice = await invoices.getInvoice(svc(c), c.req.param('id'));
-    const bytes = await renderInvoicePdf(invoice, deps.readAsset, theme);
+    const { invoice, bytes } = await downloadInvoicePdf(svc(c), c.req.param('id'), theme);
     return new Response(bytes, {
       headers: {
         'content-type': 'application/pdf',
@@ -215,22 +237,21 @@ export function createApp(deps: AppDeps) {
   // --- Clients (server/routes/clients.ts) --------------------------------------
   registerClientRoutes(v1, auth, svc);
 
+  // --- Activity log (server/routes/activity.ts) --------------------------------
+  registerActivityRoutes(v1, auth, svc);
+
   // --- Settings ---------------------------------------------------------------
   v1.get('/settings', auth, async (c) => c.json(await invoices.getSettings(svc(c))));
   v1.put('/settings', auth, async (c) => {
-    const principal = c.get('principal');
-    requireUser(principal);
-    const parsed = settingsSchema.safeParse({ ...DEFAULT_SETTINGS, ...((await readJsonRequired(c, LIMITS.invoiceBodyBytes)) as object) });
-    if (!parsed.success) throw errors.validation(zodDetails(parsed.error));
-    const { updatedAt } = await repo.putSettings(principal.workspaceId, parsed.data);
-    return c.json({ settings: parsed.data, updatedAt });
+    requireUser(c.get('principal'));
+    return c.json(await putSettings(svc(c), await readJsonRequired(c, LIMITS.invoiceBodyBytes)));
   });
 
   app.route('/api/v1', v1);
 
   // --- MCP (Streamable HTTP, stateless, JSON responses) -------------------------
   app.post('/api/mcp', auth, async (c) => {
-    const response = await mcp(c.req.raw, c.get('principal'), publicBaseUrl(c, deps.config.appUrl));
+    const response = await mcp(c.req.raw, c.get('principal'), publicBaseUrl(c, deps.config.appUrl), activityOf(c, 'mcp'));
     return response;
   });
   app.on(['GET', 'DELETE', 'PUT', 'PATCH'], '/api/mcp', () => errors.methodNotAllowed('POST').toResponse());

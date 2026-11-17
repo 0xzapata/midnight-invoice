@@ -20,6 +20,8 @@ export interface AppConfig {
   userCodeFailureWindowSeconds: number;
   /** lastUsedAt is written at most this often per agent. */
   lastUsedThrottleSeconds: number;
+  /** Activity log retention overrides (defaults: ACTIVITY_RETENTION in shared/activity.ts, prune on ~2% of writes). */
+  activity?: Partial<{ days: number; maxRows: number; pruneProbability: number }>;
 }
 
 export interface AppDeps {

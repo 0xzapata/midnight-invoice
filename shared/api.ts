@@ -6,12 +6,13 @@ import type { Actor, Invoice } from './types/invoice';
 import type { DefaultSettings } from './settings';
 import type { Client } from './types/client';
 import type { InvoiceStatus, InvoiceSummary } from './invoice-status';
+export type { ActivityAction, ActivityActor, ActivityChanges, ActivityEntry, ActivityEntityType, ActivitySource, ListActivityResponse } from './activity';
 
 export const API_BASE_PATH = '/api/v1';
 export const MCP_PATH = '/api/mcp';
 
 /** Permissions an agent can be granted. A workspace token implicitly has all of them. */
-export const SCOPES = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write'] as const;
+export const SCOPES = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'activity:read'] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
@@ -21,6 +22,7 @@ export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   'settings:read': 'Read the default sender settings',
   'clients:read': 'List, search and read saved clients; bill invoices to a saved client (clientId)',
   'clients:write': 'Create, update, archive and delete saved clients (never changes existing invoices)',
+  'activity:read': "Read this agent's own entries in the workspace activity log (never other agents' or the user's)",
 };
 
 /** Credential prefixes (all secrets are 256-bit random, base64url). */

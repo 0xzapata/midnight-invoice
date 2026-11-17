@@ -122,6 +122,33 @@ function invoiceFilterSql(f: InvoiceListFilters | undefined): { where: string[];
   return { where, params };
 }
 
+/**
+ * Extra statements committed in the same D1 transaction as a write (the
+ * activity log entry, migration 0006). They run after the write and guard
+ * themselves (`WHERE changes() > 0`), so they only take effect if it did.
+ * If the batch fails, the write is retried alone and `onError` is told: an
+ * audit-log problem never fails the user's request.
+ */
+export interface WriteAttachment {
+  statements: D1PreparedStatement[];
+  onError?: (error: unknown) => void;
+  /** Called after the batch committed (e.g. opportunistic pruning). */
+  afterCommit?: () => void;
+}
+
+/** `stmt.first()`, or the same statement batched with an attachment. */
+export async function firstWith<T>(db: D1Database, stmt: D1PreparedStatement, also?: WriteAttachment): Promise<T | null> {
+  if (!also || also.statements.length === 0) return stmt.first<T>();
+  try {
+    const [result] = await db.batch<T>([stmt, ...also.statements]);
+    also.afterCommit?.();
+    return result.results[0] ?? null;
+  } catch (error) {
+    also.onError?.(error);
+    return stmt.first<T>();
+  }
+}
+
 const INVOICE_COLUMNS =
   'id, workspace_id, invoice_number, data, revision, created_at, updated_at, deleted_at, created_by, updated_by';
 
@@ -149,6 +176,7 @@ export function createRepository(db: D1Database) {
     /** Deletes the workspace and everything it owns in one transaction. */
     async deleteWorkspace(id: string): Promise<void> {
       await db.batch([
+        db.prepare('DELETE FROM activity WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM invoices WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM clients WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM workspace_settings WHERE workspace_id = ?').bind(id),
@@ -211,8 +239,8 @@ export function createRepository(db: D1Database) {
       decision: 'approved' | 'denied';
       scopes: Scope[] | null;
       nowMs: number;
-    }): Promise<RegistrationRow | null> {
-      return db
+    }, also?: WriteAttachment): Promise<RegistrationRow | null> {
+      const stmt = db
         .prepare(
           `UPDATE agent_registrations
               SET status = ?, workspace_id = ?, approved_scopes = ?, decided_at = ?
@@ -226,8 +254,8 @@ export function createRepository(db: D1Database) {
           args.nowMs,
           args.userCode,
           args.nowMs,
-        )
-        .first<RegistrationRow>();
+        );
+      return firstWith<RegistrationRow>(db, stmt, also);
     },
 
     async findRegistrationByDeviceCodeHash(hash: string): Promise<RegistrationRow | null> {
@@ -250,8 +278,8 @@ export function createRepository(db: D1Database) {
       keyHash: string;
       nowMs: number;
       createdAt: string;
-    }): Promise<AgentRow | null> {
-      const [, inserted] = await db.batch<AgentRow>([
+    }, also?: WriteAttachment): Promise<AgentRow | null> {
+      const statements = [
         db
           .prepare(
             `UPDATE agent_registrations
@@ -268,8 +296,17 @@ export function createRepository(db: D1Database) {
           RETURNING id, workspace_id, name, description, scopes, created_at, last_used_at, revoked_at`,
           )
           .bind(args.keyHash, args.createdAt, args.deviceCodeHash, args.agentId),
-      ]);
-      return inserted.results[0] ?? null;
+      ];
+      let results: D1Result<AgentRow>[];
+      try {
+        results = await db.batch<AgentRow>([...statements, ...(also?.statements ?? [])]);
+        also?.afterCommit?.();
+      } catch (error) {
+        if (!also?.statements.length) throw error;
+        also.onError?.(error);
+        results = await db.batch<AgentRow>(statements);
+      }
+      return results[1].results[0] ?? null;
     },
 
     // -----------------------------------------------------------------------
@@ -298,15 +335,15 @@ export function createRepository(db: D1Database) {
     },
 
     /** Returns 'revoked' | 'already_revoked' | 'not_found'. */
-    async revokeAgent(workspaceId: string, agentId: string, revokedAt: string): Promise<'revoked' | 'already_revoked' | 'not_found'> {
-      const row = await db
+    async revokeAgent(workspaceId: string, agentId: string, revokedAt: string, also?: WriteAttachment): Promise<'revoked' | 'already_revoked' | 'not_found'> {
+      const stmt = db
         .prepare(
           `UPDATE agents SET revoked_at = COALESCE(revoked_at, ?)
             WHERE workspace_id = ? AND id = ?
         RETURNING revoked_at`,
         )
-        .bind(revokedAt, workspaceId, agentId)
-        .first<{ revoked_at: string }>();
+        .bind(revokedAt, workspaceId, agentId);
+      const row = await firstWith<{ revoked_at: string }>(db, stmt, also);
       if (!row) return 'not_found';
       return row.revoked_at === revokedAt ? 'revoked' : 'already_revoked';
     },
@@ -332,15 +369,15 @@ export function createRepository(db: D1Database) {
       return row ? { settings: JSON.parse(row.data) as DefaultSettings, updatedAt: row.updated_at } : null;
     },
 
-    async putSettings(workspaceId: string, settings: DefaultSettings): Promise<{ updatedAt: string }> {
-      const row = await db
+    async putSettings(workspaceId: string, settings: DefaultSettings, also?: WriteAttachment): Promise<{ updatedAt: string }> {
+      const stmt = db
         .prepare(
           `INSERT INTO workspace_settings (workspace_id, data, updated_at) VALUES (?, ?, ${DB_NOW})
            ON CONFLICT (workspace_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
            RETURNING updated_at`,
         )
-        .bind(workspaceId, JSON.stringify(settings))
-        .first<{ updated_at: string }>();
+        .bind(workspaceId, JSON.stringify(settings));
+      const row = await firstWith<{ updated_at: string }>(db, stmt, also);
       return { updatedAt: row!.updated_at };
     },
 
@@ -424,7 +461,7 @@ export function createRepository(db: D1Database) {
       allocateNumber: boolean;
       createdAt: string | null;
       actor: Actor;
-    }): Promise<InvoiceRow | null> {
+    }, also?: WriteAttachment): Promise<InvoiceRow | null> {
       const actor = JSON.stringify(args.actor);
       const createdAt = args.createdAt;
       const stmt = args.allocateNumber
@@ -448,7 +485,7 @@ export function createRepository(db: D1Database) {
                RETURNING ${INVOICE_COLUMNS}`,
             )
             .bind(args.id, args.workspaceId, args.data.invoiceNumber, JSON.stringify(args.data), createdAt, actor, args.numberValue);
-      return stmt.first<InvoiceRow>();
+      return firstWith<InvoiceRow>(db, stmt, also);
     },
 
     /**
@@ -463,7 +500,7 @@ export function createRepository(db: D1Database) {
       numberValue: number | null;
       actor: Actor;
       expectedRevision?: number;
-    }): Promise<InvoiceRow | null> {
+    }, also?: WriteAttachment): Promise<InvoiceRow | null> {
       const revisionClause = args.expectedRevision === undefined ? '' : ' AND revision = ?6';
       const params: unknown[] = [
         args.data.invoiceNumber,
@@ -475,7 +512,7 @@ export function createRepository(db: D1Database) {
       if (args.expectedRevision !== undefined) params.push(args.expectedRevision);
       params.push(args.id);
       const idParam = args.expectedRevision === undefined ? '?6' : '?7';
-      return db
+      const stmt = db
         .prepare(
           `UPDATE invoices
               SET invoice_number = ?1, data = ?2, number_value = ?3, updated_by = ?4,
@@ -483,8 +520,8 @@ export function createRepository(db: D1Database) {
             WHERE workspace_id = ?5 AND id = ${idParam} AND deleted_at IS NULL${revisionClause}
         RETURNING ${INVOICE_COLUMNS}`,
         )
-        .bind(...params)
-        .first<InvoiceRow>();
+        .bind(...params);
+      return firstWith<InvoiceRow>(db, stmt, also);
     },
 
     /** Soft delete: keeps the row as a tombstone for sync. Null if nothing matched. */
@@ -493,19 +530,19 @@ export function createRepository(db: D1Database) {
       id: string;
       actor: Actor;
       expectedRevision?: number;
-    }): Promise<InvoiceRow | null> {
+    }, also?: WriteAttachment): Promise<InvoiceRow | null> {
       const revisionClause = args.expectedRevision === undefined ? '' : ' AND revision = ?4';
       const params: unknown[] = [JSON.stringify(args.actor), args.workspaceId, args.id];
       if (args.expectedRevision !== undefined) params.push(args.expectedRevision);
-      return db
+      const stmt = db
         .prepare(
           `UPDATE invoices
               SET deleted_at = ${DB_NOW}, updated_at = ${DB_NOW}, updated_by = ?1, revision = revision + 1
             WHERE workspace_id = ?2 AND id = ?3 AND deleted_at IS NULL${revisionClause}
         RETURNING ${INVOICE_COLUMNS}`,
         )
-        .bind(...params)
-        .first<InvoiceRow>();
+        .bind(...params);
+      return firstWith<InvoiceRow>(db, stmt, also);
     },
 
     // -----------------------------------------------------------------------
