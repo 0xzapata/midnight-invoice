@@ -7,6 +7,7 @@ import { SCOPES, SCOPE_DESCRIPTIONS } from '../shared/api';
 import { INVOICE_STATUSES, STATUS_TRANSITIONS } from '../shared/invoice-status';
 import { LIMITS } from './schemas';
 import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
+import { emailOpenApiPaths, emailOpenApiSchemas } from './openapiEmail';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
 type Json = Record<string, unknown>;
@@ -174,6 +175,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         Scope: { ...scopeSchema, description: Object.entries(SCOPE_DESCRIPTIONS).map(([k, v]) => `${k}: ${v}`).join('; ') },
         Actor: actor,
         ...clientOpenApiSchemas,
+        ...emailOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
         LineItem: {
           type: 'object',
@@ -492,6 +494,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
       },
       ...statusActionPaths(),
+      ...emailOpenApiPaths,
       '/settings': {
         get: { summary: 'Default sender settings', ...scoped('settings:read'), responses: { 200: ok('Settings', { type: 'object', properties: { settings: ref('Settings'), updatedAt: { type: ['string', 'null'] } } }), 401: E[401], 403: E[403] } },
         put: {

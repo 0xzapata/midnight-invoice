@@ -18,7 +18,15 @@ function operatorDeps(env: Env & OperatorEnv): AppDeps['operator'] {
     workosBaseUrl: typeof __MI_DEV_SERVER__ !== 'undefined' && __MI_DEV_SERVER__ ? env.WORKOS_API_BASE_URL || undefined : undefined,
     versionMetadata: env.CF_VERSION_METADATA,
     build: typeof __MI_BUILD_INFO__ === 'undefined' ? undefined : __MI_BUILD_INFO__,
-    vars: { APP_URL: env.APP_URL, RESEND_API_KEY: env.RESEND_API_KEY },
+    vars: { APP_URL: env.APP_URL, RESEND_API_KEY: env.RESEND_API_KEY, EMAIL_FROM_ADDRESS: env.EMAIL_FROM_ADDRESS },
+  };
+}
+
+/** Email inputs from the Worker env (configuration itself is in the settings registry). */
+function emailDeps(env: Env & OperatorEnv): AppDeps['email'] {
+  return {
+    // The fake Resend server URL is honoured only under the Vite dev server; every build compiles this to undefined.
+    resendBaseUrl: typeof __MI_DEV_SERVER__ !== 'undefined' && __MI_DEV_SERVER__ ? env.RESEND_API_BASE_URL || undefined : undefined,
   };
 }
 
@@ -41,6 +49,7 @@ function appFor(env: Env): App {
       rateLimiters: { create: env.RATE_LIMIT_CREATE, poll: env.RATE_LIMIT_POLL },
       config: { appUrl: env.APP_URL || undefined },
       operator: operatorDeps(env),
+      email: emailDeps(env),
     });
     cached = { env, deps, app: createApp(deps) };
   }

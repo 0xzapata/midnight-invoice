@@ -34,6 +34,7 @@ import { invoiceInputSchema, invoicePatchSchema, isoDateTime, LIMITS } from './s
 import * as invoices from './services/invoices';
 import { registerClientTools } from './mcpClients';
 import { registerStatusTools, statusListFilters } from './mcpStatusTools';
+import { registerEmailTools } from './mcpEmailTools';
 
 export const MCP_SERVER_INFO = { name: 'midnight-invoice', version: '1.0.0' };
 
@@ -280,6 +281,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
 
   registerClientTools(tool, ctx);
   registerStatusTools(tool, ctx);
+  registerEmailTools(tool, ctx);
 
   return server;
 }

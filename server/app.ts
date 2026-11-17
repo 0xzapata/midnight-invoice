@@ -17,6 +17,7 @@ import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, 
 import { createMcpEndpoint } from './mcp';
 import { installOperator } from './operator';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
+import { registerInvoiceEmailRoutes } from './routes/invoiceEmail';
 import { buildOpenApiDocument } from './openapi';
 import { parsePdfTheme, pdfFilename, renderInvoicePdf } from './pdf/render';
 import { LIMITS, listInvoicesQuerySchema, settingsSchema, zodDetails } from './schemas';
@@ -174,6 +175,7 @@ export function createApp(deps: AppDeps) {
   });
   v1.get('/invoices/next-number', auth, async (c) => c.json({ invoiceNumber: await invoices.nextInvoiceNumber(svc(c)) }));
   registerInvoiceStatusRoutes(v1, auth, svc);
+  registerInvoiceEmailRoutes(v1, auth, svc);
   v1.get('/invoices/:id', auth, async (c) => {
     const invoice = await invoices.getInvoice(svc(c), c.req.param('id'));
     withEtag(c, invoice);

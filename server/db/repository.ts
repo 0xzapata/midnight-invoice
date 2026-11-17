@@ -154,6 +154,7 @@ export function createRepository(db: D1Database) {
         db.prepare('DELETE FROM workspace_settings WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agents WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agent_registrations WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM email_messages WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM workspaces WHERE id = ?').bind(id),
       ]);
     },

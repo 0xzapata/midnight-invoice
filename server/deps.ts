@@ -1,4 +1,5 @@
 import { generateSecret, generateUserCode } from './crypto';
+import type { EmailSender } from './email/sender';
 import { createOperatorDb } from './operator/db';
 import { createSettingsProvider, type SettingsProvider } from './operator/settings';
 
@@ -39,6 +40,17 @@ export interface AppDeps {
   operator: OperatorDeps;
   /** Runtime settings (D1-backed, see server/operator/settings-registry.ts). `config` reads through it. */
   settings: SettingsProvider;
+  /** Email sending inputs (server/email). Configuration itself comes from `settings`. */
+  email?: EmailDeps;
+}
+
+export interface EmailDeps {
+  /** Outbound fetch for the email provider (tests inject a fake). */
+  fetch?: typeof fetch;
+  /** Dev only (vite dev): fake Resend server base URL. Never set in production builds. */
+  resendBaseUrl?: string;
+  /** Replaces the configured provider entirely (tests). */
+  sender?: EmailSender;
 }
 
 export interface OperatorDeps {

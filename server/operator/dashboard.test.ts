@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { api, connectAgent, createWorkspace, sampleInvoice, startD1, TestClock } from '../test/helpers';
 import { GITHUB_TOKEN, buildOperatorApp, completeSetup, fakeGithub, fakeWorkos, routeFetch, type Browser } from '../test/operator';
@@ -271,7 +273,9 @@ describe('telemetry', () => {
     expect(t.totals.authFailures).toBeGreaterThanOrEqual(1);
     expect(t.groups.map((g: { group: string }) => g.group)).toEqual(expect.arrayContaining(['Sync', 'PDF rendering', 'MCP endpoint', 'Invoices']));
     expect(t.recentErrors.some((e: { status: number; metric: string }) => e.status === 401 && e.metric === 'rest|GET /invoices')).toBe(true);
-    expect(t.d1).toMatchObject({ ok: true, migration: '0004_operator.sql' });
+    // The probe reports the newest applied migration (the last file in migrations/).
+    const latest = fs.readdirSync(path.resolve(import.meta.dirname, '../../migrations')).filter((f) => f.endsWith('.sql')).sort().pop();
+    expect(t.d1).toMatchObject({ ok: true, migration: latest });
     expect(t.series).toHaveLength(60);
     // Rollups exist for both granularities.
     const g = await d1.db.prepare("SELECT DISTINCT granularity FROM telemetry_rollups ORDER BY granularity").all();

@@ -48,12 +48,18 @@ export default defineConfig(({ command }) => ({
     // Runs worker/index.ts (API + static assets) in workerd for dev/preview and
     // builds it next to the SPA. Config: wrangler.jsonc.
     cloudflare({
-      // Dev only: `workos dev` (WorkOS emulator) exports WORKOS_API_BASE_URL; hand it to the
-      // Worker so operator sign-in talks to the emulator. Never applied to builds.
-      config: (worker) =>
-        command === "serve" && process.env.WORKOS_API_BASE_URL
-          ? { vars: { ...worker.vars, WORKOS_API_BASE_URL: process.env.WORKOS_API_BASE_URL } }
-          : undefined,
+      // Dev only: `workos dev` (WorkOS emulator) exports WORKOS_API_BASE_URL, and a local fake
+      // Resend server can be named with RESEND_API_BASE_URL; hand them to the Worker so operator
+      // sign-in / email talk to the fakes. Never applied to builds.
+      config: (worker) => {
+        if (command !== "serve") return undefined;
+        const devVars = Object.fromEntries(
+          (["WORKOS_API_BASE_URL", "RESEND_API_BASE_URL"] as const)
+            .filter((name) => process.env[name])
+            .map((name) => [name, process.env[name] as string]),
+        );
+        return Object.keys(devVars).length > 0 ? { vars: { ...worker.vars, ...devVars } } : undefined;
+      },
     }),
     // Lets @react-pdf/renderer (server-side invoice PDFs) run inside the Worker.
     reactPdfWorkerd(),

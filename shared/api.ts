@@ -11,7 +11,15 @@ export const API_BASE_PATH = '/api/v1';
 export const MCP_PATH = '/api/mcp';
 
 /** Permissions an agent can be granted. A workspace token implicitly has all of them. */
-export const SCOPES = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write'] as const;
+export const SCOPES = [
+  'invoices:read',
+  'invoices:write',
+  'invoices:delete',
+  'settings:read',
+  'clients:read',
+  'clients:write',
+  'invoices:send',
+] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
@@ -21,6 +29,7 @@ export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   'settings:read': 'Read the default sender settings',
   'clients:read': 'List, search and read saved clients; bill invoices to a saved client (clientId)',
   'clients:write': 'Create, update, archive and delete saved clients (never changes existing invoices)',
+  'invoices:send': 'Email invoices (PDF attached) to the client on file; sending a draft marks it sent',
 };
 
 /** Credential prefixes (all secrets are 256-bit random, base64url). */
@@ -62,7 +71,12 @@ export type ApiErrorCode =
   // Set by the site operator (operator console)
   | 'maintenance'
   | 'workspace_suspended'
-  | 'registration_closed';
+  | 'registration_closed'
+  // Sending invoices by email (POST /invoices/:id/send)
+  | 'email_not_configured'
+  | 'email_send_failed'
+  | 'recipient_not_allowed'
+  | 'idempotency_conflict';
 
 export interface ApiErrorBody {
   error: {
@@ -371,3 +385,71 @@ export interface ClientInput {
 
 /** Body of PATCH /api/v1/clients/:id — any subset of fields. */
 export type ClientPatch = Partial<Omit<ClientInput, 'createdAt'>>;
+
+// ---------------------------------------------------------------------------
+// Email (POST /invoices/:id/send, GET /invoices/:id/emails)
+// ---------------------------------------------------------------------------
+
+export type EmailStatus = 'queued' | 'sent' | 'failed';
+
+/** One send attempt of an invoice (newest first in GET /invoices/:id/emails). */
+export interface InvoiceEmail {
+  id: string;
+  invoiceId: string;
+  to: string;
+  cc: string[];
+  subject: string;
+  status: EmailStatus;
+  /** Set when status is `failed`. */
+  error: { code: string; message: string } | null;
+  sentBy: Actor;
+  /** True when this send moved the invoice from draft to sent. */
+  statusChanged: boolean;
+  createdAt: string;
+  sentAt: string | null;
+}
+
+/**
+ * Body of POST /api/v1/invoices/:id/send (all optional). Send an
+ * `Idempotency-Key` header to make retries safe.
+ */
+export interface SendInvoiceEmailRequest {
+  /** Recipient. Defaults to the invoice's toEmail. Agents may only use the invoice's toEmail. */
+  to?: string;
+  /** Extra recipients (workspace token only, max 3). Agents may only cc the workspace's own fromEmail. */
+  cc?: string[];
+  /** Shortcut for cc = [the workspace's fromEmail]. */
+  ccMe?: boolean;
+  /** Plain text, one line, max 200 characters. Defaults to "Invoice <number> from <sender>". */
+  subject?: string;
+  /** Plain text (no HTML), max 2000 characters; replaces the default greeting. */
+  message?: string;
+  /** Colour theme of the attached PDF. Defaults to the server setting (light). */
+  theme?: 'light' | 'dark';
+}
+
+/** POST /api/v1/invoices/:id/send → 200 */
+export interface SendInvoiceEmailResponse {
+  email: InvoiceEmail;
+  invoice: ApiInvoice;
+  /** True when the invoice was a draft and is now `sent` (sentAt = today, UTC). */
+  statusChanged: boolean;
+  /** True when this answer replays an earlier request with the same Idempotency-Key (nothing was sent again). */
+  replayed: boolean;
+}
+
+/** GET /api/v1/invoices/:id/emails */
+export interface ListInvoiceEmailsResponse {
+  emails: InvoiceEmail[];
+  /** Whether this server can send email right now, and how. */
+  delivery: {
+    configured: boolean;
+    /** Sending address (fixed by the server), e.g. invoices@mail.example.org; null when not set. */
+    fromAddress: string | null;
+    /** Service name in the From display name: recipients see "<invoice fromName> via <fromName>". */
+    fromName: string;
+    pdfTheme: 'light' | 'dark';
+    /** Minimum minutes between two sends of the same invoice. */
+    cooldownMinutes: number;
+  };
+}

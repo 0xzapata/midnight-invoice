@@ -11,6 +11,10 @@ interface OperatorEnv {
   INITIAL_PASSWORD?: string;
   ENCRYPTION_KEY?: string;
   RESEND_API_KEY?: string;
+  /** Optional fallback for the `email.fromAddress` setting. */
+  EMAIL_FROM_ADDRESS?: string;
+  /** Dev only (vite dev against a fake Resend server); ignored in production builds. */
+  RESEND_API_BASE_URL?: string;
   /** Dev only (vite dev under `workos dev`); ignored in production builds. */
   WORKOS_API_BASE_URL?: string;
   CF_VERSION_METADATA?: { id?: string; tag?: string; timestamp?: string };

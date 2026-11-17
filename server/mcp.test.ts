@@ -60,6 +60,7 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
       'get_settings',
       'list_clients',
       'list_invoices',
+      'send_invoice_email',
       'set_invoice_status',
       'update_client',
       'update_invoice',
