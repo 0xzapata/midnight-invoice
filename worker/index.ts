@@ -1,7 +1,8 @@
 /**
  * Cloudflare Worker entry. Static assets (the Vite SPA) are served by the
- * assets layer before this runs; `run_worker_first: ["/api/*"]` in
- * wrangler.jsonc sends every API call here. All logic lives in server/.
+ * assets layer before this runs; `run_worker_first` in wrangler.jsonc sends
+ * every API call and the OAuth discovery documents (/.well-known/oauth-*)
+ * here. All logic lives in server/.
  */
 import { createApp, type App } from '../server/app';
 import { defaultDeps } from '../server/deps';
@@ -34,7 +35,7 @@ function appFor(env: Env): App {
 export default {
   fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
-    if (pathname === '/api' || pathname.startsWith('/api/')) {
+    if (pathname === '/api' || pathname.startsWith('/api/') || pathname.startsWith('/.well-known/')) {
       return appFor(env).fetch(request, env, ctx);
     }
     // Only reached if assets routing is misconfigured; defer to the SPA.

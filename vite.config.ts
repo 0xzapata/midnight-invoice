@@ -64,12 +64,13 @@ export default defineConfig({
       workbox: {
         maximumFileSizeToCacheInBytes: 4000000,
         // Never answer API calls (or llms.txt) with the cached SPA shell.
-        navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/llms\.txt$/],
+        navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/llms\.txt$/, /^\/\.well-known\//],
         runtimeCaching: [
           {
             // API responses carry invoices and are authorised by the workspace
             // token: never cache them (they are also sent with no-store).
-            urlPattern: ({ url }) => url.pathname === "/api" || url.pathname.startsWith("/api/"),
+            urlPattern: ({ url }) =>
+              url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/"),
             handler: "NetworkOnly",
           },
           {

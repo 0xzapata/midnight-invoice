@@ -16,6 +16,7 @@ import type { AppDeps } from '../deps';
 import type { RegistrationRow, Repository } from '../db/repository';
 import { ApiError, errors } from '../errors';
 import { approveAgentSchema, registerAgentSchema, tokenRequestSchema, zodDetails } from '../schemas';
+import { createOAuthRepository } from '../oauth/repository';
 
 interface Ctx {
   repo: Repository;
@@ -234,6 +235,7 @@ export async function decideRegistration(
 export async function listAgents(ctx: Ctx, principal: Principal): Promise<{ agents: AgentSummary[] }> {
   requireUser(principal);
   const rows = await ctx.repo.listAgents(principal.workspaceId);
+  const viaOAuth = await createOAuthRepository(ctx.deps.db).listOAuthAgentIds(principal.workspaceId);
   return {
     agents: rows.map((r) => ({
       id: r.id,
@@ -243,6 +245,7 @@ export async function listAgents(ctx: Ctx, principal: Principal): Promise<{ agen
       createdAt: r.created_at,
       lastUsedAt: r.last_used_at,
       revokedAt: r.revoked_at,
+      connection: viaOAuth.has(r.id) ? 'oauth' : 'api_key',
     })),
   };
 }

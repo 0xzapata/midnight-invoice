@@ -22,6 +22,7 @@ import { LIMITS, listInvoicesQuerySchema, settingsSchema, zodDetails } from './s
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
 import { registerClientRoutes } from './routes/clients';
+import { mcpAuth, registerOAuthRoutes } from './oauth/routes';
 
 export type AppEnv = { Variables: { principal: Principal } };
 
@@ -226,10 +227,13 @@ export function createApp(deps: AppDeps) {
     return c.json({ settings: parsed.data, updatedAt });
   });
 
+  // --- OAuth for the MCP endpoint (server/oauth/routes.ts) ------------------------
+  const oauthRepo = registerOAuthRoutes(app, v1, auth, deps);
+
   app.route('/api/v1', v1);
 
   // --- MCP (Streamable HTTP, stateless, JSON responses) -------------------------
-  app.post('/api/mcp', auth, async (c) => {
+  app.post('/api/mcp', mcpAuth(deps, repo, oauthRepo, auth), async (c) => {
     const response = await mcp(c.req.raw, c.get('principal'), publicBaseUrl(c, deps.config.appUrl));
     return response;
   });
