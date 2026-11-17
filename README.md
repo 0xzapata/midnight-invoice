@@ -19,6 +19,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - ⚡ Installable PWA with offline support
 - ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
 - 🤖 AI agents: approve an agent from the app (scopes you can narrow), see what it created or edited, revoke it any time (REST + remote MCP)
+- 🔐 Sign-in for MCP clients (OAuth 2.1): paste the MCP URL into a client that supports the MCP authorization flow, approve it in the app, done; no key to copy
 - 🧾 Server-side PDF rendering with the same PDF component as the app
 
 ## Tech Stack
@@ -143,6 +144,16 @@ a GitHub Actions job using `cloudflare/wrangler-action` with a
 AI agents (Claude, ChatGPT, scripts…) can work with your invoices after you
 approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`).
 
+**MCP clients with OAuth** (simplest): add `https://<your app>/api/mcp` as a
+remote MCP server. The client discovers the authorization server
+(`/.well-known/oauth-protected-resource/api/mcp`), registers itself (or uses
+a Client ID Metadata Document) and opens `/agents/authorize` in your browser,
+where you review and narrow the permissions and approve. It then gets
+short-lived, rotating tokens that only work on the MCP endpoint, and shows up
+on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
+
+**Other agents** use the device flow:
+
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
    `settings:read`, `clients:read`, `clients:write`) and shows you a code like
@@ -164,12 +175,16 @@ terms. `clients:write` lets it add, edit, archive and delete clients.
    Your invoices, saved clients and default settings are then stored on the server (in an
    anonymous workspace) so approved agents can work with them. The app keeps
    working offline; nothing leaves the browser until you turn this on.
-2. Open **Agents** (header) and copy the prompt under *Connect an agent* into
-   your AI tool (it tells the agent to read `/llms.txt` and register), or give
-   it the MCP endpoint `https://<your app>/api/mcp`.
-3. The agent shows you a code and a link to `/agents/approve?code=…`. Open it,
-   check that the code matches, untick any permission you do not want to give
-   and click **Approve**. Only approve requests you started yourself.
+2. Open **Agents** (header). Simplest: paste the MCP server URL
+   `https://<your app>/api/mcp` into an MCP client that supports OAuth; it
+   opens a page in this app where you review the app's name, where it sends
+   you back to and the permissions, untick what you do not want and click
+   **Approve**. Otherwise copy the prompt under *Connect an agent* into your AI
+   tool (it tells the agent to read `/llms.txt` and register).
+3. With the prompt, the agent shows you a code and a link to
+   `/agents/approve?code=…`. Open it, check that the code matches, untick any
+   permission you do not want to give and click **Approve**. Only approve
+   requests you started yourself.
 4. Invoices the agent creates or edits appear in your dashboard within ~15
    seconds, marked *by &lt;agent&gt;* / *edited by &lt;agent&gt;*. Revoke it on
    the Agents page.
