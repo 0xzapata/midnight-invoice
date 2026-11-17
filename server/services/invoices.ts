@@ -96,6 +96,7 @@ function finalize(data: InvoiceFormData & Partial<InvoiceStatusFields>, placehol
   const stored: StoredInvoiceData = { ...data, version: CURRENT_INVOICE_VERSION };
   if (stored.invoiceName === undefined || stored.invoiceName === '') delete stored.invoiceName;
   if (!stored.clientId) delete stored.clientId;
+  if (!stored.templateId) delete stored.templateId;
   return stored;
 }
 
@@ -127,6 +128,7 @@ function withDefaults(input: InvoiceInputParsed, settings: DefaultSettings, toda
     paymentDetails: input.paymentDetails ?? settings.paymentDetails,
     currency: input.currency ?? settings.currency,
     ...(input.clientId ? { clientId: input.clientId } : {}),
+    ...(input.templateId ? { templateId: input.templateId } : {}),
   };
 }
 

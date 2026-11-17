@@ -151,6 +151,7 @@ export function createRepository(db: D1Database) {
       await db.batch([
         db.prepare('DELETE FROM invoices WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM clients WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM templates WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM workspace_settings WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agents WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agent_registrations WHERE workspace_id = ?').bind(id),

@@ -22,6 +22,7 @@ import { LIMITS, listInvoicesQuerySchema, settingsSchema, zodDetails } from './s
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
 import { registerClientRoutes } from './routes/clients';
+import { registerTemplateRoutes } from './routes/templates';
 
 export type AppEnv = { Variables: { principal: Principal } };
 
@@ -214,6 +215,9 @@ export function createApp(deps: AppDeps) {
 
   // --- Clients (server/routes/clients.ts) --------------------------------------
   registerClientRoutes(v1, auth, svc);
+
+  // --- Templates (server/routes/templates.ts) ----------------------------------
+  registerTemplateRoutes(v1, auth, svc);
 
   // --- Settings ---------------------------------------------------------------
   v1.get('/settings', auth, async (c) => c.json(await invoices.getSettings(svc(c))));

@@ -27,6 +27,14 @@ export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitiv
     title: 'Add, edit and delete clients',
     allows: 'Save new clients and change, archive or delete saved ones. Existing invoices never change: they keep their own copy of the client’s details.',
   },
+  'templates:read': {
+    title: 'View your invoice templates',
+    allows: 'See your saved invoice templates (line items, prices, terms, notes and default client). Together with “Create and edit invoices” it can create draft invoices from them.',
+  },
+  'templates:write': {
+    title: 'Add, edit and delete templates',
+    allows: 'Save new invoice templates and change, archive or delete saved ones. Invoices already created from a template never change.',
+  },
 };
 
 export const SCOPE_SHORT: Record<Scope, string> = {
@@ -36,4 +44,6 @@ export const SCOPE_SHORT: Record<Scope, string> = {
   'settings:read': 'Read defaults',
   'clients:read': 'View clients',
   'clients:write': 'Edit clients',
+  'templates:read': 'View templates',
+  'templates:write': 'Edit templates',
 };

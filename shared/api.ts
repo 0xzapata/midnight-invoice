@@ -5,13 +5,14 @@
 import type { Actor, Invoice } from './types/invoice';
 import type { DefaultSettings } from './settings';
 import type { Client } from './types/client';
+import type { InvoiceTemplate } from './types/template';
 import type { InvoiceStatus, InvoiceSummary } from './invoice-status';
 
 export const API_BASE_PATH = '/api/v1';
 export const MCP_PATH = '/api/mcp';
 
 /** Permissions an agent can be granted. A workspace token implicitly has all of them. */
-export const SCOPES = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write'] as const;
+export const SCOPES = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write'] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
@@ -21,6 +22,8 @@ export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   'settings:read': 'Read the default sender settings',
   'clients:read': 'List, search and read saved clients; bill invoices to a saved client (clientId)',
   'clients:write': 'Create, update, archive and delete saved clients (never changes existing invoices)',
+  'templates:read': 'List and read invoice templates; with invoices:write, create invoices from a template',
+  'templates:write': 'Create, update, archive and delete invoice templates (never changes existing invoices)',
 };
 
 /** Credential prefixes (all secrets are 256-bit random, base64url). */
@@ -292,6 +295,12 @@ export interface InvoiceInput {
    * saved client" for the defaults order. `null` unlinks (PATCH).
    */
   clientId?: string | null;
+  /**
+   * The template the invoice was created from: a reference only (set by
+   * POST /templates/:id/instantiate and kept by sync; never applies the
+   * template). `null` clears it (PATCH).
+   */
+  templateId?: string | null;
 }
 
 /** Body of PATCH /api/v1/invoices/:id — any subset of fields; lineItems replaces the whole list. */
@@ -367,3 +376,73 @@ export interface ClientInput {
 
 /** Body of PATCH /api/v1/clients/:id — any subset of fields. */
 export type ClientPatch = Partial<Omit<ClientInput, 'createdAt'>>;
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+/** An invoice template as returned by the API: the app's InvoiceTemplate plus server metadata. */
+export interface ApiTemplate extends InvoiceTemplate {
+  updatedAt: string;
+  deletedAt: string | null;
+  revision: number;
+  createdBy: Actor;
+  updatedBy: Actor;
+}
+
+/** GET /api/v1/templates (same paging and sync contract as GET /invoices). */
+export interface ListTemplatesResponse {
+  templates: ApiTemplate[];
+  syncedAt: string;
+  hasMore: boolean;
+  next: { updated_since: string; after_id: string } | null;
+}
+
+export interface TemplateResponse {
+  template: ApiTemplate;
+}
+
+/** Body of POST /api/v1/templates and PUT /api/v1/templates/:id. Only `name` is required. */
+export interface TemplateInput {
+  name: string;
+  description?: string;
+  /** Default saved client (requires clients:read when set or changed). */
+  clientId?: string | null;
+  /** Line ids are generated when omitted. Descriptions may contain placeholders. */
+  lineItems?: { id?: string; description: string; quantity: number; price: number }[];
+  taxRate?: number | null;
+  currency?: string | null;
+  notes?: string;
+  paymentDetails?: string;
+  paymentTermsDays?: number | null;
+  invoiceNamePattern?: string;
+  /** ISO timestamp to archive, null to unarchive. */
+  archivedAt?: string | null;
+  /** PUT only: preserved when the PUT creates the template (browser sync). */
+  createdAt?: string;
+}
+
+/** Body of PATCH /api/v1/templates/:id — any subset; lineItems replaces the list. */
+export type TemplatePatch = Partial<Omit<TemplateInput, 'createdAt'>>;
+
+/**
+ * Body of POST /api/v1/templates/:id/instantiate (optional). Any InvoiceInput
+ * field except status/sentAt/paidAt/createdAt/templateId; each one given wins
+ * over the template. `clientId: null` bills no saved client.
+ */
+export type InstantiateTemplateRequest = Partial<Omit<InvoiceInput, 'status' | 'sentAt' | 'paidAt' | 'createdAt' | 'templateId'>>;
+
+/** POST /api/v1/templates/:id/instantiate → 201 */
+export interface InstantiateTemplateResponse {
+  /** The new draft invoice (independent of the template; records templateId). */
+  invoice: ApiInvoice;
+  template: { id: string; name: string; revision: number };
+  placeholders: {
+    /** `{{names}}` that are not placeholders; left in the text as typed. */
+    unknown: string[];
+    /** Known placeholders without a value (e.g. client_name with no client); left in the text. */
+    unresolved: string[];
+  };
+  /** Human-readable notes, e.g. the template's client was deleted and was not used. */
+  warnings: string[];
+}
