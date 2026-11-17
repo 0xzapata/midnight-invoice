@@ -126,6 +126,8 @@ export interface OperatorAppOptions {
   fetch?: typeof fetch;
   config?: Partial<AppConfig>;
   overrides?: Partial<Omit<AppDeps, 'db' | 'config' | 'operator'>>;
+  /** Records the delays of bootstrap/recovery attempts instead of waiting (security fix L5). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export function buildOperatorApp(db: D1Database, opts: OperatorAppOptions = {}) {
@@ -142,6 +144,7 @@ export function buildOperatorApp(db: D1Database, opts: OperatorAppOptions = {}) 
       encryptionKey: opts.encryptionKey,
       fetch: opts.fetch,
       telemetryFlushDelayMs: 0,
+      sleep: opts.sleep ?? (async () => undefined),
       build: { sha: 'deadbeef1234', time: '2026-11-17T09:00:00.000Z' },
       versionMetadata: { id: 'ver-1', tag: 'v1', timestamp: '2026-11-17T09:00:00Z' },
     },

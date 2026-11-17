@@ -52,6 +52,10 @@ export function createApp(deps: AppDeps) {
     await next();
     if (!c.res.headers.has('cache-control')) c.res.headers.set('cache-control', 'no-store');
     c.res.headers.set('x-content-type-options', 'nosniff');
+    // Security fix L6: API responses are data, never documents to render or frame.
+    if (!c.res.headers.has('content-security-policy')) c.res.headers.set('content-security-policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    c.res.headers.set('x-frame-options', 'DENY');
+    if (!c.res.headers.has('referrer-policy')) c.res.headers.set('referrer-policy', 'no-referrer');
   });
 
   // Operator console: runtime settings + policy + telemetry hook for /api/*, and /api/operator routes.

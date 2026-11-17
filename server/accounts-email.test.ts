@@ -5,7 +5,7 @@
  * token gives as `user`).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { api, connectAgent, sampleInvoice, startD1 } from './test/helpers';
+import { api, approveReview, connectAgent, sampleInvoice, startD1 } from './test/helpers';
 import { accountsApp, alice, signInUser } from './test/accounts';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
@@ -17,7 +17,7 @@ afterAll(async () => {
 });
 
 const TABLES = [
-  'email_messages', 'email_confirmed_recipients', 'invoice_sender_review', 'email_counters',
+  'email_messages', 'email_confirmed_recipients', 'invoice_sender_review', 'sender_approved_values', 'email_counters',
   'activity', 'user_oauth_states', 'user_sessions', 'workspace_tokens', 'workspace_members', 'users',
   'operator_sessions', 'operators', 'operator_oauth_states', 'operator_login_attempts', 'operator_settings', 'operator_audit',
   'operator_state', 'telemetry_rollups', 'telemetry_errors', 'workspace_suspensions', 'workspace_activity',
@@ -76,12 +76,15 @@ describe('a device token is "the user" for email', () => {
     expect((await send(typed.id, agentKey)).status).toBe(200);
   });
 
-  it('clears the sender review when the user saves the invoice from a device', async () => {
+  it('clears the sender review when the user approves the invoice from a device', async () => {
     const { client, dev, agentKey, invoice, send } = await setup();
     const inv = await invoice(dev.token);
     await client.patch(`/api/v1/invoices/${inv.id}`, { paymentDetails: 'IBAN XX00 ATTACKER' }, agentKey);
     expect((await send(inv.id, agentKey)).json.error).toMatchObject({ code: 'invoice_needs_review', details: { fields: ['paymentDetails'] } });
+    // An unrelated save from the device approves nothing (security fix L2); the device's explicit review does.
     expect((await client.patch(`/api/v1/invoices/${inv.id}`, { notes: 'Reviewed' }, dev.token)).status).toBe(200);
+    expect((await send(inv.id, agentKey)).json.error.code).toBe('invoice_needs_review');
+    expect((await approveReview(client, dev.token, 'invoices', inv.id)).status).toBe(200);
     expect((await send(inv.id, agentKey)).status).toBe(200);
   });
 
@@ -103,11 +106,11 @@ describe('a device token is "the user" for email', () => {
     expect((await send(inv.id, dev.token)).status).toBe(200);
     expect((await client.post('/api/v1/templates', { name: 'Monthly retainer', lineItems: [{ description: 'Retainer', quantity: 1, price: 900 }] }, dev.token)).status).toBe(201);
     const count = async (t: string) => (await d1.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first<{ n: number }>())!.n;
-    for (const t of ['email_messages', 'email_confirmed_recipients', 'templates']) expect(await count(t), t).toBeGreaterThan(0);
+    for (const t of ['email_messages', 'email_confirmed_recipients', 'sender_approved_values', 'templates']) expect(await count(t), t).toBeGreaterThan(0);
     const { b } = await signInUser(app, workos, alice);
     const del = await b.call('DELETE', '/api/account', { body: { confirm: 'alice@example.com', deleteWorkspace: true } });
     expect(del.json.deletedWorkspace).toBe(true);
-    for (const t of ['email_messages', 'email_confirmed_recipients', 'invoice_sender_review', 'templates', 'invoices', 'clients', 'workspace_tokens']) {
+    for (const t of ['email_messages', 'email_confirmed_recipients', 'invoice_sender_review', 'sender_approved_values', 'templates', 'invoices', 'clients', 'workspace_tokens']) {
       expect(await count(t), t).toBe(0);
     }
   });

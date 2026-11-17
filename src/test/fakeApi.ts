@@ -12,7 +12,7 @@
  */
 import { vi } from 'vitest';
 import type { Actor } from '@/types/invoice';
-import type { AgentSummary, ApiClientRecord, ApiInvoice, ApiTemplate, ClientInput, InvoiceEmail, InvoiceInput, Scope, SendInvoiceEmailRequest, TemplateInput } from '../../shared/api';
+import type { AgentSummary, ApiClientRecord, ApiInvoice, ApiTemplate, ClientInput, InvoiceEmail, InvoiceInput, ListReviewsResponse, Scope, SendInvoiceEmailRequest, TemplateInput } from '../../shared/api';
 import type { ActivityEntry } from '../../shared/activity';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 import { daysOverdue, isOverdue, normalizeStatusFields, utcToday } from '../../shared/invoice-status';
@@ -51,7 +51,9 @@ export function createFakeApi() {
     activity: [] as ActivityEntry[],
     workspace: { id: 'ws-1', createdAt: '2026-11-17T09:00:00.000Z' },
     /** POST /invoices/:id/send behaviour (email configured on the "server"). */
-    email: { configured: true, fromAddress: 'invoices@mail.midnight.app', fromName: 'Midnight Invoice', pdfTheme: 'light' as 'light' | 'dark', cooldownMinutes: 10 },
+    email: { configured: true, fromAddress: 'invoices@mail.midnight.app', fromName: 'Midnight Invoice', pdfTheme: 'light' as 'light' | 'dark', accountRequired: false, cooldownMinutes: 10 },
+    /** GET /reviews ("Needs your review"); POST /invoices|clients/:id/review removes the entry. */
+    reviews: { invoices: [], clients: [] } as ListReviewsResponse,
   };
   const emails = new Map<string, InvoiceEmail[]>();
   const requests: RecordedRequest[] = [];
@@ -444,6 +446,19 @@ export function createFakeApi() {
         templates.set(id, { ...existing, deletedAt: at, updatedAt: at, revision: existing.revision + 1, updatedBy: { type: 'user' } });
         return new Response(null, { status: 204 });
       }
+    }
+    if (method === 'GET' && path === '/reviews') return json(200, state.reviews);
+    const review = /^\/(invoices|clients)\/([^/]+)\/review$/.exec(path);
+    if (method === 'POST' && review) {
+      const [, kind, id] = review;
+      const entry = (kind === 'invoices' ? state.reviews.invoices : state.reviews.clients).find((r) => r.id === id);
+      if (entry && ifMatchOf(headers) !== entry.revision) return apiError(412, 'precondition_failed', 'Revision mismatch', { id });
+      if (kind === 'invoices') {
+        state.reviews = { ...state.reviews, invoices: state.reviews.invoices.filter((r) => r.id !== id) };
+        return json(200, { invoice: invoices.get(id) ?? null, approved: (entry as ListReviewsResponse['invoices'][number] | undefined)?.fields.map((f) => f.field) ?? [] });
+      }
+      state.reviews = { ...state.reviews, clients: state.reviews.clients.filter((r) => r.id !== id) };
+      return json(200, { client: clients.get(id) ?? null, confirmed: !!entry });
     }
     return apiError(404, 'not_found', `No route for ${method} ${path}`);
   }

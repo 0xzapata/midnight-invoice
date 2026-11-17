@@ -23,6 +23,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
 import { SendInvoiceEmailDialog } from '@/components/invoice/email/SendInvoiceEmailDialog';
 import { EmailHistory } from '@/components/invoice/email/EmailHistory';
+import { InvoiceReviewBanner } from '@/components/review/NeedsReview';
 import { useSaveAsTemplate } from '@/components/templates/useSaveAsTemplate';
 import { InvoiceHistory } from '@/components/activity/InvoiceHistory';
 import { RecurringOrigin } from '@/recurring/RecurringBadge';
@@ -248,6 +249,7 @@ export default function ViewInvoice() {
       <main className="container py-8">
         <SyncIssueNotice invoice={invoice} />
         <InvoiceStatusBar invoice={invoice} />
+        <InvoiceReviewBanner invoiceId={invoice.id} onEdit={handleEdit} />
         <EmailHistory invoice={invoice} onRetry={() => setEmailOpen(true)} />
         <InvoiceAttribution invoice={invoice} />
         <RecurringOrigin invoice={invoice} />

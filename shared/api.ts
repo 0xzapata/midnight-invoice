@@ -96,6 +96,7 @@ export type ApiErrorCode =
   | 'email_send_failed'
   | 'recipient_not_allowed'
   | 'invoice_needs_review'
+  | 'account_required_for_email'
   | 'idempotency_conflict';
 
 export interface ApiErrorBody {
@@ -549,9 +550,48 @@ export interface ListInvoiceEmailsResponse {
     /** Service name in the From display name: recipients see "<invoice fromName> via <fromName>". */
     fromName: string;
     pdfTheme: 'light' | 'dark';
+    /** True when this workspace cannot send because the server only lets signed-in accounts send (403 account_required_for_email). */
+    accountRequired: boolean;
     /** Minimum minutes between two sends of the same invoice. */
     cooldownMinutes: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Needs your review (workspace / device token only)
+// ---------------------------------------------------------------------------
+
+/** Fields an agent can write that the user must confirm before agents (or automatic emails) use them. */
+export type ReviewField = 'fromName' | 'fromEmail' | 'paymentDetails' | 'toEmail';
+
+/** GET /api/v1/reviews: agent-written data the user has not confirmed (newest first, at most 200 of each). */
+export interface ListReviewsResponse {
+  invoices: {
+    id: string;
+    invoiceNumber: string;
+    /** Send it as If-Match to POST /invoices/:id/review. */
+    revision: number;
+    /** The agent that last changed these fields, when known. */
+    agentName: string | null;
+    /** Each field that needs review: its current value and, when an agent changed it, the value before. */
+    fields: { field: ReviewField; value: string; previous: string | null }[];
+  }[];
+  /** Clients whose email address the user never entered (an agent wrote it). */
+  clients: { id: string; name: string; email: string; revision: number; agentName: string | null }[];
+}
+
+/** POST /api/v1/invoices/:id/review → 200 */
+export interface ReviewInvoiceResponse {
+  invoice: ApiInvoice;
+  /** The fields this review approved (empty when nothing needed it). */
+  approved: ReviewField[];
+}
+
+/** POST /api/v1/clients/:id/review → 200 */
+export interface ReviewClientResponse {
+  client: ApiClientRecord;
+  /** False when the address was already confirmed. */
+  confirmed: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -625,4 +665,11 @@ export interface RunRecurringNowResponse {
   /** The period's invoice (null if it was deleted since). */
   invoice: ApiInvoice | null;
   recurring: RecurringSchedule;
+}
+
+/** POST /api/v1/recurring/:id/approve-email (workspace token only) → 200 */
+export interface ApproveRecurringEmailResponse {
+  recurring: RecurringSchedule;
+  /** True when an email held for review went out right away. */
+  emailed: boolean;
 }

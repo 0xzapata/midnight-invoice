@@ -49,6 +49,12 @@ export function sendFailureOf(error: unknown): SendFailure {
         message: 'The client’s email address was not entered by you (an agent added it), so the invoice was not emailed. Open the client in the app and save it to confirm the address, or send the invoice yourself.',
         retry: true,
       };
+    case 'account_required_for_email':
+      return {
+        code: 'email_account_required',
+        message: 'Emailing invoices needs a signed-in account on this server, so the invoice was created as a draft. Sign in under Settings → Cloud sync & agents; it is emailed on the next try.',
+        retry: true,
+      };
     case 'invoice_needs_review':
       return { code: 'email_needs_review', message: `Needs your review: ${error.message}`, retry: true };
     case 'validation_failed':

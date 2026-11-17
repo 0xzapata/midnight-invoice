@@ -29,6 +29,8 @@ export const invoiceEmailsKey = (id: string) => ['invoice-emails', id] as const;
 export function describeEmailError(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.code) {
+      case 'account_required_for_email':
+        return 'This server only sends email for workspaces with a signed-in account. Sign in under Settings → Cloud sync & agents, or download the PDF and send it yourself.';
       case 'email_not_configured':
         return 'Email isn’t set up on this server yet. The site owner needs to connect an email provider.';
       case 'recipient_not_allowed':

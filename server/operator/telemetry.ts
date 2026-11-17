@@ -20,6 +20,13 @@ export const DURATION_BOUNDS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, Inf
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const MAX_ERRORS_PER_FLUSH = 50;
+/**
+ * Distinct (granularity, bucket, metric) rows one flush may write. Metric
+ * names come from fixed vocabularies (route templates, allow-listed MCP
+ * methods and tool names), so this is a backstop: a flush never grows past
+ * it whatever requests arrive. Overflow is counted as "<service>|(other)".
+ */
+export const MAX_ROLLUPS_PER_FLUSH = 400;
 const ACTIVITY_WRITE_INTERVAL_MS = 5 * MINUTE;
 
 export interface RequestSample {
@@ -52,10 +59,16 @@ export function createTelemetryCollector(odb: OperatorDb, opts: { flushDelayMs?:
   let scheduled: Promise<void> | null = null;
 
   function add(granularity: 'm' | 'h', bucket: number, s: RequestSample) {
-    const key = `${granularity}|${bucket}|${s.metric}`;
+    let metric = s.metric;
+    let key = `${granularity}|${bucket}|${metric}`;
+    // Hard cap on distinct metrics per flush (security fix M3): past it, new names fold into "<service>|(other)".
+    if (!rollups.has(key) && rollups.size >= MAX_ROLLUPS_PER_FLUSH) {
+      metric = `${metric.split('|')[0]}|(other)`;
+      key = `${granularity}|${bucket}|${metric}`;
+    }
     let d = rollups.get(key);
     if (!d) {
-      d = { granularity, bucket, metric: s.metric, count: 0, errors: 0, clientErrors: 0, authFailures: 0, rateLimited: 0, maintenance: 0, durSum: 0, hist: new Array(10).fill(0) };
+      d = { granularity, bucket, metric, count: 0, errors: 0, clientErrors: 0, authFailures: 0, rateLimited: 0, maintenance: 0, durSum: 0, hist: new Array(10).fill(0) };
       rollups.set(key, d);
     }
     d.count++;

@@ -38,6 +38,7 @@ import { registerStatusTools, statusListFilters } from './mcpStatusTools';
 import { registerEmailTools } from './mcpEmailTools';
 import { registerActivityTools } from './mcpActivity';
 import { registerRecurringTools } from './recurring/mcp';
+import { MCP_TOOL_NAMES } from './mcpToolNames';
 import type { ActivityRequest } from './services/activity';
 import { downloadInvoicePdf } from './services/invoicePdf';
 import { APP_VERSION } from '../shared/version';
@@ -146,6 +147,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
     config: { title: string; description: string; inputSchema: S; annotations: Record<string, boolean> },
     run: (args: z.infer<S>) => Promise<CallToolResult>,
   ) => {
+    MCP_TOOL_NAMES.add(name);
     if (!hasScope(principal, scope)) return; // hidden from tools/list, unknown on tools/call
     server.registerTool(
       name,

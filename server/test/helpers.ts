@@ -107,6 +107,13 @@ export function api(app: App) {
 
 export type Api = ReturnType<typeof api>;
 
+/** The user's explicit "Looks right — approve" on an invoice or client (POST /<kind>/:id/review with If-Match = current revision). */
+export async function approveReview(client: Api, token: string, kind: 'invoices' | 'clients', id: string) {
+  const current = await client.get(`/api/v1/${kind}/${id}`, token);
+  const revision = (current.json.invoice ?? current.json.client).revision as number;
+  return client.post(`/api/v1/${kind}/${id}/review`, undefined, token, { 'if-match': `"${revision}"` });
+}
+
 export async function createWorkspace(client: Api): Promise<CreateWorkspaceResponse> {
   const res = await client.post('/api/v1/workspaces');
   if (res.status !== 201) throw new Error(`createWorkspace failed: ${res.status} ${res.text}`);

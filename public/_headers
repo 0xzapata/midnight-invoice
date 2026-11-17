@@ -1,13 +1,35 @@
 # Cloudflare static-assets headers (https://developers.cloudflare.com/workers/static-assets/headers/).
 # When several rules match a path, their headers are combined.
-
+#
+# Applied to every asset (incl. /operator) so that the service worker's
+# precached index.html carries the same headers. API responses (Worker) set
+# their own security headers in server/app.ts.
+#
+# Content-Security-Policy (security fix L6): the workspace token lives in
+# localStorage and the operator console shares the origin, so scripts may only
+# come from this origin plus the inline theme bootstrap in index.html, whose
+# SHA-256 the build writes in place of '__INLINE_SCRIPT_HASHES__'
+# (vite-plugin-csp.ts; worker/worker.test.ts checks the built output).
+# Relaxations, each forced by the app:
+#   style-src 'unsafe-inline'  React/Radix/sonner set inline style attributes (positions, transforms).
+#   'wasm-unsafe-eval'         @react-pdf/renderer compiles its layout engine (yoga) from WebAssembly
+#                              (PDF export fails without it).
+#   connect-src data:          @react-pdf/renderer fetches that WebAssembly from a data: URL.
+#   worker-src blob:           fflate (bundled with @react-pdf/renderer) starts its async workers from
+#                              blob: URLs; today's PDF path does not use them, allowed so that a library
+#                              path cannot break export.
+# Not needed, so not allowed: eval (zod runs jitless, src/lib/zodConfig.ts), Google Fonts (all fonts are
+# self-hosted), data:/blob: images and fonts. Downloads (blob: links) and the WorkOS / OAuth redirects
+# are navigations, which this policy does not restrict (form-action only covers form posts).
 # Pages are never framed: the agent pages ask for consent (approve an agent,
-# authorize an MCP client), so another site must not overlay them and trick a
-# click (clickjacking). Applied to every asset (incl. /operator) so that the
-# service worker's precached index.html carries the same headers.
+# authorize an MCP client), so another site must not overlay them (clickjacking).
 /*
+  Content-Security-Policy: default-src 'self'; script-src 'self' '__INLINE_SCRIPT_HASHES__' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self'; connect-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
   X-Frame-Options: DENY
-  Content-Security-Policy: frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=(), magnetometer=(), gyroscope=(), accelerometer=(), browsing-topics=()
+  Cross-Origin-Opener-Policy: same-origin
 
 # The private operator console must never be indexed.
 /operator

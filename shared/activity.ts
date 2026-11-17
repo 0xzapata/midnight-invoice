@@ -19,6 +19,9 @@ export const ACTIVITY_ACTIONS = [
   'invoice.emailed',
   'invoice.email_failed',
   'invoice.email_blocked',
+  // "Needs your review": the user approved agent-written sender details / addresses (POST /invoices/:id/review, /clients/:id/review)
+  'invoice.reviewed',
+  'client.reviewed',
   'client.created',
   'client.updated',
   'client.archived',
@@ -62,6 +65,8 @@ export const ACTIVITY_ACTIONS = [
   'recurring.ended',
   'recurring.deleted',
   'recurring.run_failed',
+  // The user re-approved automatic emailing after an agent changed the template, client or invoice (security fix M1)
+  'recurring.email_approved',
 ] as const;
 
 export type KnownActivityAction = (typeof ACTIVITY_ACTIONS)[number];

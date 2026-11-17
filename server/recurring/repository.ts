@@ -33,7 +33,12 @@ export interface ScheduleRow {
   deleted_at: string | null;
   created_by: string;
   updated_by: string;
+  /** `agent_content_edits.seq` when the user last approved automatic emailing (migration 0011); null = never. */
+  email_approved_seq: number | null;
 }
+
+/** The newest agent edit sequence number: what the user approves when they save or re-approve a schedule. */
+const CURRENT_EDIT_SEQ = '(SELECT coalesce(max(seq), 0) FROM agent_content_edits)';
 
 /** Due-scan row: the schedule plus whether its workspace is suspended. */
 export type DueRow = ScheduleRow & { suspended: number };
@@ -54,7 +59,7 @@ export interface StoredScheduleData {
 }
 
 const COLUMNS =
-  'workspace_id, id, name, data, status, timezone, next_run_date, last_run_date, last_invoice_id, run_count, skipped_count, last_skipped, last_error, failure_count, retry_at, revision, created_at, updated_at, deleted_at, created_by, updated_by';
+  'workspace_id, id, name, data, status, timezone, next_run_date, last_run_date, last_invoice_id, run_count, skipped_count, last_skipped, last_error, failure_count, retry_at, revision, created_at, updated_at, deleted_at, created_by, updated_by, email_approved_seq';
 
 export function createRecurringRepository(db: D1Database) {
   return {
@@ -88,19 +93,19 @@ export function createRecurringRepository(db: D1Database) {
 
     /** Inserts a schedule only while the workspace has fewer than `max` live ones (one statement: no race past the limit). */
     async insert(
-      args: { workspaceId: string; id: string; data: StoredScheduleData; status: RecurringStatus; nextRunDate: string | null; actor: Actor; max: number },
+      args: { workspaceId: string; id: string; data: StoredScheduleData; status: RecurringStatus; nextRunDate: string | null; actor: Actor; max: number; approveEmail?: boolean },
       also?: WriteAttachment,
     ): Promise<ScheduleRow | null> {
       const actor = JSON.stringify(args.actor);
       const stmt = db
         .prepare(
-          `INSERT INTO recurring_schedules (workspace_id, id, name, data, status, timezone, next_run_date, revision, created_at, updated_at, created_by, updated_by)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ${DB_NOW}, ${DB_NOW}, ?8, ?8
+          `INSERT INTO recurring_schedules (workspace_id, id, name, data, status, timezone, next_run_date, revision, created_at, updated_at, created_by, updated_by, email_approved_seq)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ${DB_NOW}, ${DB_NOW}, ?8, ?8, CASE WHEN ?10 THEN ${CURRENT_EDIT_SEQ} ELSE NULL END
             WHERE (SELECT COUNT(*) FROM recurring_schedules WHERE workspace_id = ?1 AND deleted_at IS NULL) < ?9
            ON CONFLICT (workspace_id, id) DO NOTHING
            RETURNING ${COLUMNS}`,
         )
-        .bind(args.workspaceId, args.id, args.data.name, JSON.stringify(args.data), args.status, args.data.timezone, args.nextRunDate, actor, args.max);
+        .bind(args.workspaceId, args.id, args.data.name, JSON.stringify(args.data), args.status, args.data.timezone, args.nextRunDate, actor, args.max, args.approveEmail ? 1 : 0);
       return firstWith<ScheduleRow>(db, stmt, also);
     },
 
@@ -121,6 +126,8 @@ export function createRecurringRepository(db: D1Database) {
         resetFailures: boolean;
         skipped?: { count: number; last: { from: string; to: string; count: number } } | null;
         extra?: D1PreparedStatement[];
+        /** The user saved the configuration: approve automatic emailing of the current template/client content. */
+        approveEmail?: boolean;
       },
       also?: WriteAttachment,
     ): Promise<ScheduleRow | null> {
@@ -133,7 +140,8 @@ export function createRecurringRepository(db: D1Database) {
                   failure_count = CASE WHEN ?7 THEN 0 ELSE failure_count END,
                   retry_at = CASE WHEN ?7 THEN NULL ELSE retry_at END,
                   skipped_count = skipped_count + ?8,
-                  last_skipped = COALESCE(?9, last_skipped)
+                  last_skipped = COALESCE(?9, last_skipped),
+                  email_approved_seq = CASE WHEN ?13 THEN ${CURRENT_EDIT_SEQ} ELSE email_approved_seq END
             WHERE workspace_id = ?10 AND id = ?11 AND deleted_at IS NULL AND revision = ?12
         RETURNING ${COLUMNS}`,
         )
@@ -150,9 +158,66 @@ export function createRecurringRepository(db: D1Database) {
           args.workspaceId,
           args.id,
           args.expectedRevision,
+          args.approveEmail ? 1 : 0,
         );
       const attachment = also || args.extra?.length ? { statements: [...(also?.statements ?? []), ...(args.extra ?? [])], onError: also?.onError } : undefined;
       return firstWith<ScheduleRow>(db, stmt, attachment);
+    },
+
+    /**
+     * Pauses the active schedules an agent created or changed last (the agent
+     * was revoked), with a visible reason in last_error. Returns them.
+     */
+    async pauseSchedulesOfAgent(workspaceId: string, agentId: string, error: object): Promise<{ id: string; name: string }[]> {
+      const { results } = await db
+        .prepare(
+          `UPDATE recurring_schedules
+              SET status = 'paused', last_error = ?3, retry_at = NULL, revision = revision + 1, updated_at = ${DB_NOW}
+            WHERE workspace_id = ?1 AND deleted_at IS NULL AND status = 'active'
+              AND (json_extract(created_by, '$.agentId') = ?2 OR json_extract(updated_by, '$.agentId') = ?2)
+        RETURNING id, name`,
+        )
+        .bind(workspaceId, agentId, JSON.stringify(error))
+        .all<{ id: string; name: string }>();
+      return results;
+    },
+
+    /** "Re-approve" automatic emailing (user only): approves the content as it is now. Null if the schedule is gone. */
+    async approveEmail(workspaceId: string, id: string, also?: WriteAttachment): Promise<ScheduleRow | null> {
+      const stmt = db
+        .prepare(
+          `UPDATE recurring_schedules SET email_approved_seq = ${CURRENT_EDIT_SEQ}
+            WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL RETURNING ${COLUMNS}`,
+        )
+        .bind(workspaceId, id);
+      return firstWith<ScheduleRow>(db, stmt, also);
+    },
+
+    /**
+     * Content an agent (or anyone but the user) changed after the user last
+     * approved automatic emailing: the template, the client's email or the
+     * generated invoice. Empty = nothing to review. `approvedSeq` null = never
+     * approved (everything counts).
+     */
+    async agentEditsSince(
+      workspaceId: string,
+      approvedSeq: number | null,
+      refs: { templateId: string | null; clientIds: string[]; invoiceId: string | null },
+    ): Promise<{ entity_type: 'template' | 'client' | 'invoice'; entity_id: string; agent_name: string | null }[]> {
+      const clientIds = refs.clientIds.filter(Boolean);
+      const { results } = await db
+        .prepare(
+          `SELECT entity_type, entity_id, agent_name FROM agent_content_edits e
+            WHERE e.workspace_id = ?1 AND e.seq > ?2
+              AND ((e.entity_type = 'template' AND e.entity_id = ?3)
+                   OR (e.entity_type = 'invoice' AND e.entity_id = ?4)
+                   OR (e.entity_type = 'client' AND e.entity_id IN (SELECT value FROM json_each(?5))))
+              AND e.seq = (SELECT max(seq) FROM agent_content_edits x WHERE x.workspace_id = e.workspace_id AND x.entity_type = e.entity_type AND x.entity_id = e.entity_id)
+            ORDER BY e.seq`,
+        )
+        .bind(workspaceId, approvedSeq ?? -1, refs.templateId ?? '', refs.invoiceId ?? '', JSON.stringify(clientIds))
+        .all<{ entity_type: 'template' | 'client' | 'invoice'; entity_id: string; agent_name: string | null }>();
+      return results;
     },
 
     async softDelete(args: { workspaceId: string; id: string; actor: Actor; expectedRevision?: number }, also?: WriteAttachment): Promise<ScheduleRow | null> {

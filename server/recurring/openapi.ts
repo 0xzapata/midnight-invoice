@@ -194,6 +194,29 @@ export const recurringOpenApiPaths: Record<string, Json> = {
       responses: { 200: result('Resumed'), 400: E[400], 401: E[401], 403: E[403], 404: E[404], 409: E[409], 410: E[410], 412: E[412] },
     },
   },
+  '/recurring/{id}/approve-email': {
+    post: {
+      summary: 'Re-approve automatic emailing (workspace token only)',
+      description:
+        'A send_email schedule emails what the user approved when they created or last saved it. If the template, the client’s email or the generated invoice was changed by an agent since, ' +
+        'the email is held (lastError.code email_needs_review) and the invoice stays a draft. This approves the content as it is now and sends a held email right away.',
+      security: [{ bearerAuth: [] }],
+      'x-required-credential': 'workspace token (agents get 403)',
+      parameters: [idParam],
+      responses: {
+        200: {
+          description: 'Approved',
+          content: jsonContent({ type: 'object', required: ['recurring', 'emailed'], properties: { recurring: ref('RecurringSchedule'), emailed: { type: 'boolean' } } }),
+        },
+        400: E[400],
+        401: E[401],
+        403: E[403],
+        404: E[404],
+        409: err('The schedule does not email invoices automatically'),
+        410: E[410],
+      },
+    },
+  },
   '/recurring/{id}/run-now': {
     post: {
       summary: 'Generate the next period’s invoice now',

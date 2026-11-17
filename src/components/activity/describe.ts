@@ -70,11 +70,12 @@ const RECURRING_FAILURES: Record<string, string> = {
   maintenance: 'the site was in maintenance',
   email_unavailable: 'email sending is not available, so the invoice was created but not emailed',
   email_failed: 'the email could not be sent (the invoice was created as a draft)',
-  email_needs_review: 'the invoice needs your review before it is emailed (an agent changed the template’s payment details)',
+  email_needs_review: 'the invoice needs your review before it is emailed (an agent changed its template, client or sender details)',
   email_address_not_confirmed: 'the client’s email address was added by an agent, so it was not emailed',
   email_no_recipient: 'the client has no usable email address, so it was not emailed',
   email_not_configured: 'email is not set up on this server, so it was not emailed',
   email_rate_limited: 'the email limit was reached; it is emailed later',
+  email_account_required: 'emailing needs a signed-in account on this server, so it was not emailed',
   internal_error: 'of a server error',
 };
 
@@ -138,7 +139,7 @@ const EMAIL_REASONS: Record<string, string> = {
   agent_recipient_override: 'Agents can only email the client address on the invoice',
   agent_cc_not_allowed: 'Agents can only copy your own email',
   address_not_confirmed_by_user: 'You have not entered or confirmed this address yourself',
-  invoice_needs_review: 'An agent changed the sender or payment details; review and save the invoice first',
+  invoice_needs_review: 'An agent changed the sender or payment details; review and approve the invoice first',
 };
 
 export function describeEntry(entry: ActivityEntry): DescribedEntry {
@@ -193,6 +194,14 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       parts = ['was stopped from emailing ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
       if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
       break;
+    case 'invoice.reviewed':
+      parts = ['approved the agent-written details of ', { target: true }];
+      if (fieldNames.length) details.splice(0, details.length, `Checked ${listJoin(fieldNames)}`);
+      break;
+    case 'client.reviewed':
+      parts = ['confirmed the email address of the client ', { target: true }];
+      details.length = 0;
+      break;
     case 'client.created':
       parts = ['added the client ', { target: true }];
       break;
@@ -227,6 +236,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       break;
     case 'recurring.paused':
       parts = ['paused the recurring invoice ', { target: true }];
+      if (c.reason === 'agent_revoked') details.push('Because the agent that set it up or last changed it was disconnected');
       break;
     case 'recurring.resumed':
       parts = ['resumed the recurring invoice ', { target: true }];
@@ -237,6 +247,9 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       break;
     case 'recurring.deleted':
       parts = ['deleted the recurring invoice ', { target: true }];
+      break;
+    case 'recurring.email_approved':
+      parts = ['re-approved automatic emailing for the recurring invoice ', { target: true }];
       break;
     case 'recurring.run_failed': {
       parts = ['could not create an invoice for the recurring invoice ', { target: true }];

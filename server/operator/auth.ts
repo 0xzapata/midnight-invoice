@@ -159,39 +159,51 @@ export async function enforceCsrf(c: Context, session: OperatorSession, allowedO
 // ---------------------------------------------------------------------------
 
 const ATTEMPT_WINDOW_MS = 60 * 60_000;
-const POLICY = {
-  ip: { threshold: 5, baseLockMs: 60_000, maxLockMs: 60 * 60_000 },
-  global: { threshold: 25, baseLockMs: 5 * 60_000, maxLockMs: 60 * 60_000 },
-};
+/** Per client IP: a hard lock with exponential backoff (1 min, 2 min, … 1 h) after 5 failures in a window. */
+const IP_POLICY = { threshold: 5, baseLockMs: 60_000, maxLockMs: 60 * 60_000 };
+/**
+ * Across IPs (security fix L5): never a lock — one could otherwise lock the
+ * operator out of bootstrap and recovery from anywhere. Past `threshold`
+ * failures in a window, every attempt waits before it is checked, doubling
+ * every `step` failures up to `maxMs`: guessing across many IPs slows down,
+ * the real operator still gets in.
+ */
+export const GLOBAL_DELAY = { threshold: 100, step: 10, baseMs: 250, maxMs: 8_000 };
 
 export function attemptKeys(kind: 'bootstrap' | 'recovery', ip: string | null) {
   return { ip: `${kind}:ip:${ip ?? 'unknown'}`, global: `${kind}:global` };
 }
 
-/** Throws 429 if either the IP or the global bucket is locked. */
-export async function assertNotLocked(odb: OperatorDb, keys: { ip: string; global: string }, now: number): Promise<void> {
-  const rows = await odb.getAttempts([keys.ip, keys.global]);
-  const until = Math.max(0, ...rows.map((r) => r.locked_until));
-  if (until > now) throw OperatorError.locked(Math.ceil((until - now) / 1000));
+/** Delay for the next attempt from the global failure count (0 below the threshold). */
+export function globalDelayMs(row: { failures: number; window_start: number } | undefined, now: number): number {
+  if (!row || now - row.window_start > ATTEMPT_WINDOW_MS) return 0;
+  const over = row.failures - GLOBAL_DELAY.threshold;
+  if (over < 0) return 0;
+  return Math.min(GLOBAL_DELAY.maxMs, GLOBAL_DELAY.baseMs * 2 ** Math.floor(over / GLOBAL_DELAY.step));
 }
 
+/** Throws 429 if this IP is locked; waits (see GLOBAL_DELAY) when many attempts failed site-wide. */
+export async function assertNotLocked(
+  odb: OperatorDb,
+  keys: { ip: string; global: string },
+  now: number,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<void> {
+  const rows = await odb.getAttempts([keys.ip, keys.global]);
+  const ip = rows.find((r) => r.key === keys.ip);
+  if (ip && ip.locked_until > now) throw OperatorError.locked(Math.ceil((ip.locked_until - now) / 1000));
+  const delay = globalDelayMs(rows.find((r) => r.key === keys.global), now);
+  if (delay > 0) await sleep(delay);
+}
+
+/**
+ * Records a failure: both counters are incremented atomically (UPSERT …
+ * RETURNING, so concurrent failures are never lost), and the IP that reached
+ * the threshold is locked by one compare-and-set statement.
+ */
 export async function recordFailure(odb: OperatorDb, keys: { ip: string; global: string }, now: number): Promise<void> {
-  const rows = new Map((await odb.getAttempts([keys.ip, keys.global])).map((r) => [r.key, r]));
-  const stmts = (['ip', 'global'] as const).map((which) => {
-    const key = keys[which];
-    const p = POLICY[which];
-    const prev = rows.get(key);
-    const fresh = !prev || now - prev.window_start > ATTEMPT_WINDOW_MS;
-    const lockCount = prev && now - prev.window_start <= 24 * ATTEMPT_WINDOW_MS ? prev.lock_count : 0;
-    let failures = (fresh ? 0 : prev!.failures) + 1;
-    let lockedUntil = prev?.locked_until ?? 0;
-    let locks = lockCount;
-    if (failures >= p.threshold) {
-      locks += 1;
-      lockedUntil = now + Math.min(p.baseLockMs * 2 ** (locks - 1), p.maxLockMs);
-      failures = 0;
-    }
-    return odb.putAttemptStatement({ key, failures, window_start: fresh ? now : prev!.window_start, locked_until: lockedUntil, lock_count: locks });
-  });
-  await odb.raw.batch(stmts);
+  const [ip] = await odb.bumpAttempts([keys.ip, keys.global], now, ATTEMPT_WINDOW_MS, 24 * ATTEMPT_WINDOW_MS);
+  if (ip && ip.failures >= IP_POLICY.threshold) {
+    await odb.lockAttempt(keys.ip, { now, threshold: IP_POLICY.threshold, baseMs: IP_POLICY.baseLockMs, maxMs: IP_POLICY.maxLockMs });
+  }
 }

@@ -24,6 +24,9 @@ import {
   type ListAgentsResponse,
   type ListInvoicesResponse,
   type ListInvoiceEmailsResponse,
+  type ListReviewsResponse,
+  type ReviewClientResponse,
+  type ReviewInvoiceResponse,
   type SendInvoiceEmailRequest,
   type SendInvoiceEmailResponse,
   type ListActivityResponse,
@@ -196,6 +199,13 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
     sendInvoiceEmail: (id: string, body: SendInvoiceEmailRequest, idempotencyKey: string) =>
       request<SendInvoiceEmailResponse>('POST', `/invoices/${encode(id)}/send`, { body, headers: { 'idempotency-key': idempotencyKey } }),
     listInvoiceEmails: (id: string) => request<ListInvoiceEmailsResponse>('GET', `/invoices/${encode(id)}/emails`),
+
+    // "Needs your review": agent-written sender details / addresses the user confirms explicitly
+    listReviews: () => request<ListReviewsResponse>('GET', '/reviews'),
+    reviewInvoice: (id: string, revision: number) =>
+      request<ReviewInvoiceResponse>('POST', `/invoices/${encode(id)}/review`, { headers: preconditionHeaders({ ifMatch: revision }) }),
+    reviewClient: (id: string, revision: number) =>
+      request<ReviewClientResponse>('POST', `/clients/${encode(id)}/review`, { headers: preconditionHeaders({ ifMatch: revision }) }),
 
     // Clients
     listClients: (p: ListInvoicesParams & { q?: string } = {}) =>

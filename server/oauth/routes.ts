@@ -243,11 +243,16 @@ export function mcpAuth(deps: AppDeps, appRepo: Repository, repo: OAuthRepositor
           ? `Bearer realm="${AUTH_REALM}", error="invalid_token", error_description="${message}", resource_metadata="${urls.resourceMetadata}"`
           : `Bearer realm="${AUTH_REALM}", resource_metadata="${urls.resourceMetadata}"`,
       });
+    // Unauthenticated requests are cheap to send: 30 per minute per client IP (security fix M3), then 429.
+    const limitUnauthenticated = () => enforceRateLimit(deps.rateLimiters.poll, `mcp-unauth:${clientIp(c)}`);
     if (token?.startsWith(OAUTH_TOKEN_PREFIX.access)) {
       const now = deps.clock();
       const principal = await oauth.authenticateAccessToken(repo, token, urls.resource, now.getTime());
       if (principal === 'suspended') throw new ApiError(403, 'workspace_suspended', oauth.SUSPENDED_MESSAGE);
-      if (!principal) throw unauthorized('The access token is invalid, expired or revoked');
+      if (!principal) {
+        await limitUnauthenticated();
+        throw unauthorized('The access token is invalid, expired or revoked');
+      }
       c.set('principal', principal);
       const throttleMs = deps.config.lastUsedThrottleSeconds * 1000;
       const last = principal.lastUsedAt ? Date.parse(principal.lastUsedAt) : 0;
@@ -264,7 +269,10 @@ export function mcpAuth(deps: AppDeps, appRepo: Repository, repo: OAuthRepositor
     try {
       await auth(c, next);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) throw unauthorized(token ? 'Missing or invalid bearer token' : 'Authorization required');
+      if (error instanceof ApiError && error.status === 401 && !c.get('principal')) {
+        await limitUnauthenticated();
+        throw unauthorized(token ? 'Missing or invalid bearer token' : 'Authorization required');
+      }
       throw error;
     }
   };

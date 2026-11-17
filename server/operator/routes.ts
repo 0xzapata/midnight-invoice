@@ -44,7 +44,7 @@ import {
   startSession,
   type OperatorSession,
 } from './auth';
-import { constantTimeEqual, fromBase64Url, randomBytes, secretsEqual, toBase64Url } from './crypto';
+import { constantTimeEqual, fromBase64Url, MIN_INITIAL_PASSWORD_LENGTH, randomBytes, secretsEqual, toBase64Url } from './crypto';
 import type { OperatorDb, OperatorStateRow } from './db';
 import { OperatorError } from './errors';
 import { createGithubClient } from './github';
@@ -53,6 +53,7 @@ import { SNAPSHOT_TTL_MS, type Actor } from './settings';
 import { SETTINGS } from './settings-registry';
 import { groupOf, series, summarize } from './telemetry';
 import { createWorkosClient, pkcePair } from './workos';
+import { pauseSchedulesOfRevokedAgent } from '../recurring/generate';
 
 type OpEnv = { Variables: { session: OperatorSession } };
 
@@ -199,6 +200,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
   app.use('*', async (c, next) => {
     c.header('x-robots-tag', 'noindex, nofollow');
     if (!deps.operator.initialPassword) throw OperatorError.notConfigured();
+    if (deps.operator.initialPassword.length < MIN_INITIAL_PASSWORD_LENGTH) throw OperatorError.weakInitialPassword();
     if (c.req.header('authorization')) {
       throw OperatorError.unauthenticated('The operator console does not accept API tokens or agent keys.');
     }
@@ -240,7 +242,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const ip = clientInfo(c).ip;
     const keysFor = attemptKeys('bootstrap', ip);
     await enforceRateLimit(deps.rateLimiters.create, `operator-bootstrap:${clientIp(c)}`);
-    await assertNotLocked(odb, keysFor, now());
+    await assertNotLocked(odb, keysFor, now(), deps.operator.sleep);
     const { password } = await body(c, z.object({ password: z.string().max(1024) }));
     if (!(await secretsEqual(password, initialPassword()))) {
       await recordFailure(odb, keysFor, now());
@@ -349,7 +351,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const ip = clientInfo(c).ip;
     const k = attemptKeys('recovery', ip);
     await enforceRateLimit(deps.rateLimiters.create, `operator-recover:${clientIp(c)}`);
-    await assertNotLocked(odb, k, now());
+    await assertNotLocked(odb, k, now(), deps.operator.sleep);
     const { recoveryKey } = await body(c, z.object({ recoveryKey: z.string().min(1).max(1024) }));
     const ok = await keystore.recover(recoveryKey);
     if (!ok) {
@@ -504,7 +506,9 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const groupMap = new Map<string, typeof rows>();
     for (const r of rows) {
       const g = groupOf(r.metric).group;
-      groupMap.set(g, [...(groupMap.get(g) ?? []), r]);
+      const list = groupMap.get(g);
+      if (list) list.push(r);
+      else groupMap.set(g, [r]); // linear (was a copy per row: quadratic in the number of metrics)
     }
     const groups = [...groupMap.entries()]
       .map(([group, rs]) => {
@@ -655,7 +659,10 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const agent = await odb.findAgent(c.req.param('id'));
     if (!agent) throw OperatorError.notFound('Agent not found');
     const result = await repo.revokeAgent(agent.workspace_id, agent.id, new Date(now()).toISOString());
-    if (result === 'revoked') await audit(c, 'agent.revoke', agent.id, { workspaceId: agent.workspace_id });
+    if (result === 'revoked') {
+      await audit(c, 'agent.revoke', agent.id, { workspaceId: agent.workspace_id });
+      await pauseSchedulesOfRevokedAgent(deps, agent.workspace_id, { id: agent.id, name: agent.name });
+    }
     settings.invalidate();
     return c.json({ result });
   });

@@ -141,6 +141,10 @@ export function createAccountsDb(db: D1Database) {
         .bind(userId)
         .first<OwnedWorkspaceRow>();
     },
+    /** Whether the site operator suspended this workspace (`workspace_suspensions`, migration 0004). */
+    async isSuspended(workspaceId: string): Promise<boolean> {
+      return !!(await db.prepare('SELECT 1 AS x FROM workspace_suspensions WHERE workspace_id = ?').bind(workspaceId).first());
+    },
     async workspaceOwner(workspaceId: string): Promise<string | null> {
       return (
         (await db.prepare("SELECT user_id FROM workspace_members WHERE workspace_id = ? AND role = 'owner'").bind(workspaceId).first<{ user_id: string }>())

@@ -384,14 +384,45 @@ export function createOperatorDb(db: D1Database) {
           .all<AttemptRow>()
       ).results;
     },
-    putAttemptStatement(a: AttemptRow): D1PreparedStatement {
-      return db
+    /**
+     * Counts one failed attempt per key, atomically (one UPSERT … RETURNING
+     * each, in one batch): concurrent failures can never be lost. A key whose
+     * window is older than `windowMs` starts a new window; its lock count is
+     * forgotten after `lockMemoryMs` without failures.
+     */
+    async bumpAttempts(keys: string[], now: number, windowMs: number, lockMemoryMs: number): Promise<AttemptRow[]> {
+      const results = await db.batch<AttemptRow>(
+        keys.map((key) =>
+          db
+            .prepare(
+              `INSERT INTO operator_login_attempts (key, failures, window_start, locked_until, lock_count) VALUES (?1, 1, ?2, 0, 0)
+               ON CONFLICT (key) DO UPDATE SET
+                 lock_count = CASE WHEN ?2 - window_start > ?4 THEN 0 ELSE lock_count END,
+                 failures = CASE WHEN ?2 - window_start > ?3 THEN 1 ELSE failures + 1 END,
+                 window_start = CASE WHEN ?2 - window_start > ?3 THEN ?2 ELSE window_start END
+               RETURNING key, failures, window_start, locked_until, lock_count`,
+            )
+            .bind(key, now, windowMs, lockMemoryMs),
+        ),
+      );
+      return results.map((r) => r.results[0]);
+    },
+    /**
+     * Locks a key that reached `threshold` failures: resets its failures and
+     * sets locked_until = now + min(baseMs · 2^lock_count, maxMs), in one
+     * compare-and-set statement (only one of several concurrent requests does it).
+     */
+    async lockAttempt(key: string, a: { now: number; threshold: number; baseMs: number; maxMs: number }): Promise<number | null> {
+      const row = await db
         .prepare(
-          `INSERT INTO operator_login_attempts (key, failures, window_start, locked_until, lock_count) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT (key) DO UPDATE SET failures = excluded.failures, window_start = excluded.window_start,
-             locked_until = excluded.locked_until, lock_count = excluded.lock_count`,
+          `UPDATE operator_login_attempts SET failures = 0, lock_count = lock_count + 1,
+                  locked_until = ?2 + min(?3 * (1 << min(lock_count, 20)), ?4)
+            WHERE key = ?1 AND failures >= ?5
+        RETURNING locked_until`,
         )
-        .bind(a.key, a.failures, a.window_start, a.locked_until, a.lock_count);
+        .bind(key, a.now, a.baseMs, a.maxMs, a.threshold)
+        .first<{ locked_until: number }>();
+      return row?.locked_until ?? null;
     },
     async clearAttempts(key: string): Promise<void> {
       await db.prepare('DELETE FROM operator_login_attempts WHERE key = ?').bind(key).run();

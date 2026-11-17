@@ -208,6 +208,8 @@ export function createRepository(db: D1Database) {
         db.prepare('DELETE FROM email_messages WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM email_confirmed_recipients WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM invoice_sender_review WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM sender_approved_values WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM agent_content_edits WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM workspaces WHERE id = ?').bind(id),
       ]);
     },
@@ -372,6 +374,13 @@ export function createRepository(db: D1Database) {
       const row = await firstWith<{ revoked_at: string }>(db, stmt, also);
       if (!row) return 'not_found';
       return row.revoked_at === revokedAt ? 'revoked' : 'already_revoked';
+    },
+
+    /** Live (not deleted) rows of a synced collection in a workspace, for the per-workspace storage limits. */
+    async countLive(table: 'invoices' | 'clients' | 'templates', workspaceId: string): Promise<number> {
+      const sql = { invoices: 'invoices', clients: 'clients', templates: 'templates' }[table];
+      const row = await db.prepare(`SELECT COUNT(*) AS n FROM ${sql} WHERE workspace_id = ? AND deleted_at IS NULL`).bind(workspaceId).first<{ n: number }>();
+      return row?.n ?? 0;
     },
 
     async touchAgentLastUsed(workspaceId: string, agentId: string, at: string, throttleBefore: string): Promise<void> {

@@ -15,8 +15,8 @@ export const EMAIL_LIMITS = {
   /** Extra recipients per send (workspace token only). */
   cc: 3,
   address: 254,
-  /** Length of the sender name shown in the From display name. */
-  displayName: 100,
+  /** Length of the sender name shown in the From display name (security fix M2: was 100). */
+  displayName: 60,
   idempotencyKey: 255,
 } as const;
 
@@ -105,9 +105,27 @@ export function formatMailbox(name: string, address: string): string {
   return `"${clean.replace(/["\\]/g, (c) => `\\${c}`)}" <${address}>`;
 }
 
-/** "Acme Studio via Midnight Invoice": the sender's name, attributed to this service. */
+/**
+ * Characters that make a display name deceptive in a mail client: controls,
+ * bidi overrides/isolates and zero-width characters (reorder or hide text),
+ * quotes and angle brackets (fake a second mailbox), "@" (makes a name look
+ * like an address, e.g. "support@bank.com via …"), backslashes and the
+ * Unicode line/paragraph separators.
+ */
+// eslint-disable-next-line no-control-regex, no-misleading-character-class -- matching control and invisible characters is the point
+const DECEPTIVE_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0"'`<>@\\]/g;
+
+/** The sender name as it may appear in the From display name: deceptive characters removed, whitespace collapsed, length capped. */
+export function cleanDisplayName(fromName: string): string {
+  return Array.from(fromName.replace(DECEPTIVE_NAME_CHARS, ' ').replace(/\s+/g, ' ').trim())
+    .slice(0, EMAIL_LIMITS.displayName)
+    .join('')
+    .trim();
+}
+
+/** "Acme Studio via Midnight Invoice": the sender's name (cleaned, see cleanDisplayName), attributed to this service. */
 export function senderDisplayName(fromName: string, serviceName: string = EMAIL_BRAND): string {
-  const name = fromName.trim().slice(0, EMAIL_LIMITS.displayName);
+  const name = cleanDisplayName(fromName);
   const service = serviceName.trim() || EMAIL_BRAND;
   return name ? `${name} via ${service}` : service;
 }

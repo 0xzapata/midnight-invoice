@@ -1,0 +1,428 @@
+/**
+ * Regression tests for the security review (CHANGELOG "Security"): each test
+ * reproduces a finding's attack and checks it no longer works, plus the
+ * legitimate flow it must not break. Real local D1, Resend faked at the
+ * fetch boundary, a stepped clock.
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { Scope } from '../shared/api';
+import { createApp } from './app';
+import { defaultDeps, type AppDeps } from './deps';
+import { runRecurringGeneration } from './recurring/job';
+import { api, approveReview, connectAgent, countingLimiter, createWorkspace, readPublicAsset, startD1, TestClock } from './test/helpers';
+import { telemetryOf } from './operator';
+import { createTelemetryCollector, MAX_ROLLUPS_PER_FLUSH } from './operator/telemetry';
+
+let d1: Awaited<ReturnType<typeof startD1>>;
+beforeAll(async () => {
+  d1 = await startD1();
+});
+afterAll(async () => {
+  await d1?.close();
+});
+beforeEach(async () => {
+  await d1.db.batch(['operator_settings', 'email_counters'].map((t) => d1.db.prepare(`DELETE FROM ${t}`)));
+});
+
+const SYSTEM = { id: null, email: null, type: 'system' as const };
+const CLIENT_EMAIL = 'billing@globex-corp.io';
+const ALL_AGENT: Scope[] = ['invoices:read', 'invoices:write', 'templates:read', 'templates:write', 'clients:read', 'clients:write', 'recurring:read', 'recurring:write', 'invoices:send'];
+
+function fakeResend() {
+  const calls: { to: string[]; text: string }[] = [];
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push(JSON.parse(await new Request(input, init).text()));
+    return Response.json({ id: `re_msg_${calls.length}` });
+  }) as typeof fetch;
+  return { calls, fetch: fetchFn };
+}
+
+/** A workspace with settings (IBAN USER), a user-entered client and an email-capable server. */
+export async function setup(settings: Record<string, unknown> = {}) {
+  const resend = fakeResend();
+  const clock = new TestClock(new Date('2026-12-01T10:00:00.000Z'));
+  const deps: AppDeps = defaultDeps({
+    db: d1.db,
+    readAsset: readPublicAsset,
+    clock: clock.fn,
+    logError: () => undefined,
+    operator: { vars: { RESEND_API_KEY: 're_test_key_0123456789abcdef' } },
+    email: { fetch: resend.fetch },
+  });
+  // Anonymous test workspaces: the account requirement (security fix M2, on by default) has its own tests in security-review.test.ts.
+  for (const [key, value] of Object.entries({ 'email.fromAddress': 'invoices@mail.example.org', 'email.cooldownMinutes': 0, 'email.requireAccount': false, ...settings })) {
+    await deps.settings.set(key, value, SYSTEM);
+  }
+  const app = createApp(deps);
+  const client = api(app);
+  const { token } = await createWorkspace(client);
+  await client.put('/api/v1/settings', { fromName: 'Studio', fromEmail: 'me@studio.io', fromAddress: 'x', paymentDetails: 'IBAN USER', notes: '', taxRate: 0, currency: 'EUR' }, token);
+  const globex = (await client.post('/api/v1/clients', { name: 'Globex', email: CLIENT_EMAIL }, token)).json.client;
+  const agent = await connectAgent(client, token, ALL_AGENT);
+  const send = (id: string, as: string, body: unknown = {}) => client.post(`/api/v1/invoices/${id}/send`, body, as);
+  return { deps, app, client, token, globex, agent, key: agent.api_key, resend, clock, send };
+}
+
+describe('H1: the sender review holds for every invoice an agent asks to send, however it came to exist', () => {
+  it('refuses an agent send of an invoice generated (run-now) from an agent template with the agent’s payment details', async () => {
+    const s = await setup();
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, paymentDetails: 'IBAN ATTACKER', lineItems: [{ description: 'Retainer', quantity: 1, price: 9999 }] }, s.key)).json.template;
+    const sched = await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-01', timezone: 'UTC', autoAction: 'draft' }, s.key);
+    expect(sched.status).toBe(201);
+    const run = await s.client.post(`/api/v1/recurring/${sched.json.recurring.id}/run-now`, {}, s.key);
+    expect(run.json.invoice).toMatchObject({ paymentDetails: 'IBAN ATTACKER', toEmail: CLIENT_EMAIL, createdBy: { type: 'system' } });
+    const res = await s.send(run.json.invoice.id, s.key);
+    expect(res.status).toBe(403);
+    expect(res.json.error).toMatchObject({ code: 'invoice_needs_review', details: { fields: ['paymentDetails'] } });
+    expect(s.resend.calls).toHaveLength(0);
+    // The user sees it in "Needs your review"; approving it lets the agent send.
+    const reviews = (await s.client.get('/api/v1/reviews', s.token)).json;
+    expect(reviews.invoices).toEqual([expect.objectContaining({ id: run.json.invoice.id, fields: [{ field: 'paymentDetails', value: 'IBAN ATTACKER', previous: null }] })]);
+    expect((await approveReview(s.client, s.token, 'invoices', run.json.invoice.id)).json.approved).toEqual(['paymentDetails']);
+    expect((await s.send(run.json.invoice.id, s.key)).status).toBe(200);
+  });
+
+  it('refuses it for an invoice generated by the hourly job too (schedule actor "system")', async () => {
+    const s = await setup();
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'Retainer', quantity: 1, price: 10 }] }, s.token)).json.template;
+    // The user's template, then the agent rewrites its payment details and sets up a schedule.
+    await s.client.patch(`/api/v1/templates/${t.id}`, { paymentDetails: 'IBAN ATTACKER 2' }, s.key);
+    const sched = (await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-02', timezone: 'UTC' }, s.key)).json.recurring;
+    s.clock.now = new Date('2026-12-02T10:00:00.000Z');
+    await runRecurringGeneration(s.deps, s.clock.now.getTime());
+    const [inv] = (await s.client.get(`/api/v1/invoices?recurring_id=${sched.id}`, s.token)).json.invoices;
+    expect(inv.paymentDetails).toBe('IBAN ATTACKER 2');
+    expect((await s.send(inv.id, s.key)).json.error.code).toBe('invoice_needs_review');
+  });
+
+  it('keeps the legitimate case working: the user’s template and schedule → the agent may send the generated invoice', async () => {
+    const s = await setup();
+    const t = (await s.client.post('/api/v1/templates', { name: 'EU', clientId: s.globex.id, paymentDetails: 'IBAN DE00 USER EU', lineItems: [{ description: 'Retainer', quantity: 1, price: 10 }] }, s.token)).json.template;
+    const sched = (await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-01', timezone: 'UTC' }, s.token)).json.recurring;
+    const run = await s.client.post(`/api/v1/recurring/${sched.id}/run-now`, {}, s.key);
+    expect(run.json.invoice.paymentDetails).toBe('IBAN DE00 USER EU');
+    expect((await s.send(run.json.invoice.id, s.key)).status).toBe(200);
+    expect((await s.client.get('/api/v1/reviews', s.token)).json.invoices).toEqual([]);
+  });
+});
+
+describe('L2: only a user write of that field (or the explicit review) confirms agent-written data', () => {
+  it('a full-document PUT that carries the agent’s values (sync, "mark paid", a 412 merge) approves nothing', async () => {
+    const s = await setup();
+    const inv = (await s.client.post('/api/v1/invoices', { toName: 'Globex', toEmail: CLIENT_EMAIL, lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.token)).json.invoice;
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { paymentDetails: 'IBAN ATTACKER', toEmail: 'pay@evil-payee.io' }, s.key);
+    // The browser's sync PUT: the whole document as the server has it, with an unrelated change, by the user.
+    const current = (await s.client.get(`/api/v1/invoices/${inv.id}`, s.token)).json.invoice;
+    const put = await s.client.put(`/api/v1/invoices/${inv.id}`, { ...current, notes: 'Thanks!' }, s.token, { 'if-match': `"${current.revision}"` });
+    expect(put.status).toBe(200);
+    await s.client.post(`/api/v1/invoices/${inv.id}/mark-sent`, {}, s.token, { 'if-match': `"${put.json.invoice.revision}"` });
+    const send = await s.send(inv.id, s.key);
+    expect(send.json.error.details.reason).toBe('address_not_confirmed_by_user');
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { toEmail: CLIENT_EMAIL }, s.token); // the user fixes the address
+    expect((await s.send(inv.id, s.key)).json.error).toMatchObject({ code: 'invoice_needs_review', details: { fields: ['paymentDetails'] } });
+
+    const review = (await s.client.get('/api/v1/reviews', s.token)).json.invoices.find((r: { id: string }) => r.id === inv.id);
+    expect(review).toMatchObject({ agentName: 'Test Agent', fields: [{ field: 'paymentDetails', value: 'IBAN ATTACKER', previous: 'IBAN USER' }] });
+
+    // A client the agent re-addressed, then saved in full by the user: still unconfirmed.
+    await s.client.patch(`/api/v1/clients/${s.globex.id}`, { email: 'ap@evil-payee.io' }, s.key);
+    const c = (await s.client.get(`/api/v1/clients/${s.globex.id}`, s.token)).json.client;
+    expect((await s.client.put(`/api/v1/clients/${c.id}`, { ...c, notes: 'VIP' }, s.token, { 'if-match': `"${c.revision}"` })).status).toBe(200);
+    expect((await s.client.get('/api/v1/reviews', s.token)).json.clients).toEqual([expect.objectContaining({ id: c.id, email: 'ap@evil-payee.io', agentName: null })]);
+  });
+
+  it('the user typing a new value approves it', async () => {
+    const s = await setup();
+    const inv = (await s.client.post('/api/v1/invoices', { toName: 'Globex', toEmail: CLIENT_EMAIL, lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.key)).json.invoice;
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { paymentDetails: 'IBAN ATTACKER' }, s.key);
+    expect((await s.send(inv.id, s.key)).json.error.code).toBe('invoice_needs_review');
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { paymentDetails: 'IBAN USER NEW' }, s.token);
+    expect((await s.send(inv.id, s.key)).status).toBe(200);
+  });
+
+  it('the review action is the user’s only, approves exactly the reviewed revision, and is recorded', async () => {
+    const s = await setup();
+    const inv = (await s.client.post('/api/v1/invoices', { toName: 'Globex', toEmail: CLIENT_EMAIL, paymentDetails: 'IBAN ATTACKER', lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.key)).json.invoice;
+    expect((await s.client.get('/api/v1/reviews', s.key)).status).toBe(403);
+    expect((await s.client.post(`/api/v1/invoices/${inv.id}/review`, undefined, s.key, { 'if-match': `"${inv.revision}"` })).status).toBe(403);
+    expect((await s.client.post(`/api/v1/invoices/${inv.id}/review`, undefined, s.token)).status).toBe(400);
+    // The agent changes it again after the user looked: the stale approval approves nothing.
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { paymentDetails: 'IBAN ATTACKER 2' }, s.key);
+    const stale = await s.client.post(`/api/v1/invoices/${inv.id}/review`, undefined, s.token, { 'if-match': `"${inv.revision}"` });
+    expect(stale.status).toBe(412);
+    expect((await s.send(inv.id, s.key)).json.error.code).toBe('invoice_needs_review');
+    const ok = await approveReview(s.client, s.token, 'invoices', inv.id);
+    expect(ok.json.approved).toEqual(['paymentDetails']);
+    expect((await s.send(inv.id, s.key)).status).toBe(200);
+    const log = (await s.client.get(`/api/v1/activity?action=invoice.reviewed`, s.token)).json.activity;
+    expect(log).toEqual([expect.objectContaining({ actor: { type: 'user' }, entity: expect.objectContaining({ id: inv.id }), changes: { fields: ['paymentDetails'] } })]);
+  });
+});
+
+describe('M1: automatic emails send what the user approved', () => {
+  async function emailing(s: Awaited<ReturnType<typeof setup>>) {
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'Retainer', quantity: 1, price: 1000 }] }, s.token)).json.template;
+    const sched = await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-02', timezone: 'UTC', autoAction: 'send_email' }, s.token);
+    expect(sched.status).toBe(201);
+    const run = async (iso = '2026-12-02T10:00:00.000Z') => {
+      s.clock.now = new Date(iso);
+      await runRecurringGeneration(s.deps, s.clock.now.getTime());
+    };
+    const state = async () => (await s.client.get(`/api/v1/recurring/${sched.json.recurring.id}`, s.token)).json.recurring;
+    const invoice = async () => (await s.client.get(`/api/v1/invoices?recurring_id=${sched.json.recurring.id}`, s.token)).json.invoices[0];
+    return { t, id: sched.json.recurring.id as string, run, state, invoice };
+  }
+
+  it('holds the email when an agent with only templates:write changed the template’s notes or prices; the user re-approves', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    const writer = await connectAgent(s.client, s.token, ['templates:read', 'templates:write']);
+    const p = await s.client.patch(`/api/v1/templates/${e.t.id}`, { notes: 'NOTICE: our bank changed, pay to IBAN ATTACKER 666', lineItems: [{ description: 'Retainer', quantity: 1, price: 25000 }] }, writer.api_key);
+    expect(p.status).toBe(200);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(0);
+    expect(await e.invoice()).toMatchObject({ status: 'draft', notes: 'NOTICE: our bank changed, pay to IBAN ATTACKER 666' });
+    const held = (await e.state()).lastError;
+    expect(held).toMatchObject({ code: 'email_needs_review', sendPending: true });
+    expect(held.message).toMatch(/^Needs your review: Since you approved automatic emailing, the template was changed by an agent \(Test Agent\)\..*re-approve/);
+    const failed = (await s.client.get('/api/v1/activity?action=recurring.run_failed', s.token)).json.activity;
+    expect(failed[0]).toMatchObject({ changes: { reason: 'email_needs_review' } });
+    // Retries stay held.
+    await e.run('2026-12-02T12:00:00.000Z');
+    expect(s.resend.calls).toHaveLength(0);
+    // Only the user can re-approve; doing so sends the held email at once.
+    expect((await s.client.post(`/api/v1/recurring/${e.id}/approve-email`, undefined, s.key)).status).toBe(403);
+    const ok = await s.client.post(`/api/v1/recurring/${e.id}/approve-email`, undefined, s.token);
+    expect(ok.json).toMatchObject({ emailed: true, recurring: { lastError: null } });
+    expect(s.resend.calls).toHaveLength(1);
+    expect((await e.invoice()).status).toBe('sent');
+    expect((await s.client.get('/api/v1/activity?action=recurring.email_approved', s.token)).json.activity).toHaveLength(1);
+  });
+
+  it('the user editing their own template needs no re-approval', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    expect((await s.client.patch(`/api/v1/templates/${e.t.id}`, { notes: 'Thank you!', lineItems: [{ description: 'Retainer', quantity: 1, price: 1200 }] }, s.token)).status).toBe(200);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(1);
+    expect((await e.invoice()).status).toBe('sent');
+  });
+
+  it('an agent edit followed by a user edit still needs the explicit re-approval', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    await s.client.patch(`/api/v1/templates/${e.t.id}`, { notes: 'Pay to IBAN ATTACKER' }, s.key);
+    await s.client.patch(`/api/v1/templates/${e.t.id}`, { name: 'Renamed' }, s.token);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(0);
+    expect((await e.state()).lastError.code).toBe('email_needs_review');
+  });
+
+  it('holds it when an agent points the client at another (already confirmed) address', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    // An address the user confirmed elsewhere, so the recipient rule alone would not stop it.
+    await s.client.post('/api/v1/clients', { name: 'Other', email: 'ap@other-client.io' }, s.token);
+    await s.client.patch(`/api/v1/clients/${s.globex.id}`, { email: 'ap@other-client.io' }, s.key);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(0);
+    expect((await e.state()).lastError.message).toMatch(/client’s email address was changed by an agent/);
+  });
+});
+
+describe('L1: clients cannot claim the idempotency keys of scheduled emails', () => {
+  it('refuses reserved keys, and a key in the old recurring namespace no longer blocks the scheduled email', async () => {
+    const s = await setup();
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'Retainer', quantity: 1, price: 1000 }] }, s.token)).json.template;
+    const id = (await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-02', timezone: 'UTC', autoAction: 'send_email' }, s.token)).json.recurring.id;
+    const decoy = (await s.client.post('/api/v1/invoices', { toName: 'Globex', toEmail: CLIENT_EMAIL, lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.token)).json.invoice;
+    // The agent tries to pre-claim the next period's key, in the server's namespace and in the old one.
+    const reserved = await s.client.post(`/api/v1/invoices/${decoy.id}/send`, {}, s.key, { 'idempotency-key': `internal:recurring/${id}/2026-12-02` });
+    expect(reserved.status).toBe(400);
+    expect(reserved.json.error.message).toMatch(/reserved/);
+    expect((await s.client.post(`/api/v1/invoices/${decoy.id}/send`, {}, s.key, { 'idempotency-key': `recurring/${id}/2026-12-02` })).status).toBe(200);
+    s.clock.now = new Date('2026-12-02T10:00:00.000Z');
+    await runRecurringGeneration(s.deps, s.clock.now.getTime());
+    expect(s.resend.calls).toHaveLength(2);
+    expect((await s.client.get(`/api/v1/invoices?recurring_id=${id}`, s.token)).json.invoices[0].status).toBe('sent');
+  });
+});
+
+describe('M2: no anonymous email relay; caps count recipients', () => {
+  /** Makes the workspace owned by a signed-in account with a verified email (as the account flows do). */
+  async function ownByAccount(s: Awaited<ReturnType<typeof setup>>, token = s.token) {
+    const wsId = (await s.client.get('/api/v1/workspace', token)).json.workspace.id as string;
+    const userId = crypto.randomUUID();
+    await d1.db.batch([
+      d1.db.prepare('INSERT INTO users (id, workos_user_id, email, email_verified, created_at) VALUES (?, ?, ?, 1, 0)').bind(userId, `user_${userId}`, `${userId}@studio.io`),
+      d1.db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, 'owner', 0)").bind(wsId, userId),
+    ]);
+    return wsId;
+  }
+  const invoiceFor = async (s: Awaited<ReturnType<typeof setup>>, body: Record<string, unknown> = {}, token = s.token) =>
+    (await s.client.post('/api/v1/invoices', { toName: 'Globex', toEmail: CLIENT_EMAIL, lineItems: [{ description: 'x', quantity: 1, price: 1 }], ...body }, token)).json.invoice;
+
+  it('refuses email from an anonymous workspace by default (users, agents, schedules), and explains it', async () => {
+    const s = await setup({ 'email.requireAccount': true });
+    const inv = await invoiceFor(s, { fromName: 'PayPal Security' });
+    const res = await s.client.post(`/api/v1/invoices/${inv.id}/send`, { to: 'victim@gmail-mail.io', cc: ['v2@outlook-mail.io'], subject: 'Urgent: account locked' }, s.token);
+    expect(res.status).toBe(403);
+    expect(res.json.error).toMatchObject({ code: 'account_required_for_email', message: expect.stringMatching(/signed-in account/) });
+    expect((await s.send(inv.id, s.key)).json.error.code).toBe('account_required_for_email');
+    expect((await s.client.get(`/api/v1/invoices/${inv.id}/emails`, s.token)).json.delivery).toMatchObject({ configured: true, accountRequired: true });
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'R', quantity: 1, price: 1 }] }, s.token)).json.template;
+    const sched = await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-02', timezone: 'UTC', autoAction: 'send_email' }, s.token);
+    expect(sched.json.error.code).toBe('account_required_for_email');
+    expect(s.resend.calls).toHaveLength(0);
+
+    // Owned by a signed-in account: allowed.
+    await ownByAccount(s);
+    expect((await s.client.get(`/api/v1/invoices/${inv.id}/emails`, s.token)).json.delivery.accountRequired).toBe(false);
+    expect((await s.send(inv.id, s.token)).status).toBe(200);
+  });
+
+  it('counts every recipient (to + cc) against the caps', async () => {
+    const s = await setup({ 'email.workspaceHourlyLimit': 3 });
+    const a = await invoiceFor(s);
+    const four = await s.client.post(`/api/v1/invoices/${a.id}/send`, { cc: ['a@one-client.io', 'b@one-client.io', 'c@one-client.io'] }, s.token);
+    expect(four.json.error).toMatchObject({ code: 'rate_limited', details: { reason: 'workspace_hourly_limit' } });
+    expect((await s.client.post(`/api/v1/invoices/${a.id}/send`, { cc: ['a@one-client.io', 'b@one-client.io'] }, s.token)).status).toBe(200);
+    const b = await invoiceFor(s);
+    expect((await s.send(b.id, s.token)).json.error.details.reason).toBe('workspace_hourly_limit');
+  });
+
+  it('limits app sends per client IP across workspaces (agents and schedules are not counted there)', async () => {
+    const s = await setup({ 'email.ipHourlyLimit': 2 });
+    const ip = { 'cf-connecting-ip': '203.0.113.7' };
+    const other = await createWorkspace(s.client);
+    const mine = await invoiceFor(s);
+    const theirs = await invoiceFor(s, { fromName: 'Other Studio' }, other.token);
+    expect((await s.client.post(`/api/v1/invoices/${mine.id}/send`, {}, s.token, ip)).status).toBe(200);
+    expect((await s.client.post(`/api/v1/invoices/${theirs.id}/send`, {}, other.token, ip)).status).toBe(200);
+    const third = await invoiceFor(s);
+    const limited = await s.client.post(`/api/v1/invoices/${third.id}/send`, {}, s.token, ip);
+    expect(limited.json.error).toMatchObject({ code: 'rate_limited', details: { reason: 'ip_hourly_limit' } });
+    expect((await s.client.post(`/api/v1/invoices/${third.id}/send`, {}, s.token, { 'cf-connecting-ip': '198.51.100.9' })).status).toBe(200);
+    // No IP is stored, only a hash in the counter scope.
+    const scopes = (await d1.db.prepare("SELECT scope FROM email_counters WHERE scope LIKE 'ip:%'").all<{ scope: string }>()).results.map((r) => r.scope);
+    expect(scopes.join(' ')).not.toContain('203.0.113.7');
+  });
+
+  it('gives new workspaces a lower daily cap (warm-up)', async () => {
+    const s = await setup({ 'email.newWorkspaceDailyCap': 1, 'email.newWorkspaceDays': 7 });
+    const a = await invoiceFor(s);
+    const b = await invoiceFor(s);
+    expect((await s.send(a.id, s.token)).status).toBe(200);
+    expect((await s.send(b.id, s.token)).json.error.details.reason).toBe('new_workspace_daily_cap');
+    s.clock.now = new Date('2026-12-09T10:00:00.000Z');
+    expect((await s.send(b.id, s.token)).status).toBe(200);
+  });
+
+  it('keeps a share of the site cap for scheduled emails', async () => {
+    const s = await setup({ 'email.globalDailyCap': 5, 'email.scheduledReservePercent': 40 });
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'R', quantity: 1, price: 1 }] }, s.token)).json.template;
+    const id = (await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-01', timezone: 'UTC', autoAction: 'send_email' }, s.token)).json.recurring.id;
+    for (let i = 0; i < 3; i++) expect((await s.send((await invoiceFor(s)).id, s.token)).status).toBe(200);
+    expect((await s.send((await invoiceFor(s)).id, s.token)).json.error.details.reason).toBe('site_daily_cap');
+    // Same UTC day: the schedule's email still goes out on the share kept for it (4 of 5 used now).
+    await runRecurringGeneration(s.deps, s.clock.now.getTime());
+    expect(s.resend.calls).toHaveLength(4);
+    expect((await s.client.get(`/api/v1/invoices?recurring_id=${id}`, s.token)).json.invoices[0].status).toBe('sent');
+  });
+
+  it('strips deceptive characters from the sender display name and caps its length', async () => {
+    const s = await setup();
+    const inv = await invoiceFor(s, { fromName: `Pay\u202ePal "Security" <support@paypal.example> \u200b${'x'.repeat(80)}` });
+    expect((await s.send(inv.id, s.token)).status).toBe(200);
+    const from = (s.resend.calls[0] as unknown as { from: string }).from;
+    const name = /^"(.*) via Midnight Invoice" </.exec(from)![1];
+    expect(name).not.toMatch(/[\u202e\u200b"<>@]/);
+    expect(name.startsWith('Pay Pal Security support paypal.example x')).toBe(true);
+    expect(Array.from(name).length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe('M3: telemetry labels come from fixed vocabularies', () => {
+  const mcpPost = (app: ReturnType<typeof createApp>, body: unknown, token?: string, ip = '192.0.2.1') =>
+    app.request('http://app.test/api/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'cf-connecting-ip': ip, ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+  const metrics = async () => (await d1.db.prepare("SELECT DISTINCT metric FROM telemetry_rollups WHERE metric LIKE 'mcp|%'").all<{ metric: string }>()).results.map((r) => r.metric).sort();
+
+  it('never records request-chosen method or tool names, and names tools only for authenticated requests', async () => {
+    await d1.db.prepare('DELETE FROM telemetry_rollups').run();
+    const deps = defaultDeps({ db: d1.db, readAsset: readPublicAsset, logError: () => undefined, operator: { telemetryFlushDelayMs: 0 } });
+    const app = createApp(deps);
+    const client = api(app);
+    const { token } = await createWorkspace(client);
+    for (let i = 0; i < 3; i++) expect((await mcpPost(app, { jsonrpc: '2.0', id: 1, method: `attacker chosen label ${i} victim-name` })).status).toBe(401);
+    expect((await mcpPost(app, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'victim-name' } })).status).toBe(401);
+    await mcpPost(app, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_invoices', arguments: {} } }, token);
+    await mcpPost(app, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'made up tool', arguments: {} } }, token);
+    await telemetryOf(app)!.flush();
+    expect(await metrics()).toEqual(['mcp|other', 'mcp|tool list_invoices', 'mcp|tool other', 'mcp|tools/call']);
+  });
+
+  it('rate-limits unauthenticated MCP requests per client IP', async () => {
+    const poll = countingLimiter(2);
+    const deps = defaultDeps({ db: d1.db, readAsset: readPublicAsset, logError: () => undefined, rateLimiters: { create: countingLimiter(100), poll } });
+    const app = createApp(deps);
+    const ping = { jsonrpc: '2.0', id: 1, method: 'ping' };
+    expect((await mcpPost(app, ping)).status).toBe(401);
+    expect((await mcpPost(app, ping, 'mi_ws_not_a_real_token')).status).toBe(401);
+    expect((await mcpPost(app, ping)).status).toBe(429);
+    expect((await mcpPost(app, ping, undefined, '192.0.2.99')).status).toBe(401);
+    expect(poll.calls.every((k) => k.startsWith('mcp-unauth:'))).toBe(true);
+  });
+
+  it('caps the distinct metrics one flush writes', async () => {
+    const written: unknown[] = [];
+    const odb = { rollupStatement: (d: unknown) => (written.push(d), d), errorStatement: (e: unknown) => e, raw: { batch: async () => [] }, touchWorkspaceActivity: async () => undefined };
+    const collector = createTelemetryCollector(odb as never);
+    for (let i = 0; i < MAX_ROLLUPS_PER_FLUSH * 3; i++) collector.record({ metric: `rest|GET /x${i}`, status: 200, durationMs: 1, at: 0 });
+    await collector.flush();
+    expect(written.length).toBeLessThanOrEqual(MAX_ROLLUPS_PER_FLUSH + 2);
+    expect(written).toContainEqual(expect.objectContaining({ metric: 'rest|(other)' }));
+  });
+});
+
+describe('Informational: a revoked agent’s schedules stop with it', () => {
+  it('pauses the schedules the agent created or changed last, with a visible reason and an activity entry', async () => {
+    const s = await setup();
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'R', quantity: 1, price: 1 }] }, s.token)).json.template;
+    const body = { templateId: t.id, frequency: 'monthly', startDate: '2026-12-05', timezone: 'UTC' };
+    const byAgent = (await s.client.post('/api/v1/recurring', { name: 'Agent made', ...body }, s.key)).json.recurring;
+    const mine = (await s.client.post('/api/v1/recurring', { name: 'User made', ...body }, s.token)).json.recurring;
+    const changed = (await s.client.post('/api/v1/recurring', { name: 'Agent changed', ...body }, s.token)).json.recurring;
+    expect((await s.client.patch(`/api/v1/recurring/${changed.id}`, { name: 'Agent changed it' }, s.key)).status).toBe(200);
+    expect((await s.client.del(`/api/v1/agents/${s.agent.agent.id}`, s.token)).status).toBe(204);
+    const get = async (id: string) => (await s.client.get(`/api/v1/recurring/${id}`, s.token)).json.recurring;
+    for (const id of [byAgent.id, changed.id]) {
+      expect(await get(id)).toMatchObject({ status: 'paused', lastError: { code: 'agent_revoked', message: expect.stringMatching(/Test Agent.*disconnected/) } });
+    }
+    expect((await get(mine.id)).status).toBe('active');
+    const log = (await s.client.get('/api/v1/activity?action=recurring.paused', s.token)).json.activity;
+    expect(log).toHaveLength(2);
+    expect(log[0]).toMatchObject({ actor: { type: 'system' }, changes: { reason: 'agent_revoked' } });
+    // The user resumes it: the reason is cleared.
+    expect((await s.client.post(`/api/v1/recurring/${byAgent.id}/resume`, undefined, s.token)).json.recurring).toMatchObject({ status: 'active', lastError: null });
+  });
+});
+
+describe('Informational: per-workspace storage limits', () => {
+  it('refuses creating past the operator limit with 409 limit_reached (deleted rows do not count)', async () => {
+    const s = await setup({ 'limits.maxClientsPerWorkspace': 10, 'limits.maxTemplatesPerWorkspace': 10 });
+    // setup() already made one client.
+    for (let i = 0; i < 9; i++) expect((await s.client.post('/api/v1/clients', { name: `C${i}` }, s.token)).status).toBe(201);
+    const full = await s.client.post('/api/v1/clients', { name: 'One too many' }, s.key);
+    expect(full.status).toBe(409);
+    expect(full.json.error).toMatchObject({ code: 'limit_reached', details: { max: 10, kind: 'clients' } });
+    expect((await s.client.put(`/api/v1/clients/${crypto.randomUUID()}`, { name: 'Via sync' }, s.token)).status).toBe(409);
+    expect((await s.client.del(`/api/v1/clients/${s.globex.id}`, s.token)).status).toBe(204);
+    expect((await s.client.post('/api/v1/clients', { name: 'Fits again' }, s.token)).status).toBe(201);
+    for (let i = 0; i < 10; i++) expect((await s.client.post('/api/v1/templates', { name: `T${i}`, lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.token)).status).toBe(201);
+    expect((await s.client.post('/api/v1/templates', { name: 'T10', lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.token)).json.error.code).toBe('limit_reached');
+  });
+});

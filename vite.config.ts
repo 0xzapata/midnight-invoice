@@ -5,6 +5,7 @@ import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { reactPdfWorkerd } from "./server/pdf/vite-plugin-react-pdf-workerd.ts";
+import { cspHashes } from "./vite-plugin-csp.ts";
 import { execSync } from "node:child_process";
 
 /** Git sha + build time, shown in the operator console (Deployments). */
@@ -63,6 +64,8 @@ export default defineConfig(({ command }) => ({
     }),
     // Lets @react-pdf/renderer (server-side invoice PDFs) run inside the Worker.
     reactPdfWorkerd(),
+    // Writes the SHA-256 of index.html's inline scripts into the CSP of the built _headers.
+    cspHashes(),
     // The service worker belongs to the browser build only.
     ...clientOnly(VitePWA({
       registerType: "autoUpdate",

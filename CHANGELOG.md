@@ -122,9 +122,9 @@ configuration is gone.
   1-hour access tokens (MCP only) and 30-day rotating refresh tokens with reuse
   detection, revocation.
 - **Agent safety for email**: agents can only email the invoice's client
-  address, only one the user entered themselves, and not while an agent has
-  changed the sender or payment details since the user's last save; cooldown,
-  per-workspace, per-agent and site-wide caps.
+  address, only one the user entered themselves, and only invoices whose sender
+  name, email and payment details are the user's own or approved by the user
+  ("Needs your review"); caps per workspace, agent, IP and site (see Security).
 - App UI: consent screens (`/agents/approve`, `/agents/authorize`) that show
   agent-supplied text as plain text and only narrow permissions; an Agents page
   with connection help, permissions, last use and revoke; "by / edited by
@@ -148,7 +148,7 @@ configuration is gone.
 ### Hosting and tooling
 - **Cloudflare Workers**: one Worker serves the SPA (static assets with SPA
   fallback) and the API (`wrangler.jsonc`, `@cloudflare/vite-plugin`, D1
-  migrations `0001`–`0010`). Opt-in deploy workflow
+  migrations `0001`–`0011`). Opt-in deploy workflow
   (`.github/workflows/deploy.yml`) and a CI workflow (lint, typecheck, tests,
   build, `wrangler deploy --dry-run`). `bun run dev:operator` runs everything
   locally against the WorkOS emulator.
@@ -160,6 +160,63 @@ configuration is gone.
   `workerd` (the production bundle in workerd).
 - No `.env` is needed (`VITE_APP_NAME` defaults to "Midnight Invoice").
 - The service worker never caches `/api/*`; app pages forbid framing.
+
+### Security
+Fixes from an independent security review (regression tests in
+`server/security-review.test.ts` and next to the code they cover):
+- **Sender review by value** (H1): an agent (or a recurring email) can only
+  send an invoice whose sender name, email and payment details equal the
+  settings or values the user entered or approved, however the invoice came to
+  exist — an agent can no longer launder its own payment details through a
+  template and a recurring schedule's "run now" (migration `0011`,
+  `sender_approved_values`).
+- **"Needs your review"** (L2): a user save that merely carries an agent's
+  value (the app's full-document sync, "mark paid", a 412 merge) no longer
+  confirms an agent-written address or approves its payment details; only
+  typing the value or the explicit review does. New: `GET /api/v1/reviews`,
+  `POST /api/v1/invoices/:id/review`, `POST /api/v1/clients/:id/review`
+  (workspace token, `If-Match`), a banner on the invoice page (old → new) and
+  "Confirm address" on the Clients page; activity `invoice.reviewed`,
+  `client.reviewed`.
+- **Recurring emails send what you approved** (M1): when an agent changed the
+  template, the client's email or the generated invoice after you set up
+  automatic emailing, the email is held (`email_needs_review`, invoice stays a
+  draft) until you re-approve on the Recurring page
+  (`POST /recurring/:id/approve-email`, activity `recurring.email_approved`).
+  Your own edits need no re-approval.
+- **No anonymous email relay** (M2): new operator setting
+  `email.requireAccount` (**on by default**): only workspaces owned by a
+  signed-in account may send (`403 account_required_for_email`; needs user
+  accounts on). Caps count recipients (to + cc); new per-IP hourly limit,
+  lower daily cap for new workspaces, 20% of the site cap kept for recurring
+  emails; the sender display name drops deceptive characters and is capped at
+  60 characters; the console says who can send and warns when a few
+  workspaces could use up the site cap.
+- **Telemetry** (M3): MCP metric names only from known methods and (for
+  authenticated requests) defined tool names; a cap on distinct metrics per
+  flush; unauthenticated `POST /api/mcp` is rate limited.
+- **Idempotency keys** (L1): server keys use the reserved prefix `internal:`;
+  client keys with it are refused (400).
+- **Suspended workspaces** (L3): account routes that change the workspace
+  (delete, recovery key, connect, claim) refuse while it is suspended.
+- **Operator secret** (L4): `INITIAL_PASSWORD` must have at least 24
+  characters (else the console stays off); the KEK uses 600,000 PBKDF2
+  iterations (existing wraps are upgraded on unlock).
+- **Lockout** (L5): attempt counters are atomic; the global bootstrap /
+  recovery lock is replaced by a growing delay, so nobody can lock the
+  operator out (per-IP lockout unchanged).
+- **Content-Security-Policy** (L6) and `Referrer-Policy`,
+  `Permissions-Policy`, `X-Content-Type-Options` on the app; API responses
+  carry `default-src 'none'`.
+- `github.apiUrl` only accepts GitHub / GitHub Enterprise Server API URLs and
+  clears the token when changed; GitHub Actions are pinned to commit SHAs;
+  revoking an agent pauses the recurring schedules it set up; per-workspace
+  storage limits (`limits.*`, `409 limit_reached`).
+
+Upgrade notes: set `INITIAL_PASSWORD` to 24+ characters before deploying;
+turn on user accounts (or explicitly turn `email.requireAccount` off) to keep
+sending email; agents whose sends now return `invoice_needs_review` need the
+user to approve the invoice once.
 
 ### UI
 - Small screens (320–390 px): no page scrolls sideways; compact headers with a

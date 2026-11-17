@@ -11,6 +11,7 @@ import { api } from '@/lib/api';
 import { syncNow, whenIdle } from '@/lib/sync/engine';
 import { useCloudEnabled, useCloudStore } from '@/stores/useCloudStore';
 import type {
+  ApproveRecurringEmailResponse,
   ListRecurringResponse,
   RecurringInput,
   RecurringPatch,
@@ -31,6 +32,8 @@ export const recurringApi = {
   pause: (id: string) => api.request<RecurringResponse>('POST', `${path(id)}/pause`),
   resume: (id: string) => api.request<RecurringResponse>('POST', `${path(id)}/resume`),
   runNow: (id: string, period: string) => api.request<RunRecurringNowResponse>('POST', `${path(id)}/run-now`, { body: { period } }),
+  /** Re-approve automatic emailing after an agent changed the template, client or invoice (user only). */
+  approveEmail: (id: string) => api.request<ApproveRecurringEmailResponse>('POST', `${path(id)}/approve-email`),
   preview: (id: string, count = 6) => api.request<RecurringPreviewResponse>('GET', `${path(id)}/preview`, { query: { count } }),
 };
 

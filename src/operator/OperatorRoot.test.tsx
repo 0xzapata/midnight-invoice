@@ -283,6 +283,41 @@ describe('operator console: dashboard', () => {
     expect(await screen.findByText('Email: configured')).toBeInTheDocument();
   });
 
+  it('says who can send email and warns when a few workspaces could use up the site cap (security fix M2)', async () => {
+    const item = (key: string, value: unknown, type = 'boolean') => ({ key, group: key.startsWith('accounts') ? 'Accounts' : 'Email', label: key, description: 'd', type, secret: false, value, defaultValue: value, source: 'default', updatedAt: null, updatedBy: null });
+    const list = (requireAccount: boolean, accounts: boolean, wsCap: number) => ({
+      json: {
+        configVersion: 3,
+        propagationSeconds: 5,
+        encryptionLocked: false,
+        settings: [
+          item('email.enabled', true),
+          { key: 'resend.apiKey', group: 'Email', label: 'Resend API key', description: 'd', type: 'secret', secret: true, isSet: true, last4: null, source: 'environment', updatedAt: null, updatedBy: null },
+          item('email.fromAddress', 'invoices@mail.example.org', 'string'),
+          item('email.requireAccount', requireAccount),
+          item('email.workspaceDailyCap', wsCap, 'integer'),
+          item('email.globalDailyCap', 500, 'integer'),
+          item('accounts.enabled', accounts),
+        ],
+      },
+    });
+    const cases: [boolean, boolean, number, RegExp][] = [
+      [true, false, 50, /nobody can send — “Only signed-in accounts may send” is on and User accounts are off/],
+      [true, true, 50, /only workspaces with a signed-in account can send/],
+      [false, true, 50, /anyone who turns on cloud sync can send/],
+    ];
+    for (const [req, acc, cap, text] of cases) {
+      vi.stubGlobal('fetch', fakeOperatorApi({ ...routes, 'GET /settings': () => list(req, acc, cap) }).fetchMock);
+      const { unmount } = renderConsole('/operator/settings');
+      expect(await screen.findByText(text)).toBeInTheDocument();
+      expect(screen.queryByText(/can use up the whole site cap/)).not.toBeInTheDocument();
+      unmount();
+    }
+    vi.stubGlobal('fetch', fakeOperatorApi({ ...routes, 'GET /settings': () => list(true, true, 200) }).fetchMock);
+    renderConsole('/operator/settings');
+    expect(await screen.findByText('Warning: 3 workspaces at the daily cap (200) can use up the whole site cap (500). Keep the workspace cap below 1/5 of the site cap.')).toBeInTheDocument();
+  });
+
   it('suspends a workspace from Users and states the privacy boundary', async () => {
     const api = fakeOperatorApi(routes);
     vi.stubGlobal('fetch', api.fetchMock);

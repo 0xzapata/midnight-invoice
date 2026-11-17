@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Cloud, Mail, Paperclip, Pencil, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
@@ -251,6 +251,27 @@ function SendForm({ invoice, onDone }: { invoice: Invoice; onDone: () => void })
       <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground" role="status">
         <Spinner className="h-4 w-4" /> Checking email settings…
       </div>
+    );
+  }
+  if (delivery?.configured && delivery.accountRequired) {
+    return (
+      <>
+        <Notice tone="warn">
+          <p className="font-medium text-foreground">Sign in to send email</p>
+          <p>
+            This server only sends email for workspaces that belong to a signed-in account, so its sending address can’t be used anonymously. Sign in under{' '}
+            <Link to="/?tab=settings" className="text-primary underline-offset-4 hover:underline" onClick={onDone}>
+              Settings → Cloud sync &amp; agents
+            </Link>
+            ; your invoices stay as they are. Until then, download the PDF and attach it to an email yourself.
+          </p>
+        </Notice>
+        <DialogFooter>
+          <Button variant="outline" onClick={onDone}>
+            Close
+          </Button>
+        </DialogFooter>
+      </>
     );
   }
   if (delivery && !delivery.configured) {

@@ -17,6 +17,10 @@ export interface EmailLimits {
   agentHourly: number;
   agentDaily: number;
   globalDaily: number;
+  newWorkspaceDays: number;
+  newWorkspaceDaily: number;
+  ipHourly: number;
+  scheduledReservePercent: number;
 }
 
 export interface EmailPublicConfig {
@@ -25,6 +29,8 @@ export interface EmailPublicConfig {
   fromAddress: string;
   fromName: string;
   replyTo: 'sender' | 'none';
+  /** Only account-backed workspaces may send (security fix M2). */
+  requireAccount: boolean;
   pdfTheme: 'light' | 'dark';
   limits: EmailLimits;
 }
@@ -43,6 +49,7 @@ export function emailPublicConfig(deps: AppDeps): EmailPublicConfig {
     fromName: s.get('email.fromName') || EMAIL_BRAND,
     replyTo: s.get('email.replyTo'),
     pdfTheme: s.get('email.pdfTheme'),
+    requireAccount: s.get('email.requireAccount'),
     limits: {
       cooldownMinutes: s.get('email.cooldownMinutes'),
       workspaceHourly: s.get('email.workspaceHourlyLimit'),
@@ -50,6 +57,10 @@ export function emailPublicConfig(deps: AppDeps): EmailPublicConfig {
       agentHourly: s.get('email.agentHourlyLimit'),
       agentDaily: s.get('email.agentDailyCap'),
       globalDaily: s.get('email.globalDailyCap'),
+      newWorkspaceDays: s.get('email.newWorkspaceDays'),
+      newWorkspaceDaily: s.get('email.newWorkspaceDailyCap'),
+      ipHourly: s.get('email.ipHourlyLimit'),
+      scheduledReservePercent: s.get('email.scheduledReservePercent'),
     },
   };
 }

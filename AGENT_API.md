@@ -336,7 +336,10 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 | DELETE | `/api/v1/templates/:id` | any | `templates:write` | Soft delete → 204 (invoices unchanged) |
 | POST | `/api/v1/templates/:id/instantiate` | any | `invoices:write` + `templates:read` | Optional overrides → 201 `{invoice, template, placeholders, warnings}`, see [Creating an invoice from a template](#creating-an-invoice-from-a-template) |
 | POST | `/api/v1/invoices/:id/send` | any | `invoices:send` | Email the invoice with its PDF; optional `Idempotency-Key`; see [Sending invoices by email](#sending-invoices-by-email) |
-| GET | `/api/v1/invoices/:id/emails` | any | `invoices:read` | `{emails:[…], delivery:{configured,fromAddress,fromName,pdfTheme,cooldownMinutes}}` (newest first) |
+| GET | `/api/v1/invoices/:id/emails` | any | `invoices:read` | `{emails:[…], delivery:{configured,fromAddress,fromName,pdfTheme,accountRequired,cooldownMinutes}}` (newest first) |
+| GET | `/api/v1/reviews` | workspace token | | "Needs your review": `{invoices:[{id,invoiceNumber,revision,agentName,fields:[{field,value,previous}]}], clients:[{id,name,email,revision,agentName}]}` — sender details / addresses the user has not entered or approved |
+| POST | `/api/v1/invoices/:id/review` | workspace token | | `If-Match` required: approves the reviewed revision's sender details and confirms its `toEmail` → `{invoice, approved}`; 412 if it changed |
+| POST | `/api/v1/clients/:id/review` | workspace token | | `If-Match` required: confirms the client's email address → `{client, confirmed}`; 412 if it changed |
 | GET | `/api/v1/invoices/:id/pdf` | any | `invoices:read` | `application/pdf`, styled like the app's invoice preview; optional `?theme=light\|dark` (default `dark`, the app default; anything else → 400) |
 | GET | `/api/v1/settings` | any | `settings:read` | `{settings,updatedAt}` (defaults + `updatedAt:null` if never saved) |
 | PUT | `/api/v1/settings` | workspace token | | Body = settings object → `{settings,updatedAt}` |
@@ -523,34 +526,50 @@ Unknown fields (`from`, `replyTo`, `html`, `bcc`, …) are rejected with 400.
   or the `toEmail` of an invoice when the user (workspace token: the app) saved
   that record, or an address this workspace has emailed before. This is
   tracked per address, not per record: an agent editing another field of a
-  client or invoice does not un-confirm its address, an address an agent wrote
-  (its own new invoice or client, or its edit of an email field) is not
-  confirmed, and the user saving that record afterwards confirms it. Otherwise
-  `403 recipient_not_allowed` (`details.reason: "address_not_confirmed_by_user"`).
-  Always confirm with the user before sending.
-- **Sender review (agents).** If an agent created the invoice or changed its
-  `fromName`, `fromEmail` or `paymentDetails`, and the user has not saved the
-  invoice since, an agent can send it only while those three fields equal the
-  workspace defaults (settings, which agents cannot change); payment details
-  may also equal those of the template the invoice was created from, when the
-  user saved that template last (an agent-edited template, or payment details
-  the agent passed when instantiating, do not count). Otherwise
-  `403 invoice_needs_review` (`details.fields`): ask the user to open the
-  invoice in the app and save it (or send it themselves). This stops an agent
-  from redirecting a payment or replies and then emailing the client.
+  client or invoice does not un-confirm its address, and an address an agent
+  wrote (its own new invoice or client, or its edit of an email field) is not
+  confirmed. Saving that record again for another reason confirms nothing; the
+  user confirms it by typing the address themselves or with the explicit
+  review ("Needs your review" in the app, `POST /clients/:id/review` /
+  `POST /invoices/:id/review`). Otherwise `403 recipient_not_allowed`
+  (`details.reason: "address_not_confirmed_by_user"`). Always confirm with
+  the user before sending.
+- **Sender review (agents).** An agent can send an invoice only while each of
+  its `fromName`, `fromEmail` and `paymentDetails` equals the workspace
+  settings (which agents cannot change) or a value the **user** entered or
+  approved: typed into an invoice or template they created or whose field they
+  changed, or approved with the review action. How the invoice came to exist
+  does not matter (an agent's own invoice, one instantiated from a template, or
+  one a recurring schedule generated from an agent-written template are all
+  checked by value). A user save that does not change those fields approves
+  nothing. Otherwise `403 invoice_needs_review` (`details.fields`): ask the
+  user to open the invoice in the app and approve it ("Needs your review" →
+  "Looks right — approve"), or to send it themselves. This stops an agent from
+  redirecting a payment or replies and then emailing the client.
+- **Signed-in accounts only (default).** The site operator can require that
+  only workspaces owned by a signed-in account send email
+  (`email.requireAccount`, on by default). Otherwise every send (user, agent,
+  recurring) is refused with `403 account_required_for_email`;
+  `GET /invoices/:id/emails` reports `delivery.accountRequired`. Ask the user
+  to sign in (Settings → Cloud sync & agents).
 - **Status.** A `draft` becomes `sent` (`sentAt` = today, UTC; same transition
   as `mark-sent`, no `invoices:write` needed) and `statusChanged` is `true`.
   Sending a `sent` or `paid` invoice again is a resend: the status does not
   change. `void` invoices → `409 invalid_status_transition`.
-- **Limits** (all configurable by the site operator; defaults): 10 minutes
-  between two sends of the same invoice, 20 sends/hour and 50/day per
-  workspace, 5/hour and 20/day per agent, 500/day for the whole site. Over a
-  limit → `429 rate_limited` with `details.reason` (`invoice_cooldown`,
-  `workspace_hourly_limit`, `workspace_daily_cap`, `agent_hourly_limit`,
-  `agent_daily_cap`, `site_daily_cap`), `details.retryAfterSeconds` and
-  `Retry-After`. Obviously undeliverable addresses (malformed, `example.com`,
+- **Limits** (all configurable by the site operator; defaults). Every
+  recipient (to + each cc) counts: 10 minutes between two sends of the same
+  invoice, 20 recipients/hour and 50/day per workspace (10/day during a
+  workspace's first 7 days), 30/hour per client IP for sends made in the app,
+  5/hour and 20/day per agent, 500/day for the whole site of which 20% are
+  kept for recurring emails. Over a limit → `429 rate_limited` with
+  `details.reason` (`invoice_cooldown`, `workspace_hourly_limit`,
+  `workspace_daily_cap`, `new_workspace_daily_cap`, `ip_hourly_limit`,
+  `agent_hourly_limit`, `agent_daily_cap`, `site_daily_cap`),
+  `details.retryAfterSeconds` and `Retry-After`. Obviously undeliverable addresses (malformed, `example.com`,
   `.test`, `.invalid`, `.local`, IP literals) → 400 without contacting the provider.
-- **Idempotency.** Send `Idempotency-Key` (1–255 printable ASCII). Repeating
+- **Idempotency.** Send `Idempotency-Key` (1–255 printable ASCII, not
+  starting with `internal:`, which is reserved for the server's own recurring
+  sends → 400). Repeating
   the request with the same key and body returns the first result with
   `replayed: true` (header `Idempotent-Replayed: true`) and never sends twice;
   the same key with another body → `409 idempotency_conflict`. A key whose
@@ -702,6 +721,7 @@ curl -X POST "$BASE/api/v1/recurring" -H "Authorization: Bearer $KEY" -H 'Conten
 | `GET/PUT/PATCH/DELETE /recurring/:id` | read / write | ETag = revision, `If-Match` like templates; PUT replaces the configuration (status and history kept); DELETE is soft and idempotent; generated invoices are kept |
 | `POST /recurring/:id/pause` / `resume` | `recurring:write` | Idempotent. Resume applies the catch-up policy at once |
 | `POST /recurring/:id/run-now` `{period?}` | `recurring:write` | Generates the next period now (201), or returns the invoice already generated for `period` (200) |
+| `POST /recurring/:id/approve-email` | workspace token | Re-approves automatic emailing after an agent changed the template, client or invoice; sends a held email → `{recurring, emailed}` |
 | `GET /recurring/:id/preview?count=6` | `recurring:read` + `templates:read` | Upcoming dates + the next invoice rendered (placeholders resolved, totals) + any `problem` |
 | `GET /invoices?recurring_id=` | `invoices:read` | A schedule's generated invoices |
 
@@ -764,16 +784,27 @@ otherwise). Each period's invoice is generated as a draft and then sent with
 the [email feature's own send](#sending-invoices-by-email) (PDF attached, to
 the client on file), under these rules:
 
+- **What the user approved**: the schedule emails the template and client
+  content the user approved by creating or saving it. If the template, the
+  client's email or the generated invoice was changed by an agent since, the
+  email is held as `email_needs_review` ("Since you approved automatic
+  emailing, the template was changed by an agent (…)"), the invoice stays a
+  draft and `recurring.run_failed` is logged; the user re-approves on the
+  Recurring page (`POST /recurring/:id/approve-email`, workspace token only),
+  which sends the held email at once. The user's own edits need no
+  re-approval.
 - **Unattended rules**: like an agent's send — only the invoice's `toEmail`,
   only an address the user entered (an agent-edited client email is held as
-  `email_address_not_confirmed`), and sender details that are the user's
-  (payment details from the settings or from a template the user saved last;
-  if an agent changed the template's payment details last, the email is held
-  as `email_needs_review` until the user saves the template).
+  `email_address_not_confirmed`; re-approving the schedule never confirms it),
+  and sender details that are the user's (settings, or values the user
+  entered or approved; otherwise `email_needs_review`). Workspaces without a
+  signed-in account are held as `email_account_required` when the operator
+  requires accounts for email.
 - **Limits**: counted like the user's own sends (workspace hourly/daily
   windows and the site-wide daily cap, never bypassed; held as
   `email_rate_limited` and retried after the window).
-- **Exactly once**: the send's idempotency key is `recurring/<schedule>/<period>`
+- **Exactly once**: the send's idempotency key is `internal:recurring/<schedule>/<period>`
+  (a namespace clients cannot use)
   (and the provider gets a key per message), so a retry after a partial
   failure replays instead of sending twice.
 - **Status**: the invoice becomes `sent` only when the email went out (one
@@ -818,6 +849,8 @@ logged.
 | `invoice.emailed` | `POST /invoices/:id/send`, `send_invoice_email` succeeded (one entry; a draft → sent change is folded in, no separate `status_changed`) | `{email:{to (masked, e.g. "b•••@acme.io"), cc (count), resend (this invoice had been emailed before)}, status?}` |
 | `invoice.email_failed` | the provider refused or failed | `{email:{to, cc, resend, code}}` |
 | `invoice.email_blocked` | an agent's send was refused by the recipient or review rules (once per agent, invoice, reason and hour) | `{email:{to, code}}` |
+| `invoice.reviewed` | the user approved an invoice's agent-written sender details / recipient (`POST /invoices/:id/review`) | `{fields}` (the approved field names) |
+| `client.reviewed` | the user confirmed a client's agent-written email address (`POST /clients/:id/review`) | `{fields: ["email"]}` |
 | `client.created` / `client.updated` / `client.archived` / `client.unarchived` / `client.deleted` | client writes | `{fields}` for updates |
 | `template.created` / `template.updated` / `template.archived` / `template.unarchived` / `template.deleted` | template writes (REST, MCP, sync) | `{fields}` (names only, never line text or notes) for updates |
 | `settings.updated` | PUT /settings that changed something | `{fields}` |
@@ -830,7 +863,8 @@ logged.
 | `agent.oauth_denied` | the user denied an MCP client | `{requestedScopes}` |
 | `agent.oauth_connected` | an approved MCP client exchanged its code and became an agent (actor = the agent) | `{scopes}` |
 | `agent.oauth_scopes_changed` | a re-authorisation changed an OAuth agent's permissions (actor = the agent) | `{scopes, previousScopes}` |
-| `recurring.created` / `recurring.updated` / `recurring.paused` / `recurring.resumed` / `recurring.deleted` | schedule writes (REST, MCP); entity `recurring` (label = schedule name) | `{fields}` for updates (names only); `{skipped}` on resume when missed dates were skipped |
+| `recurring.created` / `recurring.updated` / `recurring.paused` / `recurring.resumed` / `recurring.deleted` | schedule writes (REST, MCP); entity `recurring` (label = schedule name); `recurring.paused` by the system with `reason: "agent_revoked"` when the agent that created or last changed the schedule was revoked | `{fields}` for updates (names only); `{skipped}` on resume when missed dates were skipped; `{reason}` |
+| `recurring.email_approved` | the user re-approved automatic emailing after an agent changed the template, client or invoice (`POST /recurring/:id/approve-email`) | — |
 | `recurring.ended` | a schedule ran out of dates (end date / number of invoices); actor = system | `{period?}` |
 | `recurring.run_failed` | the generator could not create a period's invoice (actor = system; one entry per schedule, period and reason, repeats counted) | `{reason, period, counts:{attempts}}` |
 | `agent.oauth_reuse_detected` | a rotated refresh token or a used code came back; the grant was revoked (actor = system; once per grant) | `{credential: "refresh_token" \| "authorization_code"}` |
@@ -1007,10 +1041,10 @@ tool results with `isError: true` and the REST error body as text.
 |---|---|
 | 400 | `validation_failed` (`details: [{path, message}]`), `invalid_json`, `bad_request`, `invalid_scope`, device-flow codes |
 | 401 | `unauthorized` (+ `WWW-Authenticate: Bearer realm="midnight-invoice", error="invalid_token"`) |
-| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off), `recipient_not_allowed` (email recipient rules for agents), `invoice_needs_review` (an agent changed the sender or payment details; the user must review the invoice), `account_required` (`POST /workspaces` only: the site requires a signed-in account for new workspaces) |
+| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off), `recipient_not_allowed` (email recipient rules for agents), `invoice_needs_review` (sender name, email or payment details the user has not entered or approved; the user must review the invoice), `account_required_for_email` (the site only sends email for workspaces owned by a signed-in account), `account_required` (`POST /workspaces` only: the site requires a signed-in account for new workspaces) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
-| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion; recurring: paused/ended schedule, not the next period), `invalid_status_transition`, `limit_reached` (too many recurring schedules), `idempotency_conflict` (Idempotency-Key reused for another request, or still in progress) |
+| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion; recurring: paused/ended schedule, not the next period), `invalid_status_transition`, `limit_reached` (too many recurring schedules, or the workspace's invoice / client / template limit; `details.max`, `details.kind`), `idempotency_conflict` (Idempotency-Key reused for another request, or still in progress) |
 | 410 | `gone` (deleted invoice, client, template or recurring schedule; expired registration) |
 | 412 | `precondition_failed` |
 | 413 | `payload_too_large` |

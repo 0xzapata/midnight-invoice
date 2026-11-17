@@ -23,11 +23,11 @@
  * generation does not. Changing the cadence (frequency, start date, time
  * zone) recomputes the next run date from today; other edits keep it.
  */
-import type { ListRecurringResponse, RecurringPreviewResponse, RunRecurringNowResponse } from '../../shared/api';
+import type { ApproveRecurringEmailResponse, ListRecurringResponse, RecurringPreviewResponse, RunRecurringNowResponse } from '../../shared/api';
 import { describeSchedule, catchUpPlan, localDateIn, nextRunDate, upcomingRunDates, type RecurringError, type RecurringSchedule } from '../../shared/recurring';
 import { calculateInvoiceTotals, formatInvoiceNumber } from '../../shared/invoice-totals';
 import type { Actor } from '../../shared/types/invoice';
-import { actorOf, hasScope, requireScope, type Principal } from '../auth';
+import { actorOf, hasScope, requireScope, requireUser, type Principal } from '../auth';
 import { ApiError, errors } from '../errors';
 import { activityWrite, activityWriteIf, changedFields } from '../services/activity';
 import { clientRepo } from '../services/clients';
@@ -37,6 +37,9 @@ import { recurringEmailSender } from './autoActions';
 import { createEmailRepository } from '../db/emailRepository';
 import { normalizeEmail } from '../../shared/email-template';
 import { buildPeriodInvoice, configOf, GenerationError, generatePeriod, recurringRepo } from './generate';
+import { emailPeriodInvoice } from './emailSend';
+import { reviewInvoice } from '../services/review';
+import { requireSendingAccount } from '../services/invoiceEmail';
 import type { ScheduleRow, StoredScheduleData } from './repository';
 import { recurringInputSchema, recurringPatchSchema, runNowSchema, type RecurringInputParsed } from './schemas';
 
@@ -123,6 +126,7 @@ async function guardAutoEmail(ctx: ServiceContext, next: StoredScheduleData, cur
     if (!available.ok) {
       throw new ApiError(503, 'email_not_configured', `Emailing invoices automatically needs email to be set up on this server. ${available.reason}`, { reason: available.reason });
     }
+    await requireSendingAccount(ctx);
   }
   if (!enabling && next.clientId === current?.clientId && next.templateId === current?.templateId) return;
   const ws = p.workspaceId;
@@ -140,6 +144,13 @@ async function guardAutoEmail(ctx: ServiceContext, next: StoredScheduleData, cur
     throw noEmail('The client’s email address was added by an agent. Open the client on the Clients page and save it to confirm the address first.');
   }
 }
+
+/**
+ * The user saving a `send_email` schedule approves automatic emailing of the
+ * template and client as they are now (security fix M1): a later change by
+ * an agent holds the email until the user re-approves.
+ */
+const approvesEmail = (ctx: ServiceContext, cfg: StoredScheduleData) => ctx.principal.type === 'user' && cfg.autoAction === 'send_email';
 
 /** A newly set template or client must be live in this workspace. */
 async function checkRefs(ctx: ServiceContext, cfg: StoredScheduleData, current?: StoredScheduleData): Promise<void> {
@@ -254,7 +265,7 @@ export async function createRecurring(ctx: ServiceContext, body: unknown): Promi
   const state = scheduleState(ctx, cfg, undefined, input.status ?? 'active');
   const max = ctx.deps.settings.get('recurring.maxSchedulesPerWorkspace');
   const row = await recurringRepo(ctx.deps).insert(
-    { workspaceId: ctx.principal.workspaceId, id, data: cfg, status: state.status, nextRunDate: state.nextRunDate, actor: actorOf(ctx.principal), max },
+    { workspaceId: ctx.principal.workspaceId, id, data: cfg, status: state.status, nextRunDate: state.nextRunDate, actor: actorOf(ctx.principal), max, approveEmail: approvesEmail(ctx, cfg) },
     activityWrite(ctx, { action: 'recurring.created', entity: entity({ id }, cfg.name), changes: state.status === 'paused' ? { fields: ['status'] } : null }),
   );
   if (!row) throw new ApiError(409, 'limit_reached', `This workspace already has the maximum of ${max} recurring schedules. Delete one first.`, { max });
@@ -276,6 +287,7 @@ async function writeConfig(ctx: ServiceContext, row: ScheduleRow, cfg: StoredSch
       actor: actorOf(ctx.principal),
       expectedRevision: row.revision,
       resetFailures: true,
+      approveEmail: approvesEmail(ctx, cfg),
     },
     activityWriteIf(ctx, { action: 'recurring.updated', entity: entity(row, cfg.name), changes: { fields } }),
   );
@@ -487,6 +499,39 @@ export async function previewRecurring(ctx: ServiceContext, rawId: string, count
     }
     throw error;
   }
+}
+
+/**
+ * POST /recurring/:id/approve-email (workspace token only): the user
+ * re-approves automatic emailing after the template, the client's email or
+ * the generated invoice was changed by an agent. Approves the content as it
+ * is now and, when an email is held for review, sends it right away (the held
+ * invoice's sender details and recipient come from that content, so they are
+ * approved too — unless an agent edited the invoice itself, which the user
+ * must review on the invoice page).
+ */
+export async function approveRecurringEmail(ctx: ServiceContext, rawId: string): Promise<ApproveRecurringEmailResponse> {
+  requireUser(ctx.principal);
+  const row = await loadLive(ctx, rawId);
+  const cfg = configOf(row);
+  if (cfg.autoAction !== 'send_email') throw errors.conflict('This schedule does not email invoices automatically; there is nothing to approve.', { autoAction: cfg.autoAction });
+  const repo = recurringRepo(ctx.deps);
+  const held = parseJson<RecurringError>(row.last_error);
+  const pending = held?.sendPending && held.code === 'email_needs_review' && held.invoiceId && held.period ? held : null;
+  const approved = await repo.approveEmail(row.workspace_id, row.id, activityWrite(ctx, { action: 'recurring.email_approved', entity: entity(row, cfg.name) }));
+  if (!approved) return raceOutcome(ctx, row.id);
+  let emailed = false;
+  if (pending) {
+    const invoiceRow = await ctx.repo.getInvoice(row.workspace_id, pending.invoiceId!);
+    const editedByAgent = (await repo.agentEditsSince(row.workspace_id, null, { templateId: null, clientIds: [], invoiceId: pending.invoiceId! })).length > 0;
+    if (invoiceRow && !invoiceRow.deleted_at && !editedByAgent) {
+      // Sender details only: an address an agent wrote is confirmed on the Clients page or the invoice, never implicitly here.
+      await reviewInvoice(ctx, invoiceRow.id, { ifMatch: invoiceRow.revision }, { recipient: false }).catch(() => undefined);
+      emailed = await emailPeriodInvoice(ctx.deps, row, pending.period!, pending.invoiceId!, pending.attempts + 1);
+    }
+  }
+  const after = await repo.get(row.workspace_id, row.id);
+  return { recurring: toApiRecurring(after ?? approved), emailed };
 }
 
 /** Invoice of a generated period (null when deleted), for MCP answers. */

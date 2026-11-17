@@ -118,6 +118,32 @@ export const SETTINGS = {
     default: true,
   }),
 
+  // --- Storage limits (workspaces can be anonymous) --------------------------
+  'limits.maxInvoicesPerWorkspace': setting.integer({
+    group: 'Storage limits',
+    label: 'Max invoices per workspace',
+    description: 'Creating more invoices than this (deleted ones do not count) is refused with 409 limit_reached. Workspaces can be created anonymously, so this bounds what one of them can store.',
+    default: 50_000,
+    min: 100,
+    max: 1_000_000,
+  }),
+  'limits.maxClientsPerWorkspace': setting.integer({
+    group: 'Storage limits',
+    label: 'Max clients per workspace',
+    description: 'Creating more saved clients than this (deleted ones do not count) is refused with 409 limit_reached.',
+    default: 10_000,
+    min: 10,
+    max: 1_000_000,
+  }),
+  'limits.maxTemplatesPerWorkspace': setting.integer({
+    group: 'Storage limits',
+    label: 'Max templates per workspace',
+    description: 'Creating more invoice templates than this (deleted ones do not count) is refused with 409 limit_reached.',
+    default: 2_000,
+    min: 10,
+    max: 100_000,
+  }),
+
   // --- Agents --------------------------------------------------------------
   'agents.registrationTtlSeconds': setting.integer({
     group: 'Agents',
@@ -194,7 +220,7 @@ export const SETTINGS = {
   'telemetry.enabled': setting.boolean({
     group: 'Telemetry',
     label: 'Collect request telemetry',
-    description: 'Per-route counts, errors and latency histograms in D1 rollups (no request bodies, tokens or client IPs).',
+    description: 'Per-route counts, errors and latency histograms in D1 rollups. No request bodies, tokens or client IPs are stored; MCP requests are labelled with an allow-listed method or tool name.',
     default: true,
   }),
   'telemetry.minuteRetentionHours': setting.integer({
@@ -356,18 +382,38 @@ export const SETTINGS = {
     maxLength: 200,
     pattern: /^[A-Za-z0-9_./-]+$/,
   }),
-  'github.apiUrl': setting.url({
-    group: 'Deployments',
-    label: 'GitHub API URL',
-    description: 'https://api.github.com, or a GitHub Enterprise API URL.',
-    default: 'https://api.github.com',
-  }),
+  // The GitHub token is sent to this URL: only GitHub or a GitHub Enterprise Server API (https://<host>/api/v3),
+  // never an arbitrary host; changing it clears the stored token (settings.ts), so it must be entered again.
+  'github.apiUrl': {
+    ...setting.url({
+      group: 'Deployments',
+      label: 'GitHub API URL',
+      description: 'https://api.github.com, or a GitHub Enterprise Server API URL (https://<host>/api/v3). Changing it clears the GitHub token: enter it again.',
+      default: 'https://api.github.com',
+    }),
+    schema: z
+      .string()
+      .trim()
+      .max(2048)
+      .transform((v) => v.replace(/\/+$/, ''))
+      .refine(
+        (v) => v === 'https://api.github.com' || /^https:\/\/(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}\/api\/v3$/.test(v),
+        'Must be https://api.github.com or a GitHub Enterprise Server API URL like https://github.example.com/api/v3',
+      ) as unknown as z.ZodType<string>,
+  },
 
   // --- Email (sending invoices, server/email) ------------------------------
   'email.enabled': setting.boolean({
     group: 'Email',
     label: 'Send invoices by email',
     description: 'Lets users and agents with the invoices:send scope email invoices (PDF attached). Needs a provider API key and a From address below.',
+    default: true,
+  }),
+  'email.requireAccount': setting.boolean({
+    group: 'Email',
+    label: 'Only signed-in accounts may send',
+    description:
+      'Only workspaces owned by a signed-in account with a verified email may send email (the user, their agents and recurring schedules); anonymous cloud-sync workspaces get 403 account_required_for_email. Needs User accounts (Accounts group) turned on: with accounts off and this on, nobody can send. Turning it off lets anyone who turns on cloud sync send email from your domain, limited only by the caps below.',
     default: true,
   }),
   'email.provider': setting.enum({
@@ -428,23 +474,47 @@ export const SETTINGS = {
   }),
   'email.workspaceHourlyLimit': setting.integer({
     group: 'Email',
-    label: 'Sends per workspace per hour',
-    description: 'Rate limit per workspace (user and agents together).',
+    label: 'Recipients per workspace per hour',
+    description: 'Rate limit per workspace (user and agents together). Every recipient (to + cc) counts.',
     default: 20,
     min: 1,
     max: 1000,
   }),
   'email.workspaceDailyCap': setting.integer({
     group: 'Email',
-    label: 'Sends per workspace per day',
-    description: 'Daily cap per workspace (UTC day).',
+    label: 'Recipients per workspace per day',
+    description: 'Daily cap per workspace (UTC day); every recipient counts. Keep it a small fraction of the site cap so one workspace cannot use it up.',
     default: 50,
+    min: 1,
+    max: 10000,
+  }),
+  'email.newWorkspaceDays': setting.integer({
+    group: 'Email',
+    label: 'Warm-up period (days)',
+    description: 'Workspaces younger than this use the lower daily cap below. 0 = no warm-up.',
+    default: 7,
+    min: 0,
+    max: 90,
+  }),
+  'email.newWorkspaceDailyCap': setting.integer({
+    group: 'Email',
+    label: 'Recipients per new workspace per day',
+    description: 'Daily cap per workspace during the warm-up period (never above the normal daily cap).',
+    default: 10,
+    min: 1,
+    max: 10000,
+  }),
+  'email.ipHourlyLimit': setting.integer({
+    group: 'Email',
+    label: 'Recipients per IP address per hour',
+    description: 'Sends made with a workspace token (the app, not agents or schedules) from one IP address, across all workspaces. The address is only kept as a short hash in the counter.',
+    default: 30,
     min: 1,
     max: 10000,
   }),
   'email.agentHourlyLimit': setting.integer({
     group: 'Email',
-    label: 'Sends per agent per hour',
+    label: 'Recipients per agent per hour',
     description: 'Rate limit per agent key (counts towards the workspace limits too).',
     default: 5,
     min: 1,
@@ -452,7 +522,7 @@ export const SETTINGS = {
   }),
   'email.agentDailyCap': setting.integer({
     group: 'Email',
-    label: 'Sends per agent per day',
+    label: 'Recipients per agent per day',
     description: 'Daily cap per agent key (UTC day).',
     default: 20,
     min: 1,
@@ -460,11 +530,19 @@ export const SETTINGS = {
   }),
   'email.globalDailyCap': setting.integer({
     group: 'Email',
-    label: 'Sends per day (whole site)',
+    label: 'Recipients per day (whole site)',
     description: 'Hard daily cap across all workspaces; protects the sending domain and the provider quota.',
     default: 500,
     min: 1,
     max: 1000000,
+  }),
+  'email.scheduledReservePercent': setting.integer({
+    group: 'Email',
+    label: 'Share of the site cap kept for recurring emails (%)',
+    description: 'Sends made in the app or by agents stop at (100 − this)% of the site cap; recurring schedules may use the rest, so interactive sends cannot use up the day for scheduled invoices.',
+    default: 20,
+    min: 0,
+    max: 90,
   }),
 
   // --- Internal ------------------------------------------------------------
