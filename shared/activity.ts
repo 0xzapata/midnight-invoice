@@ -21,6 +21,11 @@ export const ACTIVITY_ACTIONS = [
   'client.archived',
   'client.unarchived',
   'client.deleted',
+  'template.created',
+  'template.updated',
+  'template.archived',
+  'template.unarchived',
+  'template.deleted',
   'settings.updated',
   'agent.approved',
   'agent.denied',
@@ -46,6 +51,7 @@ export const ACTIVITY_ACTION_GROUPS = {
   payments: { label: 'Status changes', prefixes: ['invoice.status_changed'] },
   downloads: { label: 'PDF downloads', prefixes: ['invoice.pdf_downloaded'] },
   clients: { label: 'Clients', prefixes: ['client.'] },
+  templates: { label: 'Templates', prefixes: ['template.'] },
   access: { label: 'Agent access', prefixes: ['agent.'] },
   settings: { label: 'Settings', prefixes: ['settings.'] },
   sync: { label: 'Sync uploads', prefixes: ['sync.'] },
@@ -53,7 +59,7 @@ export const ACTIVITY_ACTION_GROUPS = {
 export type ActivityActionGroup = keyof typeof ACTIVITY_ACTION_GROUPS;
 
 /** Kinds of things an entry can be about. Open for new features. */
-export type ActivityEntityType = 'invoice' | 'client' | 'settings' | 'agent' | 'agent_registration' | (string & {});
+export type ActivityEntityType = 'invoice' | 'client' | 'template' | 'settings' | 'agent' | 'agent_registration' | (string & {});
 
 export type ActivityActor =
   | { type: 'user' }
@@ -83,6 +89,8 @@ export interface ActivityChanges {
   registrationId?: string;
   /** PDF theme (`invoice.pdf_downloaded`). */
   theme?: string;
+  /** `invoice.created` from a template: which one (name snapshot taken at the time). */
+  template?: { id: string; label: string | null };
 }
 
 export type ActivitySource = 'rest' | 'mcp' | 'system';

@@ -22,6 +22,7 @@ import { LIMITS, listInvoicesQuerySchema, zodDetails } from './schemas';
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
 import { registerClientRoutes } from './routes/clients';
+import { registerTemplateRoutes } from './routes/templates';
 import { mcpAuth, registerOAuthRoutes } from './oauth/routes';
 import { registerActivityRoutes } from './routes/activity';
 import { noteRejectedAgentKey, parseBulkUploadHeader, type ActivityRequest } from './services/activity';
@@ -242,6 +243,8 @@ export function createApp(deps: AppDeps) {
   // --- Clients (server/routes/clients.ts) --------------------------------------
   registerClientRoutes(v1, auth, svc);
 
+  // --- Templates (server/routes/templates.ts) ----------------------------------
+  registerTemplateRoutes(v1, auth, svc);
   // --- Activity log (server/routes/activity.ts) --------------------------------
   registerActivityRoutes(v1, auth, svc);
 

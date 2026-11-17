@@ -1,6 +1,6 @@
 /**
  * Cloud sync engine: mirrors the local-first stores of every synced
- * collection (invoices, clients — see collections/) and useSettingsStore with
+ * collection (clients, templates, invoices — see collections/) and useSettingsStore with
  * the workspace on the server, following the sync contract in AGENT_API.md
  * ("Sync semantics"). The engine is collection-agnostic; each collection is a
  * descriptor (collection.ts) registered in collections/index.ts.

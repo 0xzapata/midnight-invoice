@@ -53,7 +53,15 @@ describe('activity sentences', () => {
       ['A refresh token was presented again, which can mean it was copied. The app has to be authorized again.'],
     ],
     [{ action: 'sync.bulk_upload', actor: { type: 'user' }, changes: { counts: { clients: 1, invoices: 12 } } }, 'You uploaded 1 client and 12 invoices to the cloud workspace', []],
-    [{ action: 'template.created', entity: { type: 'template', id: 't1', label: 'Monthly retainer' } }, 'Billing Assistant template.created on Monthly retainer', []],
+    // A code this app does not know (a newer feature) gets a generic sentence.
+    [{ action: 'schedule.created', entity: { type: 'schedule', id: 's1', label: 'Monthly run' } }, 'Billing Assistant schedule.created on Monthly run', []],
+    [{ action: 'template.created', entity: { type: 'template', id: 't1', label: 'Monthly retainer' } }, 'Billing Assistant added the template Monthly retainer', []],
+    [{ action: 'template.updated', actor: { type: 'user' }, entity: { type: 'template', id: 't1', label: 'Monthly retainer' }, changes: { fields: ['lineItems', 'paymentTermsDays', 'invoiceNamePattern'] } }, 'You edited the template Monthly retainer', ['Changed line items, payment terms and invoice name']],
+    [{ action: 'template.archived', entity: { type: 'template', id: 't1', label: 'Monthly retainer' } }, 'Billing Assistant archived the template Monthly retainer', []],
+    [{ action: 'template.unarchived', entity: { type: 'template', id: 't1', label: 'Monthly retainer' } }, 'Billing Assistant restored the archived template Monthly retainer', []],
+    [{ action: 'template.deleted', entity: { type: 'template', id: 't1', label: null } }, 'Billing Assistant deleted an invoice template', []],
+    [{ action: 'invoice.created', entity: inv, changes: { template: { id: 't1', label: 'Monthly retainer' } } }, 'Billing Assistant created INV-0007 from the template “Monthly retainer”', []],
+    [{ action: 'sync.bulk_upload', actor: { type: 'user' }, changes: { counts: { clients: 1, templates: 2, invoices: 3 } } }, 'You uploaded 1 client, 2 templates and 3 invoices to the cloud workspace', []],
     [{ action: 'invoice.deleted', entity: { type: 'invoice', id: 'i9', label: null } }, 'Billing Assistant deleted an invoice', []],
   ])('%o', (e, sentence, details) => {
     const full = entry(e);

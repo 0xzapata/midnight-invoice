@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Plus, FileText, Settings, Sparkles, Bot, Users, FileStack, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { Plus, FileText, Settings, Sparkles, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,8 @@ import { CloudSyncSettings } from '@/components/sync/CloudSyncSettings';
 import { useCloudEnabled } from '@/stores/useCloudStore';
 import { StatusFilterChips, TotalsStrip } from '@/components/invoice/status/StatusOverview';
 import { useInvoiceStatusView, type StatusFilter } from '@/components/invoice/status/useInvoiceStatus';
+import { NewFromTemplateButton } from '@/components/templates/NewFromTemplateButton';
+import { HeaderNav } from '@/components/HeaderNav';
 
 type Tab = 'invoices' | 'settings' | 'coming';
 const TABS: readonly Tab[] = ['invoices', 'settings', 'coming'];
@@ -100,18 +102,7 @@ const Index = () => {
             </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <SyncStatusIndicator />
-            <Button variant="ghost" size="sm" asChild className="px-2 font-mono sm:px-3">
-              <Link to="/clients" viewTransition>
-                <Users className="w-4 h-4" aria-hidden="true" />
-                <span className="sr-only sm:not-sr-only">Clients</span>
-              </Link>
-            </Button>
-            <Button variant="ghost" size="sm" asChild className="px-2 font-mono sm:px-3">
-              <Link to="/agents" viewTransition>
-                <Bot className="w-4 h-4" aria-hidden="true" />
-                <span className="sr-only sm:not-sr-only">Agents</span>
-              </Link>
-            </Button>
+            <HeaderNav />
             <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
               <Plus className="w-4 h-4 sm:mr-2" aria-hidden="true" />
               <span className="sr-only sm:not-sr-only">New Invoice</span>
@@ -166,13 +157,16 @@ const Index = () => {
 
           {activeTab === 'invoices' && (
             <>
-              <div className="mb-8">
+              <div className="mb-8 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                <div>
                 <h2 className="text-2xl font-semibold text-foreground mb-2">Your Invoices</h2>
                 <p className="text-sm text-muted-foreground">
                   {invoices.length === 0
                     ? 'Create professional invoices in seconds'
                     : `${invoices.length} invoice${invoices.length === 1 ? '' : 's'} ${cloudEnabled ? 'synced to your cloud workspace' : 'saved locally'}`}
                 </p>
+                </div>
+                <NewFromTemplateButton />
               </div>
 
               {isLoading ? (
@@ -348,16 +342,6 @@ const Index = () => {
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
-                  <div className="w-10 h-10 rounded-md bg-purple-500/10 flex items-center justify-center">
-                    <FileStack className="w-5 h-5 text-purple-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">Invoice Templates</p>
-                    <p className="text-sm text-muted-foreground">Create reusable invoice templates</p>
-                  </div>
-                </div>
-
                 <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
                   <div className="w-10 h-10 rounded-md bg-orange-500/10 flex items-center justify-center">
                     <RefreshCw className="w-5 h-5 text-orange-500" />

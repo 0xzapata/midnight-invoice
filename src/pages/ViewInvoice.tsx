@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil, MoreHorizontal } from 'lucide-react';
+import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil, MoreHorizontal, BookmarkPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -21,6 +21,7 @@ import { InvoiceAttribution } from '@/components/AgentBadge';
 import { SyncIssueNotice } from '@/components/sync/SyncIssueNotice';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
+import { useSaveAsTemplate } from '@/components/templates/useSaveAsTemplate';
 import { InvoiceHistory } from '@/components/activity/InvoiceHistory';
 import { toast } from 'sonner';
 
@@ -33,6 +34,7 @@ export default function ViewInvoice() {
 
   // We need to wait for invoices to load
   const invoice = invoices.length > 0 ? getInvoice(id || '') : undefined;
+  const saveAsTemplate = useSaveAsTemplate(() => invoice ?? {});
 
   const handlePrint = () => {
     window.print();
@@ -179,6 +181,10 @@ export default function ViewInvoice() {
               <Copy className="w-4 h-4 mr-2" />
               Duplicate
             </Button>
+            <Button variant="outline" size="sm" onClick={saveAsTemplate.start} className="hidden lg:inline-flex">
+              <BookmarkPlus className="w-4 h-4 mr-2" aria-hidden="true" />
+              Save as template
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -199,10 +205,11 @@ export default function ViewInvoice() {
                   <MoreHorizontal className="w-4 h-4" aria-hidden="true" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-44 p-1" aria-label="More actions">
+              <PopoverContent align="end" className="w-auto min-w-44 p-1 whitespace-nowrap" aria-label="More actions">
                 {[
                   { label: 'Edit', icon: Pencil, onClick: handleEdit },
                   { label: 'Duplicate', icon: Copy, onClick: handleDuplicate },
+                  { label: 'Save as template', icon: BookmarkPlus, onClick: saveAsTemplate.start },
                   { label: 'Print', icon: Printer, onClick: handlePrint },
                   { label: 'Delete', icon: Trash2, onClick: () => setDeleteDialogOpen(true), destructive: true },
                 ].map(({ label, icon: Icon, onClick, destructive }) => (
@@ -236,6 +243,7 @@ export default function ViewInvoice() {
         </div>
         <InvoiceHistory invoiceId={invoice.id} />
       </main>
+      {saveAsTemplate.dialog}
     </div>
   );
 }

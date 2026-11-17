@@ -11,6 +11,9 @@ import {
   type ClientInput,
   type ClientResponse,
   type ListClientsResponse,
+  type ListTemplatesResponse,
+  type TemplateInput,
+  type TemplateResponse,
   type ApiErrorBody,
   type ApproveAgentResponse,
   type CreateWorkspaceResponse,
@@ -202,6 +205,23 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
       request<ClientResponse>('PUT', `/clients/${encode(id)}`, { body, headers: preconditionHeaders(pre) }),
     deleteClient: (id: string, pre?: WritePreconditions) =>
       request<void>('DELETE', `/clients/${encode(id)}`, { headers: preconditionHeaders(pre) }),
+
+    // Templates
+    listTemplates: (p: ListInvoicesParams & { q?: string } = {}) =>
+      request<ListTemplatesResponse>('GET', '/templates', {
+        query: {
+          q: p.q,
+          updated_since: p.updatedSince,
+          after_id: p.afterId,
+          include_deleted: p.includeDeleted ? 'true' : undefined,
+          limit: p.limit,
+        },
+      }),
+    getTemplate: (id: string) => request<TemplateResponse>('GET', `/templates/${encode(id)}`),
+    putTemplate: (id: string, body: TemplateInput, pre?: WritePreconditions) =>
+      request<TemplateResponse>('PUT', `/templates/${encode(id)}`, { body, headers: preconditionHeaders(pre) }),
+    deleteTemplate: (id: string, pre?: WritePreconditions) =>
+      request<void>('DELETE', `/templates/${encode(id)}`, { headers: preconditionHeaders(pre) }),
 
     // Settings
     getSettings: () => request<SettingsResponse>('GET', '/settings'),

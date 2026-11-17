@@ -15,6 +15,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - ⚙️ Comprehensive settings management
 - 📋 Duplicate invoices
 - ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip (works offline)
+- 🧩 Invoice templates: reusable blueprints (`/templates`) with line items, terms, notes and a default client; placeholders such as `{{month_name}}` and `{{prev_month_name}}` are filled in for each invoice's issue date; "New from template" on the dashboard, "From template" and "Save as template" in the invoice form and on the invoice page; invoices are independent copies
 - 👥 Saved clients: a client list (`/clients`) with default currency, tax rate and payment terms; pick a client on an invoice to fill Bill To, "Save as client" from an invoice, one-click import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
@@ -318,7 +319,8 @@ on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
 
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
-   `settings:read`, `clients:read`, `clients:write`, `activity:read`) and shows you a code like
+   `settings:read`, `clients:read`, `clients:write`, `templates:read`,
+   `templates:write`, `activity:read`) and shows you a code like
    `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
@@ -332,6 +334,13 @@ id ("invoice Globex for 10 hours": `list_clients` → `create_invoice` with
 terms. `clients:write` lets it add, edit, archive and delete clients.
 `activity:read` lets an agent read its *own* entries of the activity log
 (`get_my_activity`), e.g. to check whether it already sent this month's invoice.
+
+With `templates:read` (and `invoices:write`) an agent can create invoices from
+your templates ("send the usual retainer": `list_templates` →
+`create_invoice_from_template`, or `POST /api/v1/templates/:id/instantiate`);
+explicit values win over the template, the template over the client's
+defaults, and those over your settings. The new invoice is a draft.
+`templates:write` lets it add, edit, archive and delete templates.
 
 ### Connecting an agent (as a user)
 

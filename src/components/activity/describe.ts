@@ -33,6 +33,20 @@ const CLIENT_FIELDS: Record<string, string> = {
   archivedAt: 'archived',
 };
 
+const TEMPLATE_FIELDS: Record<string, string> = {
+  name: 'name',
+  description: 'description',
+  clientId: 'default client',
+  lineItems: 'line items',
+  taxRate: 'tax rate',
+  currency: 'currency',
+  notes: 'notes',
+  paymentDetails: 'payment details',
+  paymentTermsDays: 'payment terms',
+  invoiceNamePattern: 'invoice name',
+  archivedAt: 'archived',
+};
+
 const SETTINGS_FIELDS: Record<string, string> = {
   fromName: 'your name',
   fromEmail: 'your email',
@@ -49,7 +63,7 @@ const INVOICE_FIELDS: Record<string, string> = { ...FIELD_LABELS, sentAt: 'sent 
 const humanize = (field: string) => field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
 
 export function fieldLabel(entityType: string | undefined, field: string): string {
-  const map = entityType === 'client' ? CLIENT_FIELDS : entityType === 'settings' ? SETTINGS_FIELDS : INVOICE_FIELDS;
+  const map = entityType === 'client' ? CLIENT_FIELDS : entityType === 'template' ? TEMPLATE_FIELDS : entityType === 'settings' ? SETTINGS_FIELDS : INVOICE_FIELDS;
   return map[field] ?? humanize(field);
 }
 
@@ -86,6 +100,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
   switch (entry.action) {
     case 'invoice.created':
       parts = c.status ? ['created ', { target: true }, ` as ${c.status.to}`] : ['created ', { target: true }];
+      if (c.template) parts.push(` from the template “${c.template.label ?? 'a template'}”`);
       break;
     case 'invoice.updated':
       parts = ['edited ', { target: true }];
@@ -115,6 +130,16 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
     case 'client.deleted':
       parts = ['deleted the client ', { target: true }];
       break;
+    case 'template.created':
+    case 'template.updated':
+    case 'template.archived':
+    case 'template.unarchived':
+    case 'template.deleted': {
+      const verb = { created: 'added', updated: 'edited', archived: 'archived', unarchived: 'restored', deleted: 'deleted' }[entry.action.slice('template.'.length) as 'created'];
+      const what = entry.action === 'template.unarchived' ? 'archived template' : 'template';
+      parts = targetLabel ? [`${verb} the ${what} `, { target: true }] : [`${verb} an ${what === 'template' ? 'invoice template' : what}`];
+      break;
+    }
     case 'settings.updated':
       parts = ['changed the default settings'];
       targetLabel = null;
@@ -171,7 +196,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       const counts = c.counts ?? {};
       const items = Object.entries(counts)
         .filter(([, n]) => n > 0)
-        .map(([k, n]) => plural(n, k === 'invoices' ? 'invoice' : k === 'clients' ? 'client' : k.replace(/s$/, '')));
+        .map(([k, n]) => plural(n, k === 'invoices' ? 'invoice' : k === 'clients' ? 'client' : k === 'templates' ? 'template' : k.replace(/s$/, '')));
       parts = [`uploaded ${items.length ? listJoin(items) : 'local data'} to the cloud workspace`];
       targetLabel = null;
       break;
@@ -180,7 +205,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       parts = entry.entity ? [`${entry.action} on `, { target: true }] : [entry.action];
   }
   if (parts.some((p) => typeof p !== 'string') && !targetLabel) {
-    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : 'an item';
+    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'template' ? 'a template' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : 'an item';
   }
   if (c.theme && entry.action === 'invoice.pdf_downloaded') details.push(`${c.theme === 'light' ? 'Light' : 'Dark'} theme`);
   return { actor, parts, targetLabel, details };

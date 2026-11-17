@@ -5,7 +5,12 @@
 > delete invoices and saved clients, read default sender settings and
 > download PDFs. To invoice a saved client, look it up (GET
 > /api/v1/clients?q=… or MCP list_clients) and pass its id as `clientId`;
-> the server fills its name, address, email and default terms.
+> the server fills its name, address, email and default terms. When the
+> user mentions a template or a recurring invoice, find it (GET
+> /api/v1/templates?q=… or MCP list_templates) and create the invoice with
+> POST /api/v1/templates/:id/instantiate (MCP create_invoice_from_template):
+> a draft with the template's lines and terms, placeholders such as
+> {{month_name}} resolved for the issue date.
 
 ## Connect an MCP client with OAuth (simplest for MCP clients)
 
@@ -20,7 +25,8 @@ approves in the app. OAuth access tokens only work on /api/mcp.
 
 1. POST /api/v1/agents/register with {"name", "description"?, "scopes": [...]}
    Scopes: invoices:read, invoices:write, invoices:delete, settings:read,
-   clients:read, clients:write, activity:read
+   clients:read, clients:write, templates:read, templates:write,
+   activity:read
 2. Show the user `user_code` and `verification_url_complete`; they approve it in the app.
 3. Poll POST /api/v1/agents/token with {"device_code"} every `interval` seconds
    until it returns {"api_key"} (errors: authorization_pending, slow_down,

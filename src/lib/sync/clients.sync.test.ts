@@ -114,7 +114,7 @@ describe('uploading when joining a workspace', () => {
     expect(fake.server.get(ID.inv1)?.clientId).toBe(ID.globex);
     expect(localClient(ID.globex)).toMatchObject({ revision: 1, createdBy: { type: 'user' } });
     expect(localInvoice(ID.inv1)).toMatchObject({ revision: 1, clientId: ID.globex });
-    expect(useCloudStore.getState().cursors).toEqual({ clients: expect.any(String), invoices: expect.any(String) });
+    expect(useCloudStore.getState().cursors).toEqual({ clients: expect.any(String), templates: expect.any(String), invoices: expect.any(String) });
     expect(useCloudStore.getState().status).toBe('synced');
   });
 
