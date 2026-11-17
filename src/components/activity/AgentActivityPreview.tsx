@@ -2,8 +2,10 @@ import { Link } from 'react-router';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { sentenceOf } from './describe';
+import { predicateOf, sentenceOf } from './describe';
 import { useAgentActivityPreview } from './useActivity';
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Last few things an agent did (or that happened to it), plus a link to its full activity. */
 export function AgentActivityPreview({ agentId, agentName }: { agentId: string; agentName: string }) {
@@ -14,7 +16,10 @@ export function AgentActivityPreview({ agentId, agentName }: { agentId: string; 
         <ul className="space-y-0.5 border-l border-border pl-3" aria-label={`Latest activity of ${agentName}`}>
           {query.data.map((entry) => (
             <li key={entry.id} className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-              <span className="text-foreground/80">{sentenceOf(entry)}</span>
+              {/* The row already names the agent: drop it from its own actions. */}
+              <span className="text-foreground/80">
+                {entry.actor.type === 'agent' && entry.actor.agentId === agentId ? capitalize(predicateOf(entry)) : sentenceOf(entry)}
+              </span>
               <span> · {formatDistanceToNow(parseISO(entry.time), { addSuffix: true })}</span>
             </li>
           ))}

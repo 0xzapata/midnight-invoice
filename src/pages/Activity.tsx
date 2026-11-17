@@ -45,7 +45,7 @@ function Filters() {
   const active = ['agent', 'group', 'from', 'to'].some((k) => search.get(k));
 
   return (
-    <form className={cn(card, 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4')} aria-label="Filter activity" onSubmit={(e) => e.preventDefault()}>
+    <form className={cn(card, 'grid grid-cols-2 gap-3 lg:grid-cols-4')} aria-label="Filter activity" onSubmit={(e) => e.preventDefault()}>
       <Field label="Who" id={`${id}-who`}>
         <select id={`${id}-who`} className={control} value={agent} onChange={(e) => set('agent', e.target.value)}>
           <option value="">Everyone</option>
@@ -76,7 +76,7 @@ function Filters() {
         <input id={`${id}-to`} type="date" className={control} value={search.get('to') ?? ''} min={search.get('from') ?? undefined} onChange={(e) => set('to', e.target.value)} />
       </Field>
       {active && (
-        <div className="sm:col-span-2 lg:col-span-4">
+        <div className="col-span-2 lg:col-span-4">
           <Button type="button" variant="ghost" size="sm" onClick={() => setSearch(new URLSearchParams(), { replace: true })}>
             <X className="h-4 w-4" aria-hidden="true" />
             Clear filters

@@ -157,10 +157,15 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
   return { actor, parts, targetLabel, details };
 }
 
+/** The sentence without its subject ("marked INV-0007 as paid"). */
+export function predicateOf(entry: ActivityEntry): string {
+  const d = describeEntry(entry);
+  return d.parts.map((p) => (typeof p === 'string' ? p : d.targetLabel)).join('');
+}
+
 /** The whole sentence as plain text (for tests, titles and screen readers). */
 export function sentenceOf(entry: ActivityEntry): string {
-  const d = describeEntry(entry);
-  return `${d.actor} ${d.parts.map((p) => (typeof p === 'string' ? p : d.targetLabel)).join('')}`;
+  return `${actorName(entry)} ${predicateOf(entry)}`;
 }
 
 export function sourceLabel(entry: Pick<ActivityEntry, 'source' | 'tool'>): string | null {
