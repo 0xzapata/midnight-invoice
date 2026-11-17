@@ -1,0 +1,8 @@
+# Static-asset response headers (Workers static assets).
+# Pages are never framed: the agent pages ask for consent (approve an agent,
+# authorize an MCP client), so another site must not overlay them and trick a
+# click (clickjacking). Applied to every asset so that the service worker's
+# precached index.html carries the same headers.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
