@@ -14,6 +14,7 @@ import type { AppDeps } from '../deps';
 import { ApiError } from '../errors';
 import { runInBackground } from '../http';
 import type { TelemetryCollector } from './telemetry';
+import { isOAuthProtocolPath, oauthPolicyResponse } from '../oauth/policy';
 
 type HookEnv = { Variables: { principal?: { workspaceId: string } } };
 
@@ -22,6 +23,23 @@ function policyError(status: number, code: string, message: string, headers?: Re
 }
 
 const MCP_PEEK_LIMIT = 64 * 1024;
+
+const DETAIL = /^[a-z][a-z0-9_]{0,39}$/;
+const details = new WeakMap<Request, { label?: string; errorCode?: string }>();
+
+/**
+ * Lets a route refine its telemetry sample: a fixed `label` appended to the
+ * metric name (e.g. an OAuth grant type) and a fixed `errorCode` for errors it
+ * answers itself instead of throwing. Only short lowercase identifiers are
+ * kept, so ids, names and other request data can never end up in telemetry.
+ */
+export function setTelemetryDetail(c: Context, detail: { label?: string; errorCode?: string }): void {
+  const prev = details.get(c.req.raw) ?? {};
+  details.set(c.req.raw, {
+    label: detail.label && DETAIL.test(detail.label) ? detail.label : prev.label,
+    errorCode: detail.errorCode && DETAIL.test(detail.errorCode) ? detail.errorCode : prev.errorCode,
+  });
+}
 
 async function mcpMetricName(c: Context): Promise<string> {
   try {
@@ -100,7 +118,8 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
 
     const mcpName = service === 'mcp' && c.req.method === 'POST' ? mcpMetricName(c) : null;
     if (blocked) {
-      c.res = blocked.toResponse();
+      // OAuth protocol endpoints answer in OAuth's error shape (and /authorize with the app's error page).
+      c.res = isOAuthProtocolPath(path) ? oauthPolicyResponse(c, blocked, deps) : blocked.toResponse();
     } else {
       await next();
     }
@@ -111,13 +130,15 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
       if (!deps.settings.get('telemetry.enabled')) return;
       const status = c.res.status;
       const err = blocked ?? (c.error instanceof ApiError ? c.error : null);
-      const name = service === 'mcp' ? (mcpName ? await mcpName : c.req.method) : restMetricName(c);
+      const detail = details.get(c.req.raw);
+      const base = service === 'mcp' ? (mcpName ? await mcpName : c.req.method) : restMetricName(c);
+      const name = detail?.label ? `${base} (${detail.label})` : base;
       telemetry.record({
         metric: `${service}|${name}`,
         status,
         durationMs: Date.now() - started,
         at: deps.clock().getTime(),
-        errorCode: err ? err.code : status >= 500 ? 'internal_error' : status >= 400 ? `http_${status}` : null,
+        errorCode: err ? err.code : detail?.errorCode ?? (status >= 500 ? 'internal_error' : status >= 400 ? `http_${status}` : null),
         ray: c.req.header('cf-ray')?.slice(0, 40) ?? null,
         workspaceId: c.get('principal')?.workspaceId ?? null,
       });

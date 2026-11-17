@@ -55,7 +55,16 @@ export function SignInButtons({ returnTo, size = 'default' }: { returnTo?: strin
  * agents screens) and, for an anonymous workspace, inside the connected panel.
  * Renders nothing when the site has no accounts.
  */
-export function AccountSignInOption({ returnTo, className }: { returnTo?: string; className?: string }) {
+export function AccountSignInOption({
+  returnTo,
+  className,
+  placement = 'after',
+}: {
+  returnTo?: string;
+  className?: string;
+  /** `first`: the main option of a card (consent screens), above "Turn on cloud sync". */
+  placement?: 'first' | 'after';
+}) {
   const config = useAccountConfig();
   const enabled = config.data?.enabled === true;
   const session = useAccountSession(enabled);
@@ -82,6 +91,21 @@ export function AccountSignInOption({ returnTo, className }: { returnTo?: string
   }
 
   const required = !cloudOn && config.data?.requiredForNewWorkspaces === true;
+  const first = placement === 'first' && !cloudOn;
+  if (first) {
+    return (
+      <div className={cn('space-y-3 border-b border-border pb-4 text-sm', className)}>
+        <div className="space-y-1">
+          <h4 className="text-sm font-medium text-foreground">Sign in to your account</h4>
+          <p className="text-muted-foreground">
+            Sign in (or create an account) and this browser connects to your account’s workspace; you then come straight back here to
+            review this request.
+          </p>
+        </div>
+        <SignInButtons returnTo={target} />
+      </div>
+    );
+  }
   return (
     <div className={cn('space-y-3 border-t border-border pt-4 text-sm', className)}>
       <div className="space-y-1">

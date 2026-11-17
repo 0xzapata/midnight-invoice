@@ -275,7 +275,10 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
         content: [
           {
             type: 'text',
-            text: `PDF for ${invoice.invoiceNumber} (${bytes.length} bytes, ${pdfFilename(invoice.invoiceNumber)}). Download URL (requires the same Authorization header): ${url}`,
+            text:
+              principal.type === 'agent' && principal.credential === 'oauth'
+                ? `PDF for ${invoice.invoiceNumber} (${bytes.length} bytes, ${pdfFilename(invoice.invoiceNumber)}), embedded below. (The REST download URL ${url} needs an agent API key; OAuth tokens only work on this MCP endpoint.)`
+                : `PDF for ${invoice.invoiceNumber} (${bytes.length} bytes, ${pdfFilename(invoice.invoiceNumber)}). Download URL (requires the same Authorization header): ${url}`,
           },
           { type: 'resource', resource: { uri: url, mimeType: 'application/pdf', blob: btoa(binary) } },
         ],

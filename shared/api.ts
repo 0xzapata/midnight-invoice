@@ -177,6 +177,8 @@ export interface AgentSummary {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  /** How the agent connected: an API key (device flow) or OAuth (MCP clients). */
+  connection?: 'api_key' | 'oauth';
 }
 
 export interface ListAgentsResponse {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fill } from '@/test/userInput';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import CreateInvoice from './CreateInvoice';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
@@ -38,10 +39,10 @@ describe('CreateInvoice: saving validates like the API', () => {
   });
 
   it('refuses to save an empty sender or line-item description, shows field errors and focuses the first invalid field', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderAt('/create/new-1');
     // Typed input must survive the failed save.
-    await user.type(screen.getByLabelText('Client Name / Company'), 'Globex');
+    await fill(user, screen.getByLabelText('Client Name / Company'), 'Globex');
 
     await user.click(screen.getByRole('button', { name: /save invoice/i }));
 
@@ -58,15 +59,15 @@ describe('CreateInvoice: saving validates like the API', () => {
   });
 
   it('clears an error as soon as the field is fixed, then saves', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderAt('/create/new-2');
     await user.click(screen.getByRole('button', { name: /save invoice/i }));
     expect(await screen.findByText('Your name/company is required')).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText('Name / Company'), 'Me & Co');
+    await fill(user, screen.getByLabelText('Name / Company'), 'Me & Co');
     await waitFor(() => expect(screen.queryByText('Your name/company is required')).not.toBeInTheDocument());
-    await user.type(screen.getByLabelText('Client Name / Company'), 'Globex');
-    await user.type(screen.getByLabelText('Line item 1 description'), 'Design work');
+    await fill(user, screen.getByLabelText('Client Name / Company'), 'Globex');
+    await fill(user, screen.getByLabelText('Line item 1 description'), 'Design work');
     expect(form().queryByText('Description is required')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /save invoice/i }));
@@ -77,7 +78,7 @@ describe('CreateInvoice: saving validates like the API', () => {
   });
 
   it('does not save (or download) an invalid invoice from "Download PDF" either', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderAt('/create/new-3');
     await user.click(screen.getByRole('button', { name: /download pdf/i }));
     expect(await screen.findByText('Your name/company is required')).toBeInTheDocument();
@@ -85,9 +86,9 @@ describe('CreateInvoice: saving validates like the API', () => {
   });
 
   it('keeps auto-saving drafts without validating them', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderAt('/create/new-4');
-    await user.type(screen.getByLabelText('Client Name / Company'), 'Draft client');
+    await fill(user, screen.getByLabelText('Client Name / Company'), 'Draft client');
     await waitFor(() => expect(useInvoiceStore.getState().drafts['new-4']?.toName).toBe('Draft client'));
     expect(useInvoiceStore.getState().drafts['new-4'].fromName).toBe('');
     expect(screen.queryByText('Your name/company is required')).not.toBeInTheDocument();

@@ -138,6 +138,35 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       parts = ['tried to use its revoked key (refused)'];
       targetLabel = null;
       break;
+    case 'agent.oauth_authorized': {
+      parts = ['authorized the app ', { target: true }, ' (OAuth)'];
+      if (scopes.length) details.push(`Permissions: ${scopes.join(', ')}`);
+      const unticked = (c.requestedScopes ?? []).filter((s) => !(c.scopes ?? []).includes(s));
+      if (unticked.length) details.push(`Not granted: ${unticked.map((s) => SCOPE_SHORT[s] ?? s).join(', ')}`);
+      break;
+    }
+    case 'agent.oauth_denied':
+      parts = ['denied the app ', { target: true }, ' (OAuth)'];
+      break;
+    case 'agent.oauth_connected':
+      parts = ['connected with OAuth'];
+      targetLabel = null;
+      if (scopes.length) details.push(`Permissions: ${scopes.join(', ')}`);
+      break;
+    case 'agent.oauth_scopes_changed': {
+      parts = ['was re-authorized with different permissions'];
+      targetLabel = null;
+      if (scopes.length) details.push(`Permissions: ${scopes.join(', ')}`);
+      const before = (c.previousScopes ?? []).map((s) => SCOPE_SHORT[s] ?? s);
+      details.push(`Before: ${before.length ? before.join(', ') : 'none'}`);
+      break;
+    }
+    case 'agent.oauth_reuse_detected':
+      parts = ['revoked an OAuth session of ', { target: true }, ': a single-use credential was used twice'];
+      details.push(
+        `A ${c.credential === 'authorization_code' ? 'sign-in code' : 'refresh token'} was presented again, which can mean it was copied. The app has to be authorized again.`,
+      );
+      break;
     case 'sync.bulk_upload': {
       const counts = c.counts ?? {};
       const items = Object.entries(counts)
@@ -193,7 +222,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       parts = entry.entity ? [`${entry.action} on `, { target: true }] : [entry.action];
   }
   if (parts.some((p) => typeof p !== 'string') && !targetLabel) {
-    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'device' ? 'a device' : 'an item';
+    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : entry.entity?.type === 'device' ? 'a device' : 'an item';
   }
   if (c.theme && entry.action === 'invoice.pdf_downloaded') details.push(`${c.theme === 'light' ? 'Light' : 'Dark'} theme`);
   return { actor, parts, targetLabel, details };

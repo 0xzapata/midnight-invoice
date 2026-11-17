@@ -103,11 +103,14 @@ export function EnableCloudSyncCard({
   reason,
   onEnabled,
   offerAccount = true,
+  accountFirst = false,
 }: {
   reason?: string;
   onEnabled?: () => void;
   /** Show the optional account sign-in (reads the public account flag; only on cloud-sync and connect screens). */
   offerAccount?: boolean;
+  /** Put account sign-in first (approve-agent and OAuth consent screens: return to the same request). */
+  accountFirst?: boolean;
 }) {
   const [pending, setPending] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
@@ -133,6 +136,7 @@ export function EnableCloudSyncCard({
   return (
     <div className={cn(sectionCard, 'space-y-4')}>
       <AccountSignedOutNotice />
+      {offerAccount && accountFirst && <AccountSignInOption placement="first" />}
       {disconnected && (
         <div role="alert" className="flex gap-3 border border-destructive/30 bg-destructive/10 p-3 text-sm text-foreground">
           <Unplug className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
@@ -174,7 +178,7 @@ export function EnableCloudSyncCard({
         </Button>
       </div>
       {showConnect && <ConnectWorkspaceForm onConnected={onEnabled} autoFocus />}
-      {offerAccount && <AccountSignInOption />}
+      {offerAccount && !accountFirst && <AccountSignInOption />}
     </div>
   );
 }

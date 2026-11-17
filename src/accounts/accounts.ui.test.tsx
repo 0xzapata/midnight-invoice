@@ -13,6 +13,9 @@ import { EMPTY_CLOUD_STATE } from '@/lib/storageMigrations';
 import { resetSyncEngineForTests, startCloudSync, whenIdle } from '@/lib/sync/engine';
 import { createFakeApi, FAKE_TOKEN, type FakeApi } from '@/test/fakeApi';
 import { installFakeAccounts } from '@/test/fakeAccounts';
+import { fill } from '@/test/userInput';
+import AuthorizeAgent from '@/pages/oauth/AuthorizeAgent';
+import ApproveAgent from '@/pages/ApproveAgent';
 import { accountNav, setAccountCsrfToken } from './api';
 import { useAccountStore } from './useAccountStore';
 import Account from './pages/Account';
@@ -25,6 +28,7 @@ vi.mock('sonner', () => ({
 let fake: FakeApi;
 let accounts: ReturnType<typeof installFakeAccounts>;
 let stop: () => void;
+const user = userEvent.setup({ delay: null });
 
 function Probe() {
   const location = useLocation();
@@ -41,6 +45,8 @@ function renderAt(path: string) {
             <Route path="/settings" element={<CloudSyncSettings />} />
             <Route path="/account" element={<Account />} />
             <Route path="/account/connect" element={<AccountConnect />} />
+            <Route path="/agents/authorize" element={<AuthorizeAgent />} />
+            <Route path="/agents/approve" element={<ApproveAgent />} />
             <Route path="*" element={<Probe />} />
           </Routes>
         </MemoryRouter>
@@ -100,7 +106,7 @@ describe('Settings → Cloud sync & agents', () => {
   it('offers sign-in / sign-up and sends the browser to AuthKit with a safe return path', async () => {
     const assign = vi.spyOn(accountNav, 'assign').mockImplementation(() => undefined);
     renderAt('/settings');
-    await userEvent.click(await screen.findByRole('button', { name: /create account/i }));
+    await user.click(await screen.findByRole('button', { name: /create account/i }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://auth.example/authorize?state=s'));
     expect(accounts.acc.startBodies[0]).toEqual({ intent: 'sign-up', returnTo: '/?tab=settings' });
     // Anonymous cloud sync is still available next to it.
@@ -142,7 +148,7 @@ describe('/account/connect (after the AuthKit callback)', () => {
     const dialog = await screen.findByRole('alertdialog', { name: /add this browser’s invoices to your account/i });
     expect(within(dialog).getByText(/1 invoice not yet in your account/)).toBeInTheDocument();
     expect(fake.writes()).toEqual([]);
-    await userEvent.click(within(dialog).getByRole('button', { name: /upload and merge/i }));
+    await user.click(within(dialog).getByRole('button', { name: /upload and merge/i }));
     expect(await screen.findByTestId('location')).toHaveTextContent('/agents');
     await whenIdle();
     expect(fake.server.all().map((i) => i.invoiceNumber)).toEqual(['INV-0007']);
@@ -156,7 +162,7 @@ describe('/account/connect (after the AuthKit callback)', () => {
     renderAt('/account/connect?return_to=%2F%3Ftab%3Dsettings');
     const dialog = await screen.findByRole('alertdialog', { name: /different workspace/i });
     expect(within(dialog).getByText(/not changed or merged on the server/)).toBeInTheDocument();
-    await userEvent.click(within(dialog).getByRole('button', { name: /cancel and sign out/i }));
+    await user.click(within(dialog).getByRole('button', { name: /cancel and sign out/i }));
     expect(await screen.findByTestId('location')).toHaveTextContent('/?tab=settings');
     expect(accounts.acc.calls).toContain('POST /sign-out');
     expect(useCloudStore.getState()).toMatchObject({ token: FAKE_TOKEN, workspace: { id: 'ws-other' } });
@@ -199,31 +205,66 @@ describe('/account', () => {
 
     // Revoke the other device.
     const ios = within(devices).getByText('Safari on iOS').closest('li')!;
-    await userEvent.click(within(ios).getByRole('button', { name: /revoke/i }));
-    await userEvent.click(await screen.findByRole('button', { name: /^revoke$/i }));
+    await user.click(within(ios).getByRole('button', { name: /revoke/i }));
+    await user.click(await screen.findByRole('button', { name: /^revoke$/i }));
     await waitFor(() => expect(accounts.acc.calls).toContain('DELETE /devices/device-2'));
     await waitFor(() => expect(within(screen.getByRole('list', { name: /signed-in devices/i })).getAllByRole('listitem')).toHaveLength(1));
 
     // Rotate the recovery key: shown once.
-    await userEvent.click(screen.getByRole('button', { name: /rotate recovery key/i }));
-    await userEvent.click(await screen.findByRole('button', { name: /^rotate$/i }));
+    await user.click(screen.getByRole('button', { name: /rotate recovery key/i }));
+    await user.click(await screen.findByRole('button', { name: /^rotate$/i }));
     expect(await screen.findByDisplayValue(/^mi_ws_recovery/)).toBeInTheDocument();
 
     // Delete the account, keeping the workspace: this browser continues with the new recovery key.
-    await userEvent.click(screen.getByRole('button', { name: /delete account/i }));
+    await user.click(screen.getByRole('button', { name: /delete account/i }));
     const confirm = await screen.findByRole('alertdialog', { name: /delete your account/i });
     const submit = within(confirm).getByRole('button', { name: /delete account/i });
     expect(submit).toBeDisabled();
-    await userEvent.type(within(confirm).getByLabelText(/type your email/i), 'alice@example.com');
-    await userEvent.click(submit);
+    await fill(user, within(confirm).getByLabelText(/type your email/i), 'alice@example.com');
+    await user.click(submit);
     expect(await screen.findByTestId('location')).toHaveTextContent('/?tab=settings');
     expect(useCloudStore.getState().token).toMatch(/^mi_ws_kept/);
     expect(useAccountStore.getState().linked).toBeNull();
-  }, 30_000);
+  });
 
   it('asks to sign in when there is no session', async () => {
     renderAt('/account');
     expect(await screen.findByText('You are not signed in.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
+  });
+});
+
+describe('consent screens', () => {
+  const REQ = 'q'.repeat(24) + '_-0123456789AB';
+
+  it('OAuth consent: offers "Sign in" first and returns to the same pending request', async () => {
+    const assign = vi.spyOn(accountNav, 'assign').mockImplementation(() => undefined);
+    renderAt(`/agents/authorize?request=${REQ}`);
+    const signIn = await screen.findByRole('button', { name: /^sign in$/i });
+    const turnOn = screen.getByRole('button', { name: /turn on cloud sync/i });
+    // Sign-in comes before the anonymous options.
+    expect(signIn.compareDocumentPosition(turnOn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('button', { name: /connect existing workspace/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^sign in$/i })).toHaveLength(1);
+    await user.click(signIn);
+    await waitFor(() => expect(assign).toHaveBeenCalled());
+    expect(accounts.acc.startBodies[0]).toEqual({ intent: 'sign-in', returnTo: `/agents/authorize?request=${REQ}` });
+  });
+
+  it('after the AuthKit callback, connects this browser and goes back to the consent request', async () => {
+    accounts.signIn('alice@example.com', { ...fake.state.workspace, recoveryKeyEnabled: false });
+    renderAt(`/account/connect?return_to=${encodeURIComponent(`/agents/authorize?request=${REQ}`)}`);
+    await waitFor(() => expect(useAccountStore.getState().linked?.email).toBe('alice@example.com'));
+    // The consent screen now has a workspace, so it loads the pending request (fake API: unknown request).
+    await waitFor(() => expect(fake.requests.some((r) => r.path === `/oauth/requests/${REQ}`)).toBe(true));
+    expect(useCloudStore.getState().token).toMatch(/^mi_ws_device/);
+  });
+
+  it('device-flow approval: offers "Sign in" first and keeps the user code', async () => {
+    vi.spyOn(accountNav, 'assign').mockImplementation(() => undefined);
+    renderAt('/agents/approve?code=WDJB-MJHT');
+    await user.click(await screen.findByRole('button', { name: /^sign in$/i }));
+    await waitFor(() => expect(accounts.acc.startBodies).toHaveLength(1));
+    expect(accounts.acc.startBodies[0]).toEqual({ intent: 'sign-in', returnTo: '/agents/approve?code=WDJB-MJHT' });
   });
 });

@@ -113,10 +113,15 @@ export interface DeleteAccountResponse {
 // return_to: same-origin path allowlist (open-redirect safe)
 // ---------------------------------------------------------------------------
 
-const RETURN_PATHS = new Set(['/', '/agents', '/agents/approve', '/account', '/clients']);
-const RETURN_PARAMS: Record<string, RegExp> = {
-  tab: /^settings$/,
-  code: /^[A-Za-z0-9-]{4,16}$/,
+/** Allowed paths, each with the query parameters it may carry. */
+const RETURN_PATHS: Record<string, Record<string, RegExp>> = {
+  '/': { tab: /^settings$/ },
+  '/agents': {},
+  '/agents/approve': { code: /^[A-Za-z0-9-]{4,16}$/ },
+  // The OAuth consent screen: back to the same pending request after signing in.
+  '/agents/authorize': { request: /^[A-Za-z0-9_-]{32,64}$/ },
+  '/account': {},
+  '/clients': {},
 };
 
 /**
@@ -139,10 +144,11 @@ export function safeReturnTo(raw: unknown): string {
   } catch {
     return fallback;
   }
-  if (url.origin !== 'https://origin.invalid' || !RETURN_PATHS.has(url.pathname)) return fallback;
+  if (url.origin !== 'https://origin.invalid' || !Object.prototype.hasOwnProperty.call(RETURN_PATHS, url.pathname) || url.hash) return fallback;
+  const allowed = RETURN_PATHS[url.pathname];
   const out = new URLSearchParams();
   for (const [key, value] of url.searchParams) {
-    const re = RETURN_PARAMS[key];
+    const re = Object.prototype.hasOwnProperty.call(allowed, key) ? allowed[key] : undefined;
     if (!re || !re.test(value) || out.has(key)) return fallback;
     out.set(key, value);
   }

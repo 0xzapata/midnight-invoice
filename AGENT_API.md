@@ -3,8 +3,16 @@
 Midnight Invoice exposes a REST API (`/api/v1`) and a remote MCP server
 (`/api/mcp`) so that AI agents can work with a user's invoices and saved
 clients **after the user approves them**. There are no accounts: the browser app owns an anonymous
-*workspace*, and agents connect to a workspace with a device-authorization
-flow modelled on [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628).
+*workspace*, and agents connect to a workspace in one of three ways:
+
+1. **OAuth** (MCP clients): paste `https://invoices.example.com/api/mcp` into
+   an MCP client that supports the MCP authorization flow; the user approves it
+   in the app. See [Connect with OAuth](#connect-with-oauth-mcp-clients).
+2. **Device flow** (any agent, no browser needed on the agent's side), modelled
+   on [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628). See
+   [Connecting an agent](#connecting-an-agent).
+3. **Static API key**: the `mi_agent_` key from the device flow, configured as
+   a Bearer header (for MCP clients without OAuth, and for the REST API).
 
 - Machine-readable contract: `GET /api/v1/openapi.json` (OpenAPI 3.1)
 - Short pointer for crawlers/agents: `/llms.txt`
@@ -20,8 +28,11 @@ Replace `https://invoices.example.com` below with the deployment's URL
 | Workspace token | `mi_ws_` | The browser app (the user) | Everything in the workspace, incl. approving/revoking agents, settings writes, deleting the workspace |
 | Device code | `mi_dc_` | An agent during registration | Only polling `POST /agents/token` |
 | Agent API key | `mi_agent_` | An approved agent | The scopes the user approved |
+| OAuth access token | `mi_at_` | An MCP client connected with OAuth | The approved scopes, **only at `POST /api/mcp`** (1 hour) |
+| OAuth refresh token | `mi_rt_` | An MCP client connected with OAuth | New access tokens at `POST /api/oauth/token` (rotated on every use, 30 days) |
+| Authorization code | `mi_ac_` | Briefly, an MCP client | One token exchange (single use, 2 minutes) |
 
-All three are 256-bit random secrets (base64url), returned **once**, stored
+All are 256-bit random secrets (base64url), returned **once**, stored
 only as SHA-256 hashes. Send them as `Authorization: Bearer <secret>`.
 
 A workspace can have more than one workspace token: when the site has optional
@@ -54,6 +65,158 @@ scopes it was granted and must register again to get client access.
 
 Settings writes, agent management and workspace deletion require the workspace
 token; no scope grants them.
+
+## Connect with OAuth (MCP clients)
+
+The MCP endpoint implements the [MCP authorization spec, revision
+2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization):
+OAuth 2.1 with PKCE, protected-resource metadata (RFC 9728), authorization
+server metadata (RFC 8414), Client ID Metadata Documents and dynamic client
+registration (RFC 7591), resource indicators (RFC 8707) and `iss` in
+authorization responses (RFC 9207). The same Worker is the authorization
+server. For the user it is: paste the URL into the MCP client, approve in the
+browser, done.
+
+### Discovery
+
+| What | URL |
+|---|---|
+| MCP endpoint (the protected resource) | `https://invoices.example.com/api/mcp` |
+| Protected resource metadata | `/.well-known/oauth-protected-resource/api/mcp` (also at `/.well-known/oauth-protected-resource`) |
+| Authorization server metadata (issuer = the origin) | `/.well-known/oauth-authorization-server` |
+| Authorization endpoint (browser) | `GET /api/oauth/authorize` |
+| Token endpoint | `POST /api/oauth/token` (form-encoded) |
+| Dynamic client registration | `POST /api/oauth/register` (JSON) |
+| Revocation (RFC 7009) | `POST /api/oauth/revoke` (form-encoded) |
+
+These OAuth endpoints are outside `/api/v1` and are described by the metadata
+documents (which is what OAuth clients read), not by the OpenAPI document; the
+OpenAPI document points to them under `x-oauth`. Every `401` from `/api/mcp`
+carries `WWW-Authenticate: Bearer realm="midnight-invoice", resource_metadata="…/.well-known/oauth-protected-resource/api/mcp"`.
+The metadata and the token/register/revoke endpoints allow CORS (`*`, no
+cookies); the consent API below does not.
+
+### Example flow
+
+```bash
+BASE=https://invoices.example.com
+
+# 1. Register a public client (or use a Client ID Metadata Document URL as client_id)
+curl -s -X POST $BASE/api/oauth/register -H 'content-type: application/json' -d '{
+  "client_name": "My MCP Client",
+  "redirect_uris": ["http://127.0.0.1:33418/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "token_endpoint_auth_method": "none"
+}'
+# → 201 {"client_id":"mi_client_…","token_endpoint_auth_method":"none",…}   (never a client secret)
+```
+
+2. Send the user's browser to the authorization endpoint (PKCE `S256` and
+   `resource` are required):
+
+```
+https://invoices.example.com/api/oauth/authorize?response_type=code&client_id=mi_client_…
+  &redirect_uri=http%3A%2F%2F127.0.0.1%3A33418%2Fcallback&state=xyz
+  &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256
+  &scope=invoices%3Aread%20invoices%3Awrite&resource=https%3A%2F%2Finvoices.example.com%2Fapi%2Fmcp
+```
+
+   The user reviews the request at `/agents/authorize`, may untick
+   permissions, and approves. The browser then goes to
+   `http://127.0.0.1:33418/callback?code=mi_ac_…&state=xyz&iss=https%3A%2F%2Finvoices.example.com`.
+
+3. Exchange the code, then use and refresh the token:
+
+```bash
+curl -s -X POST $BASE/api/oauth/token -d grant_type=authorization_code -d code=mi_ac_… \
+  -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk \
+  -d redirect_uri=http://127.0.0.1:33418/callback -d client_id=mi_client_… \
+  -d resource=https://invoices.example.com/api/mcp
+# → {"access_token":"mi_at_…","token_type":"Bearer","expires_in":3600,"refresh_token":"mi_rt_…","scope":"invoices:read invoices:write"}
+
+curl -s -X POST $BASE/api/oauth/token -d grant_type=refresh_token -d refresh_token=mi_rt_… -d client_id=mi_client_…
+```
+
+An MCP client SDK with OAuth support does all of this from the URL alone (the
+official TypeScript SDK is tested against it in `server/oauth-interop.test.ts`).
+
+### Rules
+
+- **Clients**: public clients only (`token_endpoint_auth_method: "none"`; a
+  requested secret-based method is replaced by `none`, and token requests
+  carrying a client secret are rejected). Redirect URIs: `https:`, `http:` only
+  on loopback (`127.0.0.1`, `[::1]`, `localhost`), or a native app's custom
+  scheme (`com.example.app:/cb`); never `javascript:`, `data:`, `file:` and
+  similar, never a fragment or user info; at most 10. Matching is exact, except
+  that a loopback IP redirect URI may use any port (RFC 8252 §7.3). A
+  registration never used for a token exchange is deleted after 24 hours.
+- **Client ID Metadata Documents**: a `client_id` that is an `https://` URL
+  with a path is fetched by the server (redirects are not followed, 5 KB / 5 s
+  cap, DNS host names only: no IP literals, `localhost`, single-label or
+  internal names, default port only) and must contain `client_id` equal to its
+  URL, `client_name` and `redirect_uris`. It is cached per its `Cache-Control`
+  (5 minutes to 24 hours).
+- **Authorization requests**: `response_type=code`, PKCE `S256` (`plain` and
+  missing PKCE are refused), `resource` = the MCP endpoint (required; a
+  trailing slash and host case are tolerated). `scope` takes the
+  [scopes](#scopes); unknown extra scopes (`openid`, `offline_access`, …) are
+  ignored, and a request without `scope` asks for the defaults `invoices:read
+  invoices:write settings:read clients:read` (destructive permissions must be
+  asked for explicitly). `prompt=none` gets `consent_required`: approval always
+  needs the user. If the client or redirect URI is unknown the browser is
+  **not** redirected (the app shows an error); every other error is redirected
+  to the client with `error`, `error_description`, `state` and `iss`. A request
+  must be answered within 10 minutes.
+- **Codes**: single use, 2 minutes, bound to client, redirect URI, PKCE
+  challenge, resource and the approving workspace. A second use of a code
+  revokes the tokens issued for it.
+- **Tokens**: opaque and hashed. Access tokens live 1 hour and are
+  audience-bound to the MCP endpoint they were issued for (`resource`): the REST
+  API (`/api/v1`, which keeps using API keys) rejects them, and so does the same
+  server reached under another public URL. Refresh tokens are issued when the
+  client registered the `refresh_token` grant, live 30 days and rotate on every
+  use; a refresh may narrow `scope`, never widen it. **Reusing** an already
+  rotated refresh token revokes the whole grant (every access and refresh token
+  issued from that authorization).
+- **Revocation**: `POST /api/oauth/revoke` with `token` and `client_id`
+  (always `200`); a refresh token revokes its whole grant, an access token only
+  itself.
+
+### Agents and consent
+
+An approved OAuth client becomes an **agent** of the workspace, exactly like a
+device-flow agent: `GET /api/v1/agents` lists it with `connection: "oauth"`,
+its name is the client's `client_name`, invoice changes are attributed to it,
+tools are listed by its scopes, and `DELETE /api/v1/agents/:id` revokes it,
+which kills its access and refresh tokens immediately. Authorizing the same
+client again for the same workspace updates that agent (its scopes become the
+newly approved ones, which also narrows older tokens) instead of adding a
+second one; after a revoke it creates a new agent.
+
+The consent screen (`/agents/authorize?request=…`) uses three endpoints that
+require the **workspace token** (documented in the OpenAPI document):
+`GET /api/v1/oauth/requests/:request_id`, `POST …/approve` (optional
+`{"scopes": [...]}`, a non-empty subset of the requested scopes) and
+`POST …/deny`. Both decisions answer `{"status", "redirectTo"}` and the app
+sends the browser there. Why this is safe:
+
+- The workspace token never leaves the app except in the `Authorization`
+  header of same-origin `/api/v1` requests; it is never in a URL, cookie or
+  redirect. The request id in the consent URL is not a credential.
+- No CSRF: the decision endpoints need that header, which browsers never add
+  on their own; they send no CORS headers (so a cross-site page cannot get a
+  preflight for `Authorization`) and only accept JSON.
+- No open redirect: the browser is only ever sent to a redirect URI registered
+  for the client and matched at `/authorize`; the server builds the target and
+  the app additionally checks it is the redirect URI it showed.
+- No code injection or mix-up: codes are bound to the client, redirect URI and
+  PKCE verifier, single use and short-lived, and every authorization response
+  carries `iss` (advertised with `authorization_response_iss_parameter_supported`).
+- No clickjacking: app pages are sent with `X-Frame-Options: DENY` and
+  `frame-ancestors 'none'`.
+- The client's name, homepage and redirect host are shown as untrusted text,
+  with an extra warning when access goes to a program on the device (loopback
+  or custom-scheme redirect). Nothing is approved automatically.
 
 ## Connecting an agent
 
@@ -371,6 +534,11 @@ logged.
 | `agent.revoked` | the user revoked an agent | |
 | `agent.revoked_key_used` | a revoked agent's key was used (401; at most once per agent and hour) | |
 | `sync.bulk_upload` | the browser uploaded its local data when joining a workspace (one entry per upload) | `{counts:{invoices,clients}}` |
+| `agent.oauth_authorized` | the user approved an MCP client on the OAuth consent screen (entity: the existing agent when re-authorising, else `oauth_client` with a stable `oc_…` reference and the client's name) | `{scopes, requestedScopes}` (narrowed when they differ) |
+| `agent.oauth_denied` | the user denied an MCP client | `{requestedScopes}` |
+| `agent.oauth_connected` | an approved MCP client exchanged its code and became an agent (actor = the agent) | `{scopes}` |
+| `agent.oauth_scopes_changed` | a re-authorisation changed an OAuth agent's permissions (actor = the agent) | `{scopes, previousScopes}` |
+| `agent.oauth_reuse_detected` | a rotated refresh token or a used code came back; the grant was revoked (actor = system; once per grant) | `{credential: "refresh_token" \| "authorization_code"}` |
 | `account.workspace_created` / `account.workspace_claimed` | the owner created this workspace with an account / attached it to their account (optional user accounts) | |
 | `account.device_signed_in` / `account.device_revoked` | a browser signed in to the owner's account (gets its own workspace token) / was signed out; entity `device` with a label like "Firefox on macOS" | |
 | `account.signed_out_other_devices` / `account.signed_out_everywhere` | the owner signed out other devices / every device | `{counts:{devices}}` |
@@ -386,7 +554,8 @@ number, client or agent name) taken at the time.
 `GET /api/v1/activity` filters (all optional, combined with AND):
 `actor=user|system|agent:<id>` (who did it), `agent_id=<id>` (by **or about**
 that agent, from the user's approval of its registration to its
-revocation; `agent.registered` carries `changes.registrationId` for that link), `action=` (comma list
+revocation; `agent.registered` carries `changes.registrationId` for that link; for OAuth agents,
+from their connection and re-authorisations), `action=` (comma list
 of codes or prefixes, OR: `invoice.,agent.revoked`), `entity_type=`,
 `entity_id=`, `since=`/`until=` (ISO date-times, inclusive), `limit` (1–200,
 default 50). Results are newest first: `{activity, hasMore, next}`; pass
@@ -466,10 +635,13 @@ the invoice and resolve; on `410`, drop the local copy → save `syncedAt`.
 
 `POST /api/mcp` is a stateless MCP server over Streamable HTTP (JSON
 responses, no sessions, no SSE; `GET`/`DELETE` → `405`). It serves protocol
-revision 2026-07-28 and 2025-era clients. Authenticate with the same Bearer
-key; without one you get `401` with `WWW-Authenticate: Bearer …`.
+revision 2026-07-28 and 2025-era clients. Authenticate with an OAuth access
+token ([Connect with OAuth](#connect-with-oauth-mcp-clients)) or the same Bearer
+key as REST; without one you get `401` with `WWW-Authenticate: Bearer …,
+resource_metadata="…"` so OAuth-capable clients can start the flow.
 
-Client configuration (clients that support remote HTTP servers with headers):
+Client configuration with an API key (for clients without OAuth that support
+remote HTTP servers with headers; OAuth clients only need the URL):
 
 ```json
 {
@@ -529,6 +701,22 @@ tool results with `isError: true` and the REST error body as text.
 | 429 | `rate_limited` (+ `Retry-After`) |
 | 503 | `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering). Treat it and `workspace_suspended` as "pause and retry later", not as a rejection of your request. |
 
+### Operator controls
+
+The site operator (operator console) can turn dynamic client registration
+and Client ID Metadata Documents off (the metadata then omits
+`registration_endpoint` / reports `client_id_metadata_document_supported:
+false`, and `POST /api/oauth/register` answers `403 access_denied`) and change
+the access-token, refresh-token and unused-registration lifetimes (defaults
+above). When a workspace is **suspended**, its OAuth access tokens get `403
+workspace_suspended` at `/api/mcp`, and refresh and code exchange get `403
+{"error":"access_denied"}` (tokens are kept and work again after the
+suspension is lifted); the consent API refuses the workspace token. In
+**maintenance mode** the OAuth endpoints answer `503
+{"error":"temporarily_unavailable"}` with `Retry-After` (and
+`/api/oauth/authorize` shows the app's error page); the discovery documents
+stay available.
+
 ## Rate limits and abuse protection
 
 - `POST /workspaces` and `POST /agents/register`: 10 requests / 60 s per client
@@ -540,9 +728,14 @@ tool results with `isError: true` and the REST error body as text.
   in D1 (consistent): after 10 misses in 10 minutes, the workspace **and** the
   client IP get `429` for the rest of the window.
 - Polling faster than `interval` returns `slow_down`.
+- OAuth: `POST /api/oauth/register` and Client ID Metadata Document fetches
+  share the 10 / 60 s per-IP budget; `/api/oauth/authorize`, `/token`,
+  `/revoke` and the consent API use the 30 / 60 s one (`429` with
+  `temporarily_unavailable` on the OAuth endpoints).
 
 ## Not supported (yet)
 
-CORS (the API is same-origin for the app; agents call it server-to-server),
-OAuth/dynamic client registration for MCP, webhooks, per-agent rate limits,
-pagination of `GET /agents`.
+CORS on `/api/v1` and `/api/mcp` (the API is same-origin for the app; agents
+call it server-to-server), OAuth access tokens on the REST API, confidential
+OAuth clients (client secrets, `private_key_jwt`), DPoP, OpenID Connect,
+webhooks, per-agent rate limits, pagination of `GET /agents`.

@@ -32,6 +32,8 @@ export interface AppDeps {
   secrets: { generate: (prefix: string) => string; userCode: () => string };
   rateLimiters: { create: RateLimiter; poll: RateLimiter };
   readAsset: AssetReader;
+  /** Outbound fetch for Client ID Metadata Documents (OAuth); defaults to the global fetch. */
+  outboundFetch?: typeof fetch;
   config: AppConfig;
   /** Logs operational errors. Never receives secrets. */
   logError?: (message: string, error: unknown) => void;

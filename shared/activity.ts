@@ -40,6 +40,12 @@ export const ACTIVITY_ACTIONS = [
   'account.recovery_key_disabled',
   'account.deleted',
   'account.disabled',
+  // OAuth (MCP clients)
+  'agent.oauth_authorized',
+  'agent.oauth_denied',
+  'agent.oauth_connected',
+  'agent.oauth_scopes_changed',
+  'agent.oauth_reuse_detected',
 ] as const;
 
 export type KnownActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -76,8 +82,14 @@ export interface ActivityChanges {
   fields?: string[];
   /** Status transition; `from` is null on create. */
   status?: { from: InvoiceStatus | null; to: InvoiceStatus };
-  /** Scopes requested / granted (agent.approved, agent.registered). */
+  /** Scopes requested / granted (agent.approved, agent.registered, agent.oauth_*). */
   scopes?: Scope[];
+  /** OAuth consent: what the client asked for (when `scopes` is narrower, the user unticked some). */
+  requestedScopes?: Scope[];
+  /** `agent.oauth_scopes_changed`: the agent's permissions before the re-authorisation. */
+  previousScopes?: Scope[];
+  /** `agent.oauth_reuse_detected`: which single-use credential was presented twice. */
+  credential?: 'refresh_token' | 'authorization_code';
   /** Per-collection counts of a summarised bulk upload (`sync.bulk_upload`). */
   counts?: Record<string, number>;
   /** `agent.registered`: the registration whose `agent.approved` / entry belongs to this agent. */
