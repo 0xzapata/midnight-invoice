@@ -201,6 +201,17 @@ describe('operator console: dashboard', () => {
     }),
     'GET /agents': () => ({ json: { agents: [], next: null } }),
     'POST /workspaces/ws-1234567890/suspend': () => ({ json: { suspended: true } }),
+    'GET /accounts': () => ({
+      json: {
+        enabled: true,
+        requiredForNewWorkspaces: false,
+        accounts: [
+          { id: 'acc-1', email: 'alice@example.com', emailVerified: true, createdAt: Date.now(), lastSignInAt: Date.now(), workspaceId: 'ws-1234567890', activeDevices: 2, disabled: false, disabledAt: null, disabledReason: null },
+        ],
+        next: null,
+      },
+    }),
+    'POST /accounts/acc-1/disable': () => ({ json: { disabled: true } }),
   };
 
   it('shows the overview with headline stats and the sidebar', async () => {
@@ -228,6 +239,23 @@ describe('operator console: dashboard', () => {
     expect(secret).toHaveAttribute('type', 'password');
     expect(secret).toHaveValue('');
     expect(screen.getByText(/•••• WXYZ · write-only/)).toBeInTheDocument();
+  });
+
+  it('lists accounts in Users and disables one', async () => {
+    const api = fakeOperatorApi(routes);
+    vi.stubGlobal('fetch', api.fetchMock);
+    const user = userEvent.setup();
+    renderConsole('/operator/users');
+    const table = await screen.findByRole('table', { name: 'Accounts' });
+    expect(within(table).getByText('alice@example.com')).toBeInTheDocument();
+    expect(within(table).getByText('Verified')).toBeInTheDocument();
+    expect(within(table).getByText('ws-12345…')).toBeInTheDocument();
+    await user.click(within(table).getByRole('button', { name: 'Disable' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.type(within(dialog).getByLabelText(/Reason/), 'abuse');
+    await user.click(within(dialog).getByRole('button', { name: 'Disable' }));
+    await waitFor(() => expect(api.calls.find((c) => c.path === '/accounts/acc-1/disable')).toMatchObject({ method: 'POST', body: { reason: 'abuse' } }));
+    expect(api.calls.find((c) => c.path === '/accounts/acc-1/disable')!.headers['x-csrf-token']).toBeTruthy();
   });
 
   it('suspends a workspace from Users and states the privacy boundary', async () => {

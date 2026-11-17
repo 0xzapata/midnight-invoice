@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceItem } from '../../../shared/operator';
 import { errorMessage, operatorApi } from '../api';
 import { Badge, Card, Empty, ErrorNote, PageTitle, Table, fmtAgo, fmtNumber, td, th } from '../ui';
+import { Accounts } from './UsersAccounts';
 
 type Dialog = { kind: 'suspend' | 'delete'; ws: WorkspaceItem } | null;
 
@@ -106,7 +107,7 @@ function Workspaces() {
   return (
     <Card
       title="Workspaces"
-      description="Anonymous cloud-sync workspaces (one per browser that enabled sync). Search by id prefix."
+      description="Cloud-sync workspaces (anonymous unless an account owns them, see Accounts). Search by id prefix."
       actions={
         <div className="flex flex-wrap gap-2">
           <div className="relative">
@@ -285,15 +286,17 @@ function Agents() {
 export function UsersPage() {
   return (
     <>
-      <PageTitle title="Users" description="Workspaces are anonymous: there are no accounts, emails or names to show." />
+      <PageTitle title="Users" description="Workspaces are anonymous unless their owner signs in with an optional account; then only the account email is shown." />
       <div className="mb-4 flex items-start gap-3 border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
         <EyeOff className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         <p>
           <span className="font-medium text-foreground">Privacy boundary.</span> The console shows metadata only: ids, timestamps and counts. It never
-          shows invoice contents, saved clients' names, addresses or emails, settings or tokens, and there is no endpoint that returns them.
+          shows invoice contents, saved clients' names, addresses or emails, settings or tokens, and there is no endpoint that returns them. For accounts
+          it shows the sign-in email and its verification status only.
         </p>
       </div>
       <div className="space-y-4">
+        <Accounts />
         <Workspaces />
         <Agents />
       </div>

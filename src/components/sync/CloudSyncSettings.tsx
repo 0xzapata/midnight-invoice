@@ -29,6 +29,9 @@ import {
 import { syncNow } from '@/lib/sync/engine';
 import { useCloudStore } from '@/stores/useCloudStore';
 import { cn } from '@/lib/utils';
+import { AccountLinkedPanel, AccountSignInOption } from '@/accounts/components/AccountSignIn';
+import { useAccountConfig } from '@/accounts/hooks';
+import { useLinkedAccount } from '@/accounts/useAccountStore';
 
 const sectionCard = 'rounded-lg border border-border bg-card p-4 sm:p-5';
 
@@ -100,6 +103,8 @@ export function EnableCloudSyncCard({ reason, onEnabled }: { reason?: string; on
   const [pending, setPending] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
   const disconnected = useCloudStore((s) => s.disconnectedReason === 'token_rejected');
+  // Operator setting: new workspaces need an account (the anonymous "Turn on" button is hidden).
+  const accountRequired = useAccountConfig().data?.requiredForNewWorkspaces === true;
 
   const enable = async () => {
     setPending(true);
@@ -145,16 +150,19 @@ export function EnableCloudSyncCard({ reason, onEnabled }: { reason?: string; on
         </div>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <Button onClick={enable} disabled={pending}>
-          <CloudUpload className="w-4 h-4" aria-hidden="true" />
-          {pending ? 'Turning on…' : 'Turn on cloud sync'}
-        </Button>
+        {!accountRequired && (
+          <Button onClick={enable} disabled={pending}>
+            <CloudUpload className="w-4 h-4" aria-hidden="true" />
+            {pending ? 'Turning on…' : 'Turn on cloud sync'}
+          </Button>
+        )}
         <Button variant="outline" onClick={() => setShowConnect((v) => !v)} aria-expanded={showConnect}>
           <KeyRound className="w-4 h-4" aria-hidden="true" />
           Connect existing workspace
         </Button>
       </div>
       {showConnect && <ConnectWorkspaceForm onConnected={onEnabled} autoFocus />}
+      <AccountSignInOption />
     </div>
   );
 }
@@ -249,6 +257,7 @@ function ConnectedPanel() {
   const lastError = useCloudStore((s) => s.lastError);
   const localOnly = useCloudStore((s) => Object.keys(s.syncErrors).length);
   const [busy, setBusy] = useState<'disconnect' | 'delete' | null>(null);
+  const linked = useLinkedAccount();
 
   const disconnect = async () => {
     setBusy('disconnect');
@@ -318,7 +327,8 @@ function ConnectedPanel() {
         </div>
       </div>
 
-      <RecoveryKeyPanel />
+      {linked ? <AccountLinkedPanel /> : <RecoveryKeyPanel />}
+      {!linked && <AccountSignInOption className={sectionCard} />}
 
       <div className={cn(sectionCard, 'space-y-3 border-destructive/30')}>
         <div className="flex items-start gap-3">
@@ -326,39 +336,43 @@ function ConnectedPanel() {
           <h4 className="text-sm font-medium text-foreground">Stop syncing</h4>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm" disabled={busy !== null}>
-                <Unplug className="w-4 h-4" aria-hidden="true" />
-                Disconnect this browser
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Disconnect this browser?</AlertDialogTitle>
-                <AlertDialogDescription asChild>
-                  <div className="space-y-2">
-                    <p>
-                      This browser stops syncing and forgets the workspace’s recovery key. Invoices stay here and in the cloud;
-                      approved agents keep their access.
-                    </p>
-                    <p className="font-medium text-foreground">
-                      To reconnect later you will need the recovery key. Copy it first if you have not saved it.
-                    </p>
-                    {pending > 0 && (
-                      <p className="text-destructive">
-                        {pending} change{pending === 1 ? ' has' : 's have'} not been uploaded yet and will stay in this browser only.
+          {/* A signed-in browser signs out from the account panel instead (its device key is revoked). */}
+          {!linked && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" disabled={busy !== null}>
+                  <Unplug className="w-4 h-4" aria-hidden="true" />
+                  Disconnect this browser
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Disconnect this browser?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2">
+                      <p>
+                        This browser stops syncing and forgets the workspace’s recovery key. Invoices stay here and in the cloud;
+                        approved agents keep their access.
                       </p>
-                    )}
-                  </div>
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void disconnect()}>Disconnect</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                      <p className="font-medium text-foreground">
+                        To reconnect later you will need the recovery key. Copy it first if you have not saved it.
+                      </p>
+                      {pending > 0 && (
+                        <p className="text-destructive">
+                          {pending} change{pending === 1 ? ' has' : 's have'} not been uploaded yet and will stay in this browser only.
+                        </p>
+                      )}
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void disconnect()}>Disconnect</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+          )}
 
           <AlertDialog>
             <AlertDialogTrigger asChild>

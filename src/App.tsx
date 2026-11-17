@@ -9,6 +9,8 @@ import NotFound from "./pages/NotFound";
 import Agents from "./pages/Agents";
 import ApproveAgent from "./pages/ApproveAgent";
 import Clients from "./pages/Clients";
+import Account from "./accounts/pages/Account";
+import AccountConnect from "./accounts/pages/AccountConnect";
 import { CloudSyncRuntime } from "@/components/sync/CloudSyncRuntime";
 import { Footer } from "@/components/Footer";
 import { AppThemeProvider } from "@/components/AppThemeProvider";
@@ -43,6 +45,8 @@ const App = () => {
           <Route path="/agents" element={<Agents />} />
           <Route path="/agents/approve" element={<ApproveAgent />} />
           <Route path="/clients" element={<Clients />} />
+          <Route path="/account" element={<Account />} />
+          <Route path="/account/connect" element={<AccountConnect />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <Footer />
