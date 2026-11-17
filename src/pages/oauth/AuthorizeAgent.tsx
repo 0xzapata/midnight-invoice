@@ -121,6 +121,8 @@ const REDIRECT_KIND: Record<Request['redirect']['kind'], { icon: ReactNode; labe
 /** Redirect in progress after a decision (with a manual link in case the browser blocks it). */
 function Leaving({ request, target, approved, scopes }: { request: Request; target: URL | null; approved: boolean; scopes: Scope[] }) {
   useEffect(() => {
+    // The decision replaces a long form: show its result from the top (phones).
+    window.scrollTo?.({ top: 0 });
     if (target) browser.leaveTo(target.href);
   }, [target]);
   if (!target) {
@@ -207,7 +209,7 @@ function Review({ request }: { request: Request }) {
           <span className="mt-0.5">{redirectKind.icon}</span>
           <dt className="text-muted-foreground">Sends you back to</dt>
           <dd className="min-w-0 text-foreground">
-            <span className="break-all font-code" data-testid="redirect-display">
+            <span className="inline-block max-w-full break-all font-code" data-testid="redirect-display">
               {request.redirect.display}
             </span>{' '}
             <span className="text-muted-foreground">({redirectKind.label})</span>
@@ -219,7 +221,7 @@ function Review({ request }: { request: Request }) {
           <dd className="min-w-0 text-foreground">
             {request.client.kind === 'cimd' && request.client.metadataHost ? (
               <>
-                details published at <span className="break-all font-code">{request.client.metadataHost}</span>
+                details published at <span className="inline-block max-w-full break-all font-code">{request.client.metadataHost}</span>
               </>
             ) : (
               'details the app registered itself (not verified)'
@@ -249,7 +251,7 @@ function Review({ request }: { request: Request }) {
           <p className="font-medium">Only approve if you started this yourself, just now.</p>
           <p className="text-muted-foreground">
             The name is chosen by the app and is not verified. If someone sent you this link, or you do not recognise{' '}
-            <span className="break-all font-code text-foreground">{request.redirect.display}</span>, deny it: approving gives
+            <span className="inline-block max-w-full break-all font-code text-foreground">{request.redirect.display}</span>, deny it: approving gives
             that app access to your invoices.
           </p>
           {request.redirect.kind !== 'https' && (
