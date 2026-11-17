@@ -181,7 +181,7 @@ export function RecurringFormDialog({ open, onOpenChange, schedule, prefill, onS
 }
 
 const control =
-  'flex h-9 w-full rounded-md border border-border bg-secondary px-3 py-1 text-sm text-foreground shadow-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring';
+  'flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-1 text-sm text-foreground shadow-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring';
 const label = 'text-xs text-muted-foreground';
 
 function RecurringForm({ schedule, prefill, onCancel, onSave }: Omit<Props, 'open' | 'onOpenChange'> & { onCancel: () => void }) {

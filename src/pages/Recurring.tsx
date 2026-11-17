@@ -77,7 +77,7 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
   return (
     <li className={cn(card, 'flex flex-col gap-4', schedule.status === 'ended' && 'opacity-80')} data-testid="recurring-row">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary" aria-hidden="true">
+        <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary sm:flex" aria-hidden="true">
           <Repeat className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
@@ -119,7 +119,7 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
             </div>
             <div className="flex min-w-0 gap-1.5">
               <dt className="text-muted-foreground">Last:</dt>
-              <dd className="min-w-0 truncate text-foreground">
+              <dd className="min-w-0 break-words text-foreground">
                 {schedule.lastRunDate ? (
                   <>
                     {lastInvoice ? (
