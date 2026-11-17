@@ -10,16 +10,18 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
+      // Sonner injects unlayered CSS, which outranks Tailwind v4's cascade
+      // layers, so these overrides are marked important (`!`).
       toastOptions={{
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-card group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:rounded-lg",
-          description: "group-[.toast]:text-muted-foreground",
-          actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
-          cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          success: "group-[.toaster]:border-green-500/30 group-[.toaster]:bg-green-500/10 group-[.toaster]:text-green-400",
-          error: "group-[.toaster]:border-red-500/30 group-[.toaster]:bg-red-500/10 group-[.toaster]:text-red-400",
-          info: "group-[.toaster]:border-blue-500/30 group-[.toaster]:bg-blue-500/10 group-[.toaster]:text-blue-400",
+            "group toast group-[.toaster]:bg-card! group-[.toaster]:text-foreground! group-[.toaster]:border-border! group-[.toaster]:shadow-lg! group-[.toaster]:rounded-lg!",
+          description: "group-[.toast]:text-muted-foreground!",
+          actionButton: "group-[.toast]:bg-primary! group-[.toast]:text-primary-foreground!",
+          cancelButton: "group-[.toast]:bg-muted! group-[.toast]:text-muted-foreground!",
+          success: "group-[.toaster]:border-green-500/30! group-[.toaster]:bg-green-500/10! group-[.toaster]:text-green-400!",
+          error: "group-[.toaster]:border-red-500/30! group-[.toaster]:bg-red-500/10! group-[.toaster]:text-red-400!",
+          info: "group-[.toaster]:border-blue-500/30! group-[.toaster]:bg-blue-500/10! group-[.toaster]:text-blue-400!",
         },
       }}
       {...props}

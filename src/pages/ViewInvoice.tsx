@@ -106,7 +106,7 @@ export default function ViewInvoice() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="print:hidden sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="print:hidden sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60">
         <div className="container flex h-14 items-center justify-between">
           <div className="flex items-center gap-4">
             <Button

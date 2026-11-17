@@ -3,7 +3,7 @@ import { env } from '@/env';
 
 export const Footer = () => {
   return (
-    <footer className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-6">
+    <footer className="border-t border-border bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60 py-6">
       <div className="container flex flex-col items-center justify-between gap-4 md:flex-row md:h-14">
         <p className="text-sm text-muted-foreground">
           Created by <span role="creator" className="font-semibold text-foreground">migokartel</span>
