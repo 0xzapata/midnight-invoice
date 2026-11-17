@@ -137,6 +137,8 @@ Steps 1–6 make the app and the agent API work; the rest is optional.
    ```bash
    openssl rand -base64 32 | bunx wrangler secret put INITIAL_PASSWORD
    ```
+   Use at least 24 characters: a shorter value keeps the console off
+   (`503 operator_not_configured`, reason `initial_password_too_short`).
    Without it the app and API work, but `/operator` and user accounts are
    unavailable (`503`).
 4. **Create the tables**: `bun run db:migrate:remote`. Run it again whenever
@@ -191,14 +193,14 @@ After changing bindings in `wrangler.jsonc`, regenerate types with
 
 | Name | Kind | Required | Purpose |
 |------|------|----------|---------|
-| `DB` | D1 binding | yes | All server data (`migrations/0001`–`0010`) |
+| `DB` | D1 binding | yes | All server data (`migrations/0001`–`0011`) |
 | `ASSETS` | static assets binding | yes | SPA files; the Worker reads the PDF fonts through it |
 | `RATE_LIMIT_CREATE` | rate-limit binding | yes | Workspace creation, agent registration, OAuth client registration: 10 / 60 s per IP |
 | `RATE_LIMIT_POLL` | rate-limit binding | yes | Token polling, user-code lookups, OAuth endpoints: 30 / 60 s per IP |
 | `CF_VERSION_METADATA` | version metadata binding | yes | Running version shown in the operator console |
 | `triggers.crons` | Cron Triggers | yes | `17 * * * *`, `43 3 * * *`, `7 * * * *` ([jobs](#scheduled-jobs)) |
 | `APP_URL` | var | no | Public base URL for links (empty = request origin); the operator setting `app.url` wins |
-| `INITIAL_PASSWORD` | secret | for the console | Unlocks the first-run wizard; root of the default encryption mode |
+| `INITIAL_PASSWORD` | secret | for the console | Unlocks the first-run wizard; root of the default encryption mode; at least 24 characters |
 | `ENCRYPTION_KEY` | secret | no | Hardened encryption mode (the master/recovery key `mi_mk_…`) |
 | `RESEND_API_KEY` | secret | no | Fallback for the operator setting `resend.apiKey` |
 | `EMAIL_FROM_ADDRESS` | var | no | Fallback for the operator setting `email.fromAddress` |
@@ -217,6 +219,7 @@ stored encrypted and never shown again). Resolution: D1 value → wrangler var
 | Group | Settings |
 |-------|----------|
 | General | `app.url`, maintenance mode and message, workspace and agent registration open/closed |
+| Storage limits | invoices (50,000), clients (10,000) and templates (2,000) per workspace (`409 limit_reached`) |
 | Agents | device-flow registration lifetime (600 s), poll interval (5 s), user-code failure limit, last-used throttle |
 | OAuth (MCP clients) | dynamic client registration and Client ID Metadata Documents on/off, access-token (60 min) and refresh-token (30 days) lifetimes, unused-registration lifetime (24 h) |
 | Telemetry | on/off, minute and hour rollup retention |
@@ -225,8 +228,8 @@ stored encrypted and never shown again). Resolution: D1 value → wrangler var
 | Operator console | session idle and absolute timeouts |
 | WorkOS | client ID, API key (secret) — used by operators and user accounts |
 | Accounts | user accounts on/off, require an account for new workspaces, session idle (14 days) and absolute (30 days) timeouts |
-| Deployments | GitHub token (secret), repository, workflow file (`deploy.yml`), ref (`main`), API URL |
-| Email | on/off, provider (Resend), Resend API key (secret), From address and name, Reply-To policy, PDF theme (light), cooldown (10 min), workspace / agent hourly and daily limits (20/50, 5/20), site daily cap (500) |
+| Deployments | GitHub token (secret), repository, workflow file (`deploy.yml`), ref (`main`), API URL (`https://api.github.com` or `https://<host>/api/v3`; changing it clears the token) |
+| Email | on/off, **only signed-in accounts may send** (`email.requireAccount`, on), provider (Resend), Resend API key (secret), From address and name, Reply-To policy, PDF theme (light), cooldown (10 min); limits count recipients (to + cc): workspace hourly / daily (20/50), new workspaces' daily cap (10 for 7 days), per IP hourly (30), agent hourly / daily (5/20), site daily cap (500) with 20% kept for recurring emails |
 
 ### Scheduled jobs
 
@@ -281,9 +284,10 @@ keys) are envelope-encrypted with Web Crypto:
 - master key (256-bit) → wraps the data key (DEK) → AES-256-GCM per value
   (random 96-bit IV per write, AAD binds setting key + version + DEK version);
 - **default mode**: the master key is stored in D1 wrapped (AES-256-GCM) under a
-  KEK = PBKDF2-SHA-256(`INITIAL_PASSWORD`, random salt, 100,000 iterations;
-  ~14 ms in workerd, derived once per isolate and only for console and account
-  requests);
+  KEK = PBKDF2-SHA-256(`INITIAL_PASSWORD` (24+ characters), random salt,
+  600,000 iterations; ~93 ms in local workerd, derived once per isolate and only
+  for console and account requests; wraps made with 100,000 iterations by
+  earlier builds are re-wrapped on unlock);
 - **hardened mode** (optional, *Operators & security*): set the recovery key as
   a second Worker secret, `bunx wrangler secret put ENCRYPTION_KEY`, redeploy,
   and click *Enable hardened mode*. The server verifies it against the stored
@@ -330,11 +334,23 @@ uses [Resend](https://resend.com). Until it is configured, the feature answers
    name>"), *Reply-To* (default: the invoice's From email), the attached PDF's
    theme and the limits ([settings](#operator-settings)). *Send invoices by
    email* turns the feature off without removing the key.
+5. **Who may send**: by default only workspaces owned by a signed-in account
+   (with a verified email) may send (`email.requireAccount`), so nobody can use
+   your domain anonymously; others get `403 account_required_for_email` and
+   the app asks them to sign in. This needs [user accounts](#user-accounts-optional)
+   on; with accounts off and the setting on, nobody can send (the console says
+   so). Turning it off lets anyone who turns on cloud sync send from your
+   domain within the caps.
 
 Users never choose the From address. Agents need the `invoices:send` scope
 (never granted to existing agents), can only email the invoice's client
 address when the user entered it themselves, and cannot send an invoice whose
-sender or payment details an agent changed until the user has saved it. Every
+sender name, email or payment details are not the user's (the settings, or
+values the user typed or approved) until the user approves it in the app
+("Needs your review" on the invoice page; saving the invoice for another
+reason approves nothing). Recurring emails are held when an agent changed
+the template, client or invoice since the user set them up ("re-approve" on
+the Recurring page). Every
 attempt is logged per workspace (`email_messages`, no message bodies) and
 appears in the activity log (recipient masked).
 
@@ -534,9 +550,21 @@ What is protected, and how:
   invoice API never reads cookies.
 - **Consent**: agents are never approved automatically; agent-supplied text is
   rendered as plain text; pages cannot be framed.
-- **Email**: agents can only email a client address the user entered, not
-  after an agent changed the sender or payment details, within cooldowns and
-  caps; the From address is fixed by the operator.
+- **Browser hardening**: a strict Content-Security-Policy (scripts from this
+  origin only plus the hashed theme bootstrap, no `eval`; exceptions for
+  react-pdf's WebAssembly are listed in `public/_headers`), `Referrer-Policy`,
+  `Permissions-Policy`, `nosniff`; API responses carry `default-src 'none'`.
+- **Email**: only workspaces owned by a signed-in account may send (default);
+  agents (and unattended recurring emails) can only email a client address the
+  user entered, and only invoices whose sender name, email and payment details
+  are the user's own or were approved by the user in "Needs your review"
+  (however the invoice came to exist, recurring generation included);
+  recurring emails are held when an agent changed their template, client or
+  invoice; caps count recipients, per workspace (lower for new ones), agent,
+  IP and site; the From address is fixed by the operator and the sender name
+  is stripped of deceptive characters.
+- **Agents**: revoking an agent pauses the recurring schedules it set up;
+  workspaces have storage limits.
 - **Operator secrets** are encrypted at rest; the console sees metadata only;
   this protects D1 exports, backups and casual database access, **not**
   someone who has both the database and the Worker's secrets.
@@ -549,14 +577,21 @@ Known limitations and caveats:
   repository (workerd + local D1, `workos dev`, fetch-level fakes).
 - **Workers Free plan CPU limit** (10 ms per request): server-side PDF
   rendering (PDF downloads by agents, emails with the attached PDF) and the
-  PBKDF2 key derivation of the operator console and accounts (~14 ms, once per
-  isolate) are expected to exceed it; use the Paid plan.
+  PBKDF2 key derivation of the operator console and accounts (600,000
+  iterations, ~93 ms in local workerd, once per isolate) exceed it; use the
+  Paid plan.
 - **Rate limits are approximate**: Workers Rate Limiting is per Cloudflare
   location and eventually consistent; user-code lookups and email caps are
   counted in D1 (consistent).
-- **D1 triggers**: "address entered by the user" and "needs sender review" are
-  maintained by SQLite triggers in migration `0007`; tested locally, not on
-  production D1.
+- **D1 triggers**: "address entered by the user", "sender details approved by
+  the user" and "changed by an agent since approval" are maintained by SQLite
+  triggers in migrations `0007` and `0011`; tested locally, not on production
+  D1. An approved sender value (e.g. an IBAN) is approved for the whole
+  workspace, not per invoice.
+- **Agent-written invoice text**: the review covers sender name, email,
+  payment details and the recipient; an agent with `invoices:send` can still
+  write notes and the email message of invoices it sends to the user's
+  clients.
 - **Email**: no bounce or complaint handling (no Resend webhooks); watch the
   Resend dashboard.
 - **OAuth**: public clients only; reusing a rotated refresh token revokes the
