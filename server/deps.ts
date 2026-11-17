@@ -68,6 +68,8 @@ export interface OperatorDeps {
   versionMetadata?: { id?: string; tag?: string; timestamp?: string };
   /** Build info injected at build time. */
   build?: { sha?: string; time?: string };
+  /** Waits before a bootstrap/recovery attempt once many failed site-wide (security fix L5). Tests inject a recorder. */
+  sleep?: (ms: number) => Promise<void>;
   /** Telemetry flush coalescing delay (ms). Tests use 0. */
   telemetryFlushDelayMs?: number;
   /** Wrangler vars/secrets that settings may fall back to (see `envVar` in the registry). */

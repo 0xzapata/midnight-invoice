@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { api, createWorkspace, connectAgent, startD1, TestClock } from '../test/helpers';
+import { GLOBAL_DELAY } from './auth';
 import {
   INITIAL_PASSWORD,
   WORKOS_API_KEY,
@@ -116,14 +117,35 @@ describe('bootstrap login', () => {
     expect(Number(again.headers.get('retry-after'))).toBe(120);
   });
 
-  it('applies a global lockout across IPs', async () => {
+  // Security fix L5: this used to be a hard global lock after 25 failures, which anyone could trigger to lock
+  // the operator out of bootstrap and recovery. Across IPs, attempts are now slowed down, never refused.
+  it('slows guessing across IPs down with a growing delay, but never locks the operator out', async () => {
+    const delays: number[] = [];
+    const { app } = setup({ sleep: async (ms) => void delays.push(ms) });
+    const b = browser(app);
+    for (let i = 0; i < GLOBAL_DELAY.threshold + 25; i++) {
+      await b.post('/api/operator/bootstrap/login', { password: 'bad' }, { headers: { 'cf-connecting-ip': `192.0.${Math.floor(i / 200)}.${i % 200}` } });
+    }
+    expect(delays.length).toBe(25);
+    expect(delays[0]).toBe(GLOBAL_DELAY.baseMs);
+    expect(delays[delays.length - 1]).toBe(GLOBAL_DELAY.baseMs * 4);
+    const res = await b.post('/api/operator/bootstrap/login', { password: INITIAL_PASSWORD }, { headers: { 'cf-connecting-ip': '198.51.100.200' } });
+    expect(res.status).toBe(200);
+    expect(delays.length).toBe(26);
+  });
+
+  it('counts concurrent failures atomically (none is lost)', async () => {
     const { app } = setup();
     const b = browser(app);
-    for (let i = 0; i < 25; i++) {
-      await b.post('/api/operator/bootstrap/login', { password: 'bad' }, { headers: { 'cf-connecting-ip': `192.0.2.${i}` } });
-    }
-    const res = await b.post('/api/operator/bootstrap/login', { password: INITIAL_PASSWORD }, { headers: { 'cf-connecting-ip': '192.0.2.200' } });
-    expect(res.status).toBe(429);
+    const h = { headers: { 'cf-connecting-ip': '203.0.113.99' } };
+    await Promise.all(Array.from({ length: 4 }, (_, i) => b.post('/api/operator/bootstrap/login', { password: `bad${i}` }, h)));
+    const row = await d1.db.prepare("SELECT failures FROM operator_login_attempts WHERE key = 'bootstrap:ip:203.0.113.99'").first<{ failures: number }>();
+    expect(row?.failures).toBe(4);
+    const g = await d1.db.prepare("SELECT failures FROM operator_login_attempts WHERE key = 'bootstrap:global'").first<{ failures: number }>();
+    expect(g?.failures).toBe(4);
+    // The fifth locks the IP.
+    expect((await b.post('/api/operator/bootstrap/login', { password: 'bad' }, h)).status).toBe(401);
+    expect((await b.post('/api/operator/bootstrap/login', { password: INITIAL_PASSWORD }, h)).status).toBe(429);
   });
 
   it('refuses cross-origin login attempts', async () => {

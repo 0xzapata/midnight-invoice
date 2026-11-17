@@ -240,7 +240,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const ip = clientInfo(c).ip;
     const keysFor = attemptKeys('bootstrap', ip);
     await enforceRateLimit(deps.rateLimiters.create, `operator-bootstrap:${clientIp(c)}`);
-    await assertNotLocked(odb, keysFor, now());
+    await assertNotLocked(odb, keysFor, now(), deps.operator.sleep);
     const { password } = await body(c, z.object({ password: z.string().max(1024) }));
     if (!(await secretsEqual(password, initialPassword()))) {
       await recordFailure(odb, keysFor, now());
@@ -349,7 +349,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const ip = clientInfo(c).ip;
     const k = attemptKeys('recovery', ip);
     await enforceRateLimit(deps.rateLimiters.create, `operator-recover:${clientIp(c)}`);
-    await assertNotLocked(odb, k, now());
+    await assertNotLocked(odb, k, now(), deps.operator.sleep);
     const { recoveryKey } = await body(c, z.object({ recoveryKey: z.string().min(1).max(1024) }));
     const ok = await keystore.recover(recoveryKey);
     if (!ok) {
