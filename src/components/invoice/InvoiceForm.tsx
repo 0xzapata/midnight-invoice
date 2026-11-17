@@ -150,7 +150,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
         {(field) => (
           <Field>
             <FieldLabel htmlFor={field.name} className="text-xs text-muted-foreground">
-              Invoice Name (optional - auto-generated if empty)
+              Invoice Name (optional, printed under the invoice number)
             </FieldLabel>
             <Input
               id={field.name}

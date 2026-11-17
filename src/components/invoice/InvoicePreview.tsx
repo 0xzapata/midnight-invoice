@@ -2,6 +2,7 @@ import { forwardRef, useMemo } from 'react';
 import { InvoiceFormData } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/lib/invoice-utils';
 import { sanitizeInvoiceData } from '@/lib/sanitize';
+import { printableInvoiceName } from '@/lib/invoiceName';
 
 interface InvoicePreviewProps {
   data: InvoiceFormData;
@@ -18,6 +19,8 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
     );
     const tax = subtotal * (safeData.taxRate / 100);
     const total = subtotal + tax;
+    // Only a name the user typed; never a generated dashboard label.
+    const invoiceName = printableInvoiceName(safeData.invoiceName);
 
     return (
       <div
@@ -34,6 +37,11 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
             <p className="text-lg font-semibold text-foreground">
               {safeData.invoiceNumber || 'INV-0001'}
             </p>
+            {invoiceName && (
+              <p className="mt-1 max-w-62 text-sm text-muted-foreground" data-testid="invoice-name">
+                {invoiceName}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <div className="flex gap-8">

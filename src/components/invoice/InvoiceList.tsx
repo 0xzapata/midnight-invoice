@@ -18,6 +18,7 @@ import { formatCurrency } from '@/lib/invoice-utils';
 import { AgentBadge } from '@/components/AgentBadge';
 import { useCloudStore } from '@/stores/useCloudStore';
 import { invoiceIssues } from '@/lib/validation';
+import { invoiceListLabel } from '@/lib/invoiceName';
 
 /** The fields the API rejects (or the server's message), for the "Not synced" badge. */
 function notSyncedSummary(invoice: Invoice, serverMessage: string): string {
@@ -73,7 +74,7 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
               <div className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <p className="font-medium text-foreground">
-                    {invoice.invoiceName || 'Invoice'}
+                    {invoiceListLabel(invoice)}
                   </p>
                   <AgentBadge invoice={invoice} />
                   {syncErrors[invoice.id] && (

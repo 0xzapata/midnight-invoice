@@ -3,6 +3,7 @@ import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { InvoiceFormData } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/lib/invoice-utils';
 import { sanitizeInvoiceData } from '@/lib/sanitize';
+import { printableInvoiceName } from '@/lib/invoiceName';
 import { PDF_FONT_FAMILY, registerPdfFonts } from './pdfFonts';
 import { wrapMonospace } from './wrapMonospace';
 import { INVOICE_PALETTES, type InvoiceTheme, resolveDocumentInvoiceTheme } from './invoiceTheme';
@@ -27,6 +28,8 @@ const SPAN_2 = GRID_UNIT * 2 + GRID_GAP;
 // grid-cols-2 gap-8
 const HALF_GAP = 32;
 const HALF_WIDTH = (CONTENT_WIDTH - HALF_GAP) / 2;
+// The invoice name under the number: max-w-62.
+const NAME_WIDTH = 248;
 
 /** react-pdf's style object type (not exported by @react-pdf/renderer itself). */
 type Style = Parameters<typeof StyleSheet.create>[0][string];
@@ -99,6 +102,8 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
   const tax = subtotal * (safeData.taxRate / 100);
   const total = subtotal + tax;
   const money = (amount: number) => formatCurrency(amount, safeData.currency);
+  // Only a name the user typed; never a generated dashboard label.
+  const invoiceName = printableInvoiceName(safeData.invoiceName);
 
   const fg = { color: palette.text };
   const muted = { color: palette.muted };
@@ -157,6 +162,8 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
           <View>
             <Text style={[...label, { marginBottom: 4 }]}>Invoice</Text>
             <Text style={[styles.invoiceNumber, fg]}>{safeData.invoiceNumber || 'INV-0001'}</Text>
+            {/* mt-1 max-w-62 text-sm text-muted-foreground */}
+            {invoiceName ? <View style={{ marginTop: 4 }}>{paragraph(invoiceName, NAME_WIDTH, [muted])}</View> : null}
           </View>
           <View style={styles.dates}>
             <View style={styles.dateCol}>

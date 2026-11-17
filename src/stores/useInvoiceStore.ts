@@ -3,24 +3,7 @@ import { persist } from 'zustand/middleware';
 import { Invoice, InvoiceFormData } from '@/types/invoice';
 import { CURRENT_INVOICE_VERSION, migrateInvoiceStore } from '@/lib/storageMigrations';
 import { emitLocalInvoiceChange } from '@/lib/sync/localChanges';
-
-// Creative session name generators
-const adjectives = ['Cosmic', 'Swift', 'Golden', 'Stellar', 'Bright', 'Noble', 'Grand', 'Prime', 'Royal', 'Epic'];
-const nouns = ['Phoenix', 'Dragon', 'Thunder', 'Aurora', 'Nexus', 'Zenith', 'Summit', 'Pulse', 'Wave', 'Spark'];
-
-/**
- * Generates a creative session name for invoices.
- * Used when the user doesn't provide an invoice name.
- *
- * @returns A creative name like "Cosmic Phoenix 42"
- * @internal
- */
-function generateCreativeSessionName(): string {
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    const num = Math.floor(Math.random() * 100);
-    return `${adj} ${noun} ${num}`;
-}
+import { isGeneratedInvoiceName } from '@/lib/invoiceName';
 
 /**
  * Invoice store state interface.
@@ -88,9 +71,13 @@ export const useInvoiceStore = create<InvoiceState>()(
              * @returns The saved invoice object
              */
             saveInvoice: (formData, id) => {
-                const invoiceName = formData.invoiceName || generateCreativeSessionName();
                 const invoiceId = id || crypto.randomUUID();
                 const existing = get().invoices.find((inv) => inv.id === invoiceId);
+                // Only a name the user typed is stored (and printed). Unnamed invoices get
+                // their dashboard label from `invoiceListLabel`; a label an earlier version
+                // stored in `invoiceName` is kept so the dashboard keeps calling it the same.
+                const invoiceName = formData.invoiceName?.trim()
+                    || (isGeneratedInvoiceName(existing?.invoiceName) ? existing.invoiceName : undefined);
 
                 // Form data may carry server metadata copied from the loaded invoice;
                 // that bookkeeping belongs to the stored invoice, not to the form.
