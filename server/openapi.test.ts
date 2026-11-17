@@ -59,6 +59,16 @@ describe('OpenAPI document', () => {
     expect(op.responses).toHaveProperty('400');
   });
 
+  it('keeps the private operator console (/api/operator/*) out of the public document', () => {
+    const app = createApp(defaultDeps({ db: {} as D1Database, readAsset: async () => new ArrayBuffer(0) }));
+    const operatorRoutes = app.routes.filter((r) => r.path.startsWith('/api/operator/') && METHODS.includes(r.method.toLowerCase()));
+    // The exclusion is explicit: these routes exist, are not under /api/v1, and are never documented.
+    expect(operatorRoutes.length).toBeGreaterThanOrEqual(20);
+    for (const op of routedOperations()) expect(op).not.toMatch(/operator/);
+    const doc = JSON.stringify(buildOpenApiDocument('http://app.test'));
+    expect(doc).not.toMatch(/operator/i);
+  });
+
   it('is served at /api/v1/openapi.json with the request origin', async () => {
     const app = createApp(defaultDeps({ db: {} as D1Database, readAsset: async () => new ArrayBuffer(0) }));
     const res = await app.request('https://invoices.example.org/api/v1/openapi.json');

@@ -32,6 +32,10 @@
     // Token polling and user-code lookups: 30 requests / 60 s per client IP and route.
     { "name": "RATE_LIMIT_POLL", "namespace_id": "4202", "simple": { "limit": 30, "period": 60 } }
   ],
+  // Cron triggers: dispatched to the job registry in server/scheduled.ts (keep in sync with its CRON_SCHEDULES).
+  "triggers": { "crons": ["17 * * * *"] },
+  // Workers version metadata (id/tag/timestamp of the running version), shown in the operator console.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "vars": {
     // Public base URL used in agent verification links. Empty = use the request origin.
     "APP_URL": ""
