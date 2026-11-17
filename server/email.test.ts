@@ -558,6 +558,16 @@ describe('activity log', () => {
     expect(JSON.stringify(entries)).not.toContain(CLIENT);
   });
 
+  it('the first email of an invoice already marked sent is not a resend', async () => {
+    const s = await setup();
+    const inv = await s.invoice();
+    expect((await s.client.post(`/api/v1/invoices/${inv.id}/mark-sent`, {}, s.ws.token)).status).toBe(200);
+    expect((await s.send(inv.id)).status).toBe(200);
+    await vi.waitFor(async () => expect((await activityOf(s, inv.id)).filter((e) => e.action === 'invoice.emailed')).toHaveLength(1));
+    const [emailed] = (await activityOf(s, inv.id)).filter((e) => e.action === 'invoice.emailed');
+    expect(emailed.changes).toEqual({ email: { to: 'b•••@acme-client.io', cc: 0, resend: false } });
+  });
+
   it('records blocked agent attempts once per hour', async () => {
     const s = await setup();
     const inv = await s.invoice();
