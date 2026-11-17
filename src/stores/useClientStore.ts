@@ -91,6 +91,13 @@ export const useClientStore = create<ClientState>()(
         const known = new Set(get().clients.map((c) => clientDedupeKey(c)));
         // Newest invoice first, so each new client gets its most recent address.
         const sorted = [...invoices].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        // The name is the best spelling among the duplicates (see bestNameVariant), not blindly the newest.
+        const names = new Map<string, string[]>();
+        for (const invoice of sorted) {
+          if (!invoice.toName?.trim()) continue;
+          const key = clientDedupeKey(invoice);
+          names.set(key, [...(names.get(key) ?? []), invoice.toName.trim().replace(/\s+/g, ' ')]);
+        }
         const created: Client[] = [];
         for (const invoice of sorted) {
           if (!invoice.toName?.trim()) continue;
@@ -98,7 +105,7 @@ export const useClientStore = create<ClientState>()(
           if (known.has(key)) continue;
           known.add(key);
           created.push(
-            get().saveClient({ name: invoice.toName, email: invoice.toEmail ?? '', address: invoice.toAddress ?? '' }),
+            get().saveClient({ name: bestNameVariant(names.get(key)!), email: invoice.toEmail ?? '', address: invoice.toAddress ?? '' }),
           );
         }
         return created;
@@ -116,6 +123,23 @@ export const useClientStore = create<ClientState>()(
     },
   ),
 );
+
+/**
+ * Picks the spelling of a client name to keep from its variants (newest
+ * first): the most frequent one; on a tie, one in mixed case ("Globex Corp"
+ * over "globex corp" / "GLOBEX CORP"); then the newest.
+ */
+export function bestNameVariant(variantsNewestFirst: string[]): string {
+  const counts = new Map<string, number>();
+  for (const v of variantsNewestFirst) counts.set(v, (counts.get(v) ?? 0) + 1);
+  const mixed = (v: string) => (v !== v.toLowerCase() && v !== v.toUpperCase() ? 1 : 0);
+  let best = variantsNewestFirst[0];
+  for (const v of counts.keys()) {
+    const [cv, cb] = [counts.get(v)!, counts.get(best)!];
+    if (cv > cb || (cv === cb && mixed(v) > mixed(best))) best = v;
+  }
+  return best;
+}
 
 /** Live (not archived) clients sorted by name, for pickers. */
 export function activeClientsSorted(clients: Client[]): Client[] {

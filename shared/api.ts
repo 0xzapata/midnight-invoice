@@ -16,7 +16,7 @@ export type Scope = (typeof SCOPES)[number];
 
 export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   'invoices:read': 'List and read invoices, next invoice number, download PDFs',
-  'invoices:write': 'Create and update invoices',
+  'invoices:write': 'Create and update invoices, including status changes (mark sent, paid or void)',
   'invoices:delete': 'Delete invoices',
   'settings:read': 'Read the default sender settings',
   'clients:read': 'List, search and read saved clients; bill invoices to a saved client (clientId)',

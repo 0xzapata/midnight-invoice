@@ -8,7 +8,7 @@ export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitiv
   },
   'invoices:write': {
     title: 'Create and edit invoices',
-    allows: 'Add new invoices and change existing ones. Changes show up in this app, marked with the agent’s name.',
+    allows: 'Add new invoices and change existing ones, including their status (mark as sent, paid or void). Changes show up in this app, marked with the agent’s name.',
   },
   'invoices:delete': {
     title: 'Delete invoices',

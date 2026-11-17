@@ -150,16 +150,18 @@ export function listFiltersOf(q: {
   due_before?: string;
   due_after?: string;
   client?: string;
+  client_id?: string;
 }): Omit<InvoiceListFilters, 'today'> | undefined {
   const statuses = q.status?.filter((s) => s !== 'overdue');
   const overdue = q.status?.includes('overdue') ?? false;
-  if (!q.status?.length && !q.due_before && !q.due_after && !q.client) return undefined;
+  if (!q.status?.length && !q.due_before && !q.due_after && !q.client && !q.client_id) return undefined;
   return {
     statuses: statuses && statuses.length > 0 ? [...new Set(statuses)] : undefined,
     overdue,
     dueBefore: q.due_before,
     dueAfter: q.due_after,
     client: q.client,
+    clientId: q.client_id,
   };
 }
 

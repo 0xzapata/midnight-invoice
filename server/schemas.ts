@@ -177,6 +177,7 @@ export const listInvoicesQuerySchema = z.object({
   due_before: isoDate.optional(),
   due_after: isoDate.optional(),
   client: z.string().trim().min(1).max(LIMITS.shortText).optional(),
+  client_id: clientIdRef.unwrap().optional(),
 });
 
 export const summaryQuerySchema = z.object({

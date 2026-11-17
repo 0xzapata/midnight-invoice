@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Invoice } from '@/types/invoice';
 import { CURRENT_CLIENT_VERSION, migrateClientStore } from '@/lib/storageMigrations';
-import { activeClientsSorted, invoicesForClient, useClientStore } from './useClientStore';
+import { activeClientsSorted, bestNameVariant, invoicesForClient, useClientStore } from './useClientStore';
 
 const invoice = (overrides: Partial<Invoice>): Invoice => ({
   id: crypto.randomUUID(),
@@ -64,11 +64,23 @@ describe('useClientStore', () => {
     // Newest invoices first (the "No email" one has the latest createdAt).
     expect(created.map((c) => [c.name, c.email, c.address])).toEqual([
       ['Globex', '', 'No email'],
-      ['globex', 'ap@globex.example', 'New street'],
+      ['Globex', 'ap@globex.example', 'New street'],
     ]);
     expect(useClientStore.getState().clients).toHaveLength(3);
     // Importing again adds nothing.
     expect(useClientStore.getState().importFromInvoices([invoice({ toName: 'GLOBEX', toEmail: 'ap@globex.example' })])).toEqual([]);
+  });
+
+  it('keeps the most common, properly cased spelling of an imported name (not blindly the newest)', () => {
+    expect(bestNameVariant(['globex corp', 'Globex Corp'])).toBe('Globex Corp');
+    expect(bestNameVariant(['GLOBEX', 'Globex', 'globex'])).toBe('Globex');
+    expect(bestNameVariant(['acme inc', 'Acme Inc', 'acme inc'])).toBe('acme inc');
+    expect(bestNameVariant(['ACME', 'acme'])).toBe('ACME');
+    const created = useClientStore.getState().importFromInvoices([
+      invoice({ toName: 'Umbrella Corp', createdAt: '2026-01-01T00:00:00.000Z' }),
+      invoice({ toName: 'umbrella corp', createdAt: '2026-09-01T00:00:00.000Z' }),
+    ]);
+    expect(created.map((c) => c.name)).toEqual(['Umbrella Corp']);
   });
 
   it('counts invoices by clientId, and older unlinked invoices by matching name + email', () => {

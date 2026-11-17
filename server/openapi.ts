@@ -105,6 +105,7 @@ const statusFilterParams = [
   { name: 'due_before', in: 'query', description: 'dueDate < this date (no due date never matches)', schema: str({ format: 'date' }) },
   { name: 'due_after', in: 'query', description: 'dueDate > this date (no due date never matches)', schema: str({ format: 'date' }) },
   { name: 'client', in: 'query', description: 'Case-insensitive substring of toName', schema: str({ maxLength: LIMITS.shortText }) },
+  { name: 'client_id', in: 'query', description: 'Only invoices billed to this saved client (exact clientId)', schema: str({ format: 'uuid' }) },
 ];
 
 const summaryBucket = { type: 'object', required: ['count', 'total'], properties: { count: { type: 'integer' }, total: { type: 'number' } } };

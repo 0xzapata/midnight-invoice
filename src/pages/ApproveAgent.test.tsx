@@ -229,6 +229,7 @@ describe('ApproveAgent', () => {
     expect(group).toHaveTextContent('clients:read');
     expect(group).toHaveTextContent('See your saved clients (names, emails, addresses, default terms and private notes)');
     expect(group).toHaveTextContent('Existing invoices never change');
+    expect(group).toHaveTextContent('including their status (mark as sent, paid or void)');
     expect(read).toBeChecked();
     const user = userEvent.setup();
     await user.click(write);

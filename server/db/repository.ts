@@ -85,6 +85,8 @@ export interface InvoiceListFilters {
   dueAfter?: string;
   /** Case-insensitive substring of toName. */
   client?: string;
+  /** Exact saved-client reference (generated column invoices.client_id, migration 0003). */
+  clientId?: string;
 }
 
 function invoiceFilterSql(f: InvoiceListFilters | undefined): { where: string[]; params: unknown[] } {
@@ -112,6 +114,10 @@ function invoiceFilterSql(f: InvoiceListFilters | undefined): { where: string[];
   if (f.client) {
     where.push('instr(lower(to_name), lower(?)) > 0');
     params.push(f.client);
+  }
+  if (f.clientId) {
+    where.push('client_id = ?');
+    params.push(f.clientId);
   }
   return { where, params };
 }

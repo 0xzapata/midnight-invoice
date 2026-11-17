@@ -231,7 +231,7 @@ and `daysOverdue`.
   `status=sent,overdue` (comma list, OR; `overdue` is virtual and `sent`
   includes overdue invoices), `due_before=YYYY-MM-DD` / `due_after=…` (strict;
   invoices without a due date never match), `client=` (case-insensitive
-  substring of `toName`).
+  substring of `toName`), `client_id=<uuid>` (invoices billed to that saved client, exact `clientId`; `invoices:read` is enough).
 - **`GET /invoices/summary`** (`?oldest_overdue_limit=0..50`, default 5):
 
 ```json
@@ -404,7 +404,7 @@ Tools (only those your scopes allow are listed; others are rejected):
 
 | Tool | Scope | Annotations | Does |
 |---|---|---|---|
-| `list_invoices` | `invoices:read` | read-only | `{updated_since?, include_deleted?, limit?, status?: ("draft"\|"sent"\|"paid"\|"void"\|"overdue")[], due_before?, due_after?, client?}` → same as `GET /invoices` |
+| `list_invoices` | `invoices:read` | read-only | `{updated_since?, include_deleted?, limit?, status?: ("draft"\|"sent"\|"paid"\|"void"\|"overdue")[], due_before?, due_after?, client?, client_id?}` → same as `GET /invoices` |
 | `get_invoice_summary` | `invoices:read` | read-only | `{oldest_overdue_limit?}` → same as `GET /invoices/summary` |
 | `set_invoice_status` | `invoices:write` | destructive, idempotent | `{id, status, paid_at?, sent_at?, expected_revision?}` → `{invoice, changed}`; same transition rules |
 | `get_invoice` | `invoices:read` | read-only | `{id}` |

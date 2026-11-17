@@ -84,6 +84,12 @@ const listInput = z.object({
   include_deleted: z.boolean().optional().describe('Include soft-deleted invoices (tombstones). Default false.'),
   limit: z.number().int().min(1).max(LIMITS.listMax).optional().describe(`Max results (default ${LIMITS.listMax}).`),
   ...statusListFilters,
+  client_id: z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Must be a client id (UUID)')
+    .transform((v) => v.toLowerCase())
+    .optional()
+    .describe('Only invoices billed to this saved client (id from list_clients).'),
 });
 
 function json(value: unknown): CallToolResult {

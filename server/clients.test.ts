@@ -373,3 +373,53 @@ describe('MCP client tools', () => {
     await mcp.close();
   });
 });
+
+describe('invoices by saved client and status (both features together)', () => {
+  it('GET /invoices?client_id= filters by the exact reference and combines with status filters', async () => {
+    const { client, token } = await freshWorkspace();
+    const globex = (await client.post('/api/v1/clients', GLOBEX, token)).json.client;
+    const initech = (await client.post('/api/v1/clients', { name: 'Initech' }, token)).json.client;
+    const lineItems = sampleInvoice().lineItems;
+    const a = (await client.post('/api/v1/invoices', { clientId: globex.id, fromName: 'S', lineItems }, token)).json.invoice;
+    const b = (await client.post('/api/v1/invoices', { clientId: globex.id, fromName: 'S', lineItems, status: 'sent' }, token)).json.invoice;
+    // Same name typed by hand but not linked: not part of client_id results.
+    await client.post('/api/v1/invoices', { toName: GLOBEX.name, fromName: 'S', lineItems }, token);
+    await client.post('/api/v1/invoices', { clientId: initech.id, fromName: 'S', lineItems }, token);
+
+    const ids = async (qs: string) => ((await client.get(`/api/v1/invoices?${qs}`, token)).json.invoices as { id: string }[]).map((i) => i.id).sort();
+    expect(await ids(`client_id=${globex.id}`)).toEqual([a.id, b.id].sort());
+    expect(await ids(`client_id=${globex.id.toUpperCase()}`)).toEqual([a.id, b.id].sort());
+    expect(await ids(`client_id=${globex.id}&status=sent`)).toEqual([b.id]);
+    expect(await ids(`client_id=${uuid(404)}`)).toEqual([]);
+    expect((await client.get('/api/v1/invoices?client_id=globex', token)).status).toBe(400);
+    // Status changes keep the client reference.
+    const paid = await client.post(`/api/v1/invoices/${b.id}/mark-paid`, {}, token);
+    expect(paid.json.invoice).toMatchObject({ status: 'paid', clientId: globex.id });
+    expect((await client.get(`/api/v1/clients/${globex.id}`, token)).json.client.invoiceCount).toBe(2);
+  });
+
+  it('an agent bills a saved client over MCP, filters list_invoices by client_id and marks the invoice sent and paid', async () => {
+    const { app, client, token } = await freshWorkspace();
+    await client.put('/api/v1/settings', { fromName: 'Studio', fromEmail: '', fromAddress: '', paymentDetails: '', notes: '', taxRate: 0, currency: 'USD' }, token);
+    const c = (await client.post('/api/v1/clients', { ...GLOBEX, paymentTermsDays: 30 }, token)).json.client;
+    await client.post('/api/v1/invoices', sampleInvoice(), token);
+    const { api_key } = await connectAgent(client, token, ['invoices:read', 'invoices:write', 'clients:read']);
+    const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+      fetch: (input, init) => Promise.resolve(app.fetch(new Request(input, init))),
+      requestInit: { headers: { authorization: `Bearer ${api_key}` } },
+    });
+    const mcp = new Client({ name: 'clients-status-test', version: '1.0.0' });
+    await mcp.connect(transport);
+    const parse = (r: { content?: unknown }) => JSON.parse((r.content as { type: string; text?: string }[]).find((x) => x.type === 'text')!.text!);
+
+    const inv = parse(await mcp.callTool({ name: 'create_invoice', arguments: { clientId: c.id, lineItems: [{ description: 'Hours', quantity: 10, price: 100 }] } })).invoice;
+    expect(inv).toMatchObject({ clientId: c.id, toName: GLOBEX.name, status: 'draft' });
+    const listed = parse(await mcp.callTool({ name: 'list_invoices', arguments: { client_id: c.id } }));
+    expect(listed.invoices.map((i: { id: string }) => i.id)).toEqual([inv.id]);
+    expect(parse(await mcp.callTool({ name: 'set_invoice_status', arguments: { id: inv.id, status: 'sent' } })).invoice.status).toBe('sent');
+    const paid = parse(await mcp.callTool({ name: 'set_invoice_status', arguments: { id: inv.id, status: 'paid' } })).invoice;
+    expect(paid).toMatchObject({ status: 'paid', clientId: c.id, toAddress: GLOBEX.address });
+    expect(parse(await mcp.callTool({ name: 'list_invoices', arguments: { client_id: c.id, status: ['sent'] } })).invoices).toEqual([]);
+    await mcp.close();
+  });
+});
