@@ -1,0 +1,385 @@
+/**
+ * OpenAPI 3.1 description of /api/v1 (served at GET /api/v1/openapi.json).
+ * server/openapi.test.ts asserts every documented operation is routed and
+ * every route is documented.
+ */
+import { SCOPES, SCOPE_DESCRIPTIONS } from '../shared/api';
+import { LIMITS } from './schemas';
+
+type Json = Record<string, unknown>;
+
+const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+const jsonContent = (schema: Json) => ({ 'application/json': { schema } });
+const ok = (description: string, schema: Json) => ({ description, content: jsonContent(schema) });
+const err = (description: string) => ({ description, content: jsonContent(ref('Error')) });
+
+const E = {
+  400: err('Invalid request (validation_failed, invalid_json, bad_request)'),
+  401: err('Missing or invalid bearer token (WWW-Authenticate: Bearer)'),
+  403: err('Authenticated but not allowed (insufficient_scope or forbidden)'),
+  404: err('Not found'),
+  409: err('Conflict'),
+  410: err('Gone (deleted invoice or expired registration)'),
+  412: err('If-Match / If-None-Match precondition failed'),
+  413: err('Body too large'),
+  415: err('Content-Type must be application/json'),
+  429: err('Rate limited (Retry-After header)'),
+};
+
+const bearer = [{ bearerAuth: [] }];
+const scoped = (scope: string) => ({ security: bearer, 'x-required-scope': scope });
+const userOnly = { security: bearer, 'x-required-credential': 'workspace token' };
+const agentOnly = { security: bearer, 'x-required-credential': 'agent key' };
+
+const idParam = { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } };
+const userCodeParam = {
+  name: 'user_code',
+  in: 'path',
+  required: true,
+  description: 'Code shown to the user, e.g. WXYZ-BCDF (case-insensitive, dash optional)',
+  schema: { type: 'string' },
+};
+const ifMatch = {
+  name: 'If-Match',
+  in: 'header',
+  required: false,
+  description: 'ETag (revision) from a previous response, e.g. "3". Mismatch → 412.',
+  schema: { type: 'string' },
+};
+const invoiceBody = (schema: string) => ({ required: true, content: jsonContent(ref(schema)) });
+const invoiceResult = (d: string) => ({
+  description: d,
+  headers: { ETag: { schema: { type: 'string' }, description: 'Quoted revision' } },
+  content: jsonContent({ type: 'object', required: ['invoice'], properties: { invoice: ref('Invoice') } }),
+});
+
+const str = (extra: Json = {}) => ({ type: 'string', ...extra });
+const scopeSchema = { type: 'string', enum: [...SCOPES] };
+const scopes = { type: 'array', items: scopeSchema, minItems: 1, uniqueItems: true };
+
+const invoiceFields: Json = {
+  invoiceNumber: str({ maxLength: LIMITS.invoiceNumber, description: 'Omit to allocate the next INV-NNNN atomically' }),
+  invoiceName: str({ maxLength: LIMITS.shortText }),
+  issueDate: str({ format: 'date', description: 'YYYY-MM-DD, defaults to today (UTC)' }),
+  dueDate: str({ description: 'YYYY-MM-DD or empty string' }),
+  fromName: str({ maxLength: LIMITS.shortText, description: 'Defaults to settings.fromName' }),
+  fromAddress: str({ maxLength: LIMITS.address, description: 'Defaults to settings.fromAddress' }),
+  fromEmail: str({ maxLength: LIMITS.email, description: 'Defaults to settings.fromEmail' }),
+  toName: str({ maxLength: LIMITS.shortText }),
+  toAddress: str({ maxLength: LIMITS.address }),
+  toEmail: str({ maxLength: LIMITS.email }),
+  lineItems: { type: 'array', minItems: 1, maxItems: LIMITS.maxLineItems, items: ref('LineItemInput') },
+  taxRate: { type: 'number', minimum: 0, maximum: 100, description: 'Percent; defaults to settings.taxRate' },
+  notes: str({ maxLength: LIMITS.longText }),
+  paymentDetails: str({ maxLength: LIMITS.longText, description: 'Defaults to settings.paymentDetails' }),
+  currency: str({ description: 'ISO 4217 code; defaults to settings.currency' }),
+};
+
+const actor = {
+  type: 'object',
+  required: ['type'],
+  properties: { type: { type: 'string', enum: ['user', 'agent'] }, agentId: str(), agentName: str() },
+};
+
+export function buildOpenApiDocument(baseUrl: string) {
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'Midnight Invoice API',
+      version: '1.0.0',
+      description:
+        'REST API for Midnight Invoice workspaces. Agents register with POST /agents/register, the user approves the shown code in the app, ' +
+        'and the agent exchanges its device_code for an API key at POST /agents/token. A remote MCP endpoint is at POST /api/mcp. See /llms.txt.',
+    },
+    servers: [{ url: `${baseUrl}/api/v1` }],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          description: 'Workspace token (mi_ws_…, all scopes) or agent API key (mi_agent_…, approved scopes).',
+        },
+      },
+      schemas: {
+        Error: {
+          type: 'object',
+          required: ['error'],
+          properties: {
+            error: {
+              type: 'object',
+              required: ['code', 'message'],
+              properties: { code: str(), message: str(), details: {} },
+            },
+          },
+        },
+        Scope: { ...scopeSchema, description: Object.entries(SCOPE_DESCRIPTIONS).map(([k, v]) => `${k}: ${v}`).join('; ') },
+        Actor: actor,
+        Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
+        LineItem: {
+          type: 'object',
+          required: ['id', 'description', 'quantity', 'price'],
+          properties: { id: str(), description: str(), quantity: { type: 'number' }, price: { type: 'number' } },
+        },
+        LineItemInput: {
+          type: 'object',
+          required: ['description', 'quantity', 'price'],
+          properties: {
+            id: str({ maxLength: LIMITS.id, description: 'Generated when omitted' }),
+            description: str({ minLength: 1, maxLength: LIMITS.lineDescription }),
+            quantity: { type: 'number', minimum: 0 },
+            price: { type: 'number', minimum: 0 },
+          },
+        },
+        InvoiceInput: {
+          type: 'object',
+          required: ['toName', 'lineItems'],
+          properties: { ...invoiceFields, createdAt: str({ format: 'date-time', description: 'PUT only: kept when the PUT creates the invoice' }) },
+        },
+        InvoicePatch: { type: 'object', properties: invoiceFields, description: 'Any subset; lineItems replaces the list' },
+        Invoice: {
+          type: 'object',
+          required: ['id', 'invoiceNumber', 'issueDate', 'lineItems', 'currency', 'createdAt', 'updatedAt', 'revision', 'createdBy', 'updatedBy', 'subtotal', 'taxAmount', 'total', 'deletedAt'],
+          properties: {
+            id: str({ format: 'uuid' }),
+            version: { type: 'integer' },
+            ...invoiceFields,
+            lineItems: { type: 'array', items: ref('LineItem') },
+            createdAt: str({ format: 'date-time' }),
+            updatedAt: str({ format: 'date-time', description: 'Set by the server (D1 clock) on every write' }),
+            deletedAt: { type: ['string', 'null'], format: 'date-time' },
+            revision: { type: 'integer', description: 'Incremented on every write; also the ETag' },
+            createdBy: ref('Actor'),
+            updatedBy: ref('Actor'),
+            subtotal: { type: 'number' },
+            taxAmount: { type: 'number' },
+            total: { type: 'number' },
+          },
+        },
+        Settings: {
+          type: 'object',
+          required: ['fromName', 'fromEmail', 'fromAddress', 'paymentDetails', 'notes', 'taxRate', 'currency'],
+          properties: {
+            fromName: str(),
+            fromEmail: str(),
+            fromAddress: str(),
+            paymentDetails: str(),
+            notes: str(),
+            taxRate: { type: 'number', minimum: 0, maximum: 100 },
+            currency: str(),
+          },
+        },
+        AgentSummary: {
+          type: 'object',
+          properties: {
+            id: str(),
+            name: str(),
+            description: { type: ['string', 'null'] },
+            scopes: { type: 'array', items: scopeSchema },
+            createdAt: str({ format: 'date-time' }),
+            lastUsedAt: { type: ['string', 'null'], format: 'date-time' },
+            revokedAt: { type: ['string', 'null'], format: 'date-time' },
+          },
+        },
+      },
+    },
+    paths: {
+      '/health': { get: { summary: 'Health check', security: [], responses: { 200: ok('OK', { type: 'object', properties: { status: { const: 'ok' }, time: str() } }) } } },
+      '/openapi.json': { get: { summary: 'This document', security: [], responses: { 200: { description: 'OpenAPI 3.1 document' } } } },
+      '/workspaces': {
+        post: {
+          summary: 'Create an anonymous workspace',
+          description: 'Returns the workspace token once; only its SHA-256 is stored. Rate limited per IP.',
+          security: [],
+          responses: {
+            201: ok('Created', { type: 'object', properties: { workspace: ref('Workspace'), token: str({ description: 'mi_ws_…' }) } }),
+            429: E[429],
+          },
+        },
+      },
+      '/workspace': {
+        get: { summary: 'Current workspace', ...userOnly, responses: { 200: ok('OK', { type: 'object', properties: { workspace: ref('Workspace') } }), 401: E[401], 403: E[403] } },
+        delete: { summary: 'Delete the workspace and all its data', ...userOnly, responses: { 204: { description: 'Deleted' }, 401: E[401], 403: E[403] } },
+      },
+      '/agents/register': {
+        post: {
+          summary: 'Start agent registration (device flow)',
+          security: [],
+          requestBody: {
+            required: true,
+            content: jsonContent({
+              type: 'object',
+              required: ['name', 'scopes'],
+              properties: { name: str({ maxLength: LIMITS.agentName }), description: str({ maxLength: LIMITS.agentDescription }), scopes },
+            }),
+          },
+          responses: {
+            201: ok('Registration started', {
+              type: 'object',
+              properties: {
+                registration_id: str(),
+                device_code: str({ description: 'mi_dc_… secret, poll with it' }),
+                user_code: str({ example: 'WXYZ-BCDF' }),
+                verification_url: str(),
+                verification_url_complete: str(),
+                expires_in: { type: 'integer' },
+                interval: { type: 'integer' },
+              },
+            }),
+            400: E[400],
+            413: E[413],
+            415: E[415],
+            429: E[429],
+          },
+        },
+      },
+      '/agents/token': {
+        post: {
+          summary: 'Poll for / redeem the agent API key',
+          description:
+            'Errors (HTTP 400, error.code): authorization_pending, slow_down, access_denied, expired_token, invalid_grant (unknown or already redeemed device_code). Success is returned exactly once.',
+          security: [],
+          requestBody: { required: true, content: jsonContent({ type: 'object', required: ['device_code'], properties: { device_code: str() } }) },
+          responses: {
+            200: ok('Approved: API key issued', {
+              type: 'object',
+              properties: {
+                api_key: str({ description: 'mi_agent_… (shown once)' }),
+                token_type: { const: 'Bearer' },
+                agent: { type: 'object', properties: { id: str(), name: str(), scopes: { type: 'array', items: scopeSchema }, workspace_id: str() } },
+              },
+            }),
+            400: err('Device-flow error, see description'),
+            429: E[429],
+          },
+        },
+      },
+      '/agents/registrations/{user_code}': {
+        get: {
+          summary: 'Preview a pending registration',
+          ...userOnly,
+          parameters: [userCodeParam],
+          responses: { 200: ok('Pending registration', { type: 'object' }), 401: E[401], 403: E[403], 404: E[404], 409: E[409], 410: E[410], 429: E[429] },
+        },
+      },
+      '/agents/registrations/{user_code}/approve': {
+        post: {
+          summary: 'Approve (optionally narrowing scopes)',
+          ...userOnly,
+          parameters: [userCodeParam],
+          requestBody: { required: false, content: jsonContent({ type: 'object', properties: { scopes } }) },
+          responses: { 200: ok('Approved', { type: 'object' }), 400: E[400], 401: E[401], 403: E[403], 404: E[404], 409: E[409], 410: E[410], 429: E[429] },
+        },
+      },
+      '/agents/registrations/{user_code}/deny': {
+        post: {
+          summary: 'Deny',
+          ...userOnly,
+          parameters: [userCodeParam],
+          responses: { 200: ok('Denied', { type: 'object' }), 401: E[401], 403: E[403], 404: E[404], 409: E[409], 410: E[410], 429: E[429] },
+        },
+      },
+      '/agents': {
+        get: {
+          summary: 'List agents (including revoked)',
+          ...userOnly,
+          responses: { 200: ok('Agents', { type: 'object', properties: { agents: { type: 'array', items: ref('AgentSummary') } } }), 401: E[401], 403: E[403] },
+        },
+      },
+      '/agents/me': {
+        get: { summary: "The calling agent's identity and scopes", ...agentOnly, responses: { 200: ok('Agent', { type: 'object' }), 401: E[401], 403: E[403] } },
+      },
+      '/agents/{id}': {
+        delete: {
+          summary: 'Revoke an agent (immediate)',
+          ...userOnly,
+          parameters: [{ name: 'id', in: 'path', required: true, schema: str() }],
+          responses: { 204: { description: 'Revoked (idempotent)' }, 401: E[401], 403: E[403], 404: E[404] },
+        },
+      },
+      '/invoices': {
+        get: {
+          summary: 'List invoices (sync feed)',
+          description:
+            'Ordered by (updatedAt, id). Without updated_since: all live invoices. With updated_since: invoices with updatedAt >= updated_since. ' +
+            'With updated_since + after_id: keyset continuation (strictly after that position). Tombstones only with include_deleted=true.',
+          ...scoped('invoices:read'),
+          parameters: [
+            { name: 'updated_since', in: 'query', schema: str({ format: 'date-time' }) },
+            { name: 'after_id', in: 'query', schema: str(), description: 'From `next.after_id`; requires updated_since' },
+            { name: 'include_deleted', in: 'query', schema: { type: 'string', enum: ['true', 'false'] } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: LIMITS.listMax, default: LIMITS.listMax } },
+          ],
+          responses: {
+            200: ok('Invoices', {
+              type: 'object',
+              properties: {
+                invoices: { type: 'array', items: ref('Invoice') },
+                syncedAt: str({ format: 'date-time' }),
+                hasMore: { type: 'boolean' },
+                next: { type: ['object', 'null'], properties: { updated_since: str(), after_id: str() } },
+              },
+            }),
+            400: E[400],
+            401: E[401],
+            403: E[403],
+          },
+        },
+        post: {
+          summary: 'Create an invoice',
+          ...scoped('invoices:write'),
+          requestBody: invoiceBody('InvoiceInput'),
+          responses: { 201: invoiceResult('Created'), 400: E[400], 401: E[401], 403: E[403], 413: E[413], 415: E[415] },
+        },
+      },
+      '/invoices/next-number': {
+        get: {
+          summary: 'Next sequential invoice number',
+          ...scoped('invoices:read'),
+          responses: { 200: ok('Next number', { type: 'object', properties: { invoiceNumber: str({ example: 'INV-0007' }) } }), 401: E[401], 403: E[403] },
+        },
+      },
+      '/invoices/{id}': {
+        get: { summary: 'Get an invoice', ...scoped('invoices:read'), parameters: [idParam], responses: { 200: invoiceResult('OK'), 400: E[400], 401: E[401], 403: E[403], 404: E[404], 410: E[410] } },
+        put: {
+          summary: 'Create or replace an invoice with a client-chosen UUID',
+          description: '201 when created, 200 when replaced. A deleted id returns 410. If-None-Match: * = create only.',
+          ...scoped('invoices:write'),
+          parameters: [idParam, ifMatch, { name: 'If-None-Match', in: 'header', required: false, schema: { const: '*' } }],
+          requestBody: invoiceBody('InvoiceInput'),
+          responses: { 200: invoiceResult('Replaced'), 201: invoiceResult('Created'), 400: E[400], 401: E[401], 403: E[403], 409: E[409], 410: E[410], 412: E[412], 413: E[413], 415: E[415] },
+        },
+        patch: {
+          summary: 'Update some fields',
+          ...scoped('invoices:write'),
+          parameters: [idParam, ifMatch],
+          requestBody: invoiceBody('InvoicePatch'),
+          responses: { 200: invoiceResult('Updated'), 400: E[400], 401: E[401], 403: E[403], 404: E[404], 409: E[409], 410: E[410], 412: E[412], 413: E[413], 415: E[415] },
+        },
+        delete: {
+          summary: 'Soft-delete an invoice (idempotent)',
+          ...scoped('invoices:delete'),
+          parameters: [idParam, ifMatch],
+          responses: { 204: { description: 'Deleted (or already deleted)' }, 400: E[400], 401: E[401], 403: E[403], 404: E[404], 412: E[412] },
+        },
+      },
+      '/invoices/{id}/pdf': {
+        get: {
+          summary: 'Invoice as PDF (rendered by the app’s InvoicePDF component)',
+          ...scoped('invoices:read'),
+          parameters: [idParam],
+          responses: { 200: { description: 'PDF', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } }, 401: E[401], 403: E[403], 404: E[404], 410: E[410] },
+        },
+      },
+      '/settings': {
+        get: { summary: 'Default sender settings', ...scoped('settings:read'), responses: { 200: ok('Settings', { type: 'object', properties: { settings: ref('Settings'), updatedAt: { type: ['string', 'null'] } } }), 401: E[401], 403: E[403] } },
+        put: {
+          summary: 'Replace default sender settings',
+          ...userOnly,
+          requestBody: { required: true, content: jsonContent(ref('Settings')) },
+          responses: { 200: ok('Saved', { type: 'object', properties: { settings: ref('Settings'), updatedAt: str() } }), 400: E[400], 401: E[401], 403: E[403] },
+        },
+      },
+    },
+    'x-mcp': { endpoint: `${baseUrl}/api/mcp`, transport: 'streamable-http (stateless, JSON responses)', auth: 'Same Bearer credentials' },
+  };
+}

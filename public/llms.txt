@@ -1,0 +1,21 @@
+# Midnight Invoice
+
+> Invoice generator with an agent API. AI agents can connect to a user's
+> workspace (after the user approves them) and create, read, update and
+> delete invoices, read default sender settings and download PDFs.
+
+## Connect an agent (device flow, no browser login needed)
+
+1. POST /api/v1/agents/register with {"name", "description"?, "scopes": [...]}
+   Scopes: invoices:read, invoices:write, invoices:delete, settings:read
+2. Show the user `user_code` and `verification_url_complete`; they approve it in the app.
+3. Poll POST /api/v1/agents/token with {"device_code"} every `interval` seconds
+   until it returns {"api_key"} (errors: authorization_pending, slow_down,
+   access_denied, expired_token). The key is shown once.
+4. Send `Authorization: Bearer <api_key>` on every request.
+
+## Docs
+
+- [OpenAPI 3.1](/api/v1/openapi.json): full REST contract
+- [MCP endpoint](/api/mcp): remote MCP server (Streamable HTTP, stateless, POST, same Bearer key)
+- Agent guide: AGENT_API.md in the source repository (https://github.com/0xzapata/midnight-invoice/blob/main/AGENT_API.md)
