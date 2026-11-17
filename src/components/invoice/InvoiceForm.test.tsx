@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InvoiceForm } from './InvoiceForm';
@@ -269,5 +270,32 @@ describe('InvoiceForm', () => {
     expect(screen.getByDisplayValue('Default Company')).toBeInTheDocument();
     expect(screen.getByDisplayValue('default@example.com')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Default Address')).toBeInTheDocument();
+  });
+  it('does not loop when the parent re-renders on every form change', async () => {
+    // Mirrors CreateInvoice: the parent stores the form data in state, so each
+    // onFormChange re-renders InvoiceForm. Unstable defaultValues used to cause
+    // "Maximum update depth exceeded" here.
+    const changes = vi.fn();
+    function Parent() {
+      const [, setData] = useState<unknown>(null);
+      return (
+        <InvoiceForm
+          invoiceNumber="INV-0001"
+          onFormChange={(data) => {
+            changes(data);
+            setData(data);
+          }}
+        />
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<Parent />);
+
+    const input = screen.getByPlaceholderText('e.g. Project Alpha Invoice');
+    await user.type(input, 'Loop check');
+
+    expect(screen.getByDisplayValue('Loop check')).toBeInTheDocument();
+    expect(changes.mock.calls.length).toBeLessThan(50);
   });
 });

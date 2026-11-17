@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm, useStore } from '@tanstack/react-form';
 import { Plus, Trash2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,25 +25,30 @@ interface InvoiceFormProps {
 export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: InvoiceFormProps) {
   const prevDataRef = useRef<string>('');
   
+  // Default values must be referentially stable: TanStack Form re-applies
+  // changed defaultValues on every render, and building a fresh object here
+  // (new line item id, new date) caused an infinite update loop on /create.
+  const [defaultValues] = useState<InvoiceFormData>(() => ({
+    invoiceNumber,
+    invoiceName: '',
+    issueDate: new Date().toISOString().split('T')[0],
+    dueDate: '',
+    fromName: '',
+    fromAddress: '',
+    fromEmail: '',
+    toName: '',
+    toAddress: '',
+    toEmail: '',
+    lineItems: [{ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 }],
+    taxRate: 0,
+    notes: '',
+    paymentDetails: '',
+    currency: 'USD',
+    ...initialData,
+  }) as InvoiceFormData);
+
   const form = useForm({
-    defaultValues: {
-      invoiceNumber,
-      invoiceName: '',
-      issueDate: new Date().toISOString().split('T')[0],
-      dueDate: '',
-      fromName: '',
-      fromAddress: '',
-      fromEmail: '',
-      toName: '',
-      toAddress: '',
-      toEmail: '',
-      lineItems: [{ id: crypto.randomUUID(), description: '', quantity: 1, price: 0 }],
-      taxRate: 0,
-      notes: '',
-      paymentDetails: '',
-      currency: 'USD',
-      ...initialData,
-    } as InvoiceFormData,
+    defaultValues,
     validators: {
       onBlur: invoiceFormSchema as any,
     },
