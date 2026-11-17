@@ -3,11 +3,19 @@ import { Font } from '@react-pdf/renderer';
 /**
  * The ONE place that declares the fonts used by InvoicePDF.
  *
- * Files live in `public/` and are referenced by their public path. The browser
- * loads them by URL; the API Worker (server/pdf/render.ts) reads the same
- * files from the static-assets binding and registers them as data URLs. To
- * change PDF fonts, edit this list (and the `fontFamily`/`fontWeight` styles in
- * InvoicePDF.tsx); both renderers pick it up.
+ * The on-screen preview renders every text role (labels, headings, body,
+ * numbers) in Noto Sans Mono (`.invoice-preview *` in src/index.css), at
+ * weights 400, 500 (`font-medium`) and 600 (`font-semibold`). The same three
+ * static TTF faces are declared there with @font-face and here for the PDF, so
+ * both use identical glyphs. Noto Sans Mono covers every symbol that
+ * `formatCurrency` can print for the currencies in src/lib/currencies.ts
+ * (€ £ ¥ ₹ ₪ ₩ ₫ ₱, NBSP, ...), so no fallback face is needed; a test guards that.
+ *
+ * Files live in `public/fonts/` (SIL OFL 1.1, see NotoSansMono-OFL.txt) and
+ * are referenced by their public path. The browser loads them by URL; the API
+ * Worker (server/pdf/render.tsx) reads the same files from the static-assets
+ * binding and registers them as data URLs. (The app-chrome fonts BasierCircle
+ * and ProtoMono, WOFF2, are not used inside the invoice and lack ₹ ₪ ₩ ₫ ₱.)
  */
 export interface PdfFontFile {
   family: string;
@@ -19,9 +27,10 @@ export interface PdfFontFile {
 
 export const PDF_FONT_FAMILY = 'Noto Sans Mono';
 
-// Using local Noto Sans Mono font for widely supported currency symbols
 export const PDF_FONT_FILES: PdfFontFile[] = [
-  { family: PDF_FONT_FAMILY, src: '/fonts/NotoSansMono-Regular.ttf' },
+  { family: PDF_FONT_FAMILY, src: '/fonts/NotoSansMono-Regular.ttf', fontWeight: 400 },
+  { family: PDF_FONT_FAMILY, src: '/fonts/NotoSansMono-Medium.ttf', fontWeight: 500 },
+  { family: PDF_FONT_FAMILY, src: '/fonts/NotoSansMono-SemiBold.ttf', fontWeight: 600 },
 ];
 
 let registered = false;
@@ -42,6 +51,8 @@ export function registerPdfFonts(resolveSrc: (file: PdfFontFile) => string = (fi
       fontStyle: file.fontStyle,
     });
   }
+  // The preview never hyphenates (no `hyphens: auto`); wrap whole words in the PDF too.
+  Font.registerHyphenationCallback((word) => [word]);
 }
 
 export function arePdfFontsRegistered(): boolean {

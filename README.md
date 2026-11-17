@@ -8,7 +8,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 
 - 📝 Create and edit professional invoices
 - 💾 Auto-save drafts to localStorage
-- 📄 Export to PDF
+- 📄 Export to PDF that looks exactly like the on-screen preview (same fonts, light/dark colours and layout)
 - 🌙 Dark mode design
 - 💱 Multi-currency support (All currencies)
 - ⚙️ Comprehensive settings management
@@ -240,6 +240,7 @@ src/
 │   │   ├── InvoicePreview.tsx
 │   │   ├── InvoicePDF.tsx   # @react-pdf/renderer document (also rendered by the API)
 │   │   ├── pdfFonts.ts      # PDF font registry shared by browser and Worker
+│   │   ├── invoiceTheme.ts  # Light/dark invoice palette shared by preview and PDF
 │   │   └── InvoiceList.tsx
 │   ├── icons/               # Custom icons
 │   ├── ui/                  # shadcn/ui components + CurrencySelector

@@ -183,6 +183,13 @@ describe('InvoicePreview', () => {
     expect(screen.getByText(/Evil Corp/)).toBeInTheDocument();
   });
 
+  it('shows ampersands and quotes literally, not as HTML entities', () => {
+    render(<InvoicePreview data={createMockInvoiceData({ fromName: 'Me & Co', notes: `We're "happy"` })} />);
+    expect(screen.getByText('Me & Co')).toBeInTheDocument();
+    expect(screen.getByText(`We're "happy"`)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/&(amp|quot|#0?39);/);
+  });
+
   it('renders with different currency', () => {
     const euroData = createMockInvoiceData({
       currency: 'EUR',

@@ -120,7 +120,7 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 | PUT | `/api/v1/invoices/:id` | any | `invoices:write` | Create-or-replace with client UUID → 201/200 |
 | PATCH | `/api/v1/invoices/:id` | any | `invoices:write` | Partial update → 200 |
 | DELETE | `/api/v1/invoices/:id` | any | `invoices:delete` | Soft delete → 204 |
-| GET | `/api/v1/invoices/:id/pdf` | any | `invoices:read` | `application/pdf` |
+| GET | `/api/v1/invoices/:id/pdf` | any | `invoices:read` | `application/pdf`, styled like the app's invoice preview; optional `?theme=light\|dark` (default `dark`, the app default; anything else → 400) |
 | GET | `/api/v1/settings` | any | `settings:read` | `{settings,updatedAt}` (defaults + `updatedAt:null` if never saved) |
 | PUT | `/api/v1/settings` | workspace token | | Body = settings object → `{settings,updatedAt}` |
 | POST | `/api/mcp` | any | per tool | MCP Streamable HTTP; GET/DELETE → 405 |
@@ -255,7 +255,7 @@ Tools (only those your scopes allow are listed; others are rejected):
 | `list_invoices` | `invoices:read` | read-only | `{updated_since?, include_deleted?, limit?}` → same as `GET /invoices` |
 | `get_invoice` | `invoices:read` | read-only | `{id}` |
 | `get_next_invoice_number` | `invoices:read` | read-only | `{}` |
-| `get_invoice_pdf` | `invoices:read` | read-only | `{id}` → embedded `application/pdf` resource (base64) + download URL |
+| `get_invoice_pdf` | `invoices:read` | read-only | `{id, theme?: "light"\|"dark"}` (default `dark`) → embedded `application/pdf` resource (base64) + download URL |
 | `create_invoice` | `invoices:write` | not destructive | `InvoiceInput` (defaults as REST) |
 | `update_invoice` | `invoices:write` | destructive, idempotent | `{id, expected_revision?, …fields}` (PATCH semantics) |
 | `delete_invoice` | `invoices:delete` | destructive, idempotent | `{id}` |

@@ -124,6 +124,13 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
     expect(new TextDecoder().decode(bytes.subarray(0, 5))).toBe('%PDF-');
     expect(extractPdfText(bytes)).toContain('Globex');
 
+    const lightPdf = await mcp.callTool({ name: 'get_invoice_pdf', arguments: { id: inv.id, theme: 'light' } });
+    expect(lightPdf.isError).toBeFalsy();
+    const light = (lightPdf.content as { type: string; resource?: { uri: string } }[]).find((c) => c.type === 'resource')!.resource!;
+    expect(light.uri).toBe(`${BASE}/api/v1/invoices/${inv.id}/pdf?theme=light`);
+    const badTheme = await mcp.callTool({ name: 'get_invoice_pdf', arguments: { id: inv.id, theme: 'sepia' } });
+    expect(badTheme.isError).toBe(true);
+
     expect(parse(await mcp.callTool({ name: 'delete_invoice', arguments: { id: inv.id } }))).toEqual({ deleted: true, id: inv.id });
     const gone = await mcp.callTool({ name: 'get_invoice', arguments: { id: inv.id } });
     expect(gone.isError).toBe(true);

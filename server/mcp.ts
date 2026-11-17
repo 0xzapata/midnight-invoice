@@ -29,6 +29,7 @@ import type { AppDeps } from './deps';
 import type { Repository } from './db/repository';
 import { ApiError } from './errors';
 import { renderInvoicePdf, pdfFilename } from './pdf/render';
+import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 import { invoiceInputSchema, invoicePatchSchema, isoDateTime, LIMITS } from './schemas';
 import * as invoices from './services/invoices';
 
@@ -230,14 +231,19 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
     {
       title: 'Get invoice PDF',
       description:
-        'Render an invoice as PDF. Returns the PDF as an embedded base64 resource plus the REST URL (GET with the same Bearer key) to download it.',
-      inputSchema: idInput,
+        'Render an invoice as PDF, styled like the app’s invoice preview. Returns the PDF as an embedded base64 resource plus the REST URL (GET with the same Bearer key) to download it.',
+      inputSchema: idInput.extend({
+        theme: z
+          .enum(INVOICE_THEMES)
+          .optional()
+          .describe(`Colour theme of the PDF, as in the app's light/dark preview. Default: ${DEFAULT_INVOICE_THEME}.`),
+      }),
       annotations: { readOnlyHint: true },
     },
-    async ({ id }) => {
+    async ({ id, theme }) => {
       const invoice = await invoices.getInvoice(ctx, id);
-      const bytes = await renderInvoicePdf(invoice, deps.readAsset);
-      const url = `${baseUrl}${API_BASE_PATH}/invoices/${invoice.id}/pdf`;
+      const bytes = await renderInvoicePdf(invoice, deps.readAsset, theme ?? DEFAULT_INVOICE_THEME);
+      const url = `${baseUrl}${API_BASE_PATH}/invoices/${invoice.id}/pdf${theme ? `?theme=${theme}` : ''}`;
       let binary = '';
       for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       return {

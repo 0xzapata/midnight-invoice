@@ -5,6 +5,7 @@
  */
 import { SCOPES, SCOPE_DESCRIPTIONS } from '../shared/api';
 import { LIMITS } from './schemas';
+import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
 type Json = Record<string, unknown>;
 
@@ -365,9 +366,13 @@ export function buildOpenApiDocument(baseUrl: string) {
       '/invoices/{id}/pdf': {
         get: {
           summary: 'Invoice as PDF (rendered by the app’s InvoicePDF component)',
+          description: 'Same typefaces, colours and layout as the app’s invoice preview. `theme` picks the preview’s light or dark look (default dark, the app default).',
           ...scoped('invoices:read'),
-          parameters: [idParam],
-          responses: { 200: { description: 'PDF', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } }, 401: E[401], 403: E[403], 404: E[404], 410: E[410] },
+          parameters: [
+            idParam,
+            { name: 'theme', in: 'query', required: false, schema: { type: 'string', enum: [...INVOICE_THEMES], default: DEFAULT_INVOICE_THEME } },
+          ],
+          responses: { 200: { description: 'PDF', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } }, 400: E[400], 401: E[401], 403: E[403], 404: E[404], 410: E[410] },
         },
       },
       '/settings': {

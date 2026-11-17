@@ -1,21 +1,25 @@
 import { InvoiceFormData, LineItem } from '@/types/invoice';
 
 /**
- * Sanitizes text input for safe rendering in PDFs and HTML.
+ * Normalizes user text for display in the preview and the PDF.
  *
  * Performs the following transformations:
- * - Removes all HTML tags (prevents XSS)
- * - Escapes HTML entities (&, <, >, ", ')
+ * - Removes HTML tags
  * - Normalizes consecutive spaces/tabs to single space
  * - Preserves line breaks for multiline content
  * - Trims leading/trailing whitespace
+ *
+ * It deliberately does NOT HTML-escape. The result is plain text: React
+ * escapes text children when it renders the preview, and @react-pdf draws text
+ * literally, so escaping here printed "Me &amp; Co" in both. Never pass the
+ * result to `dangerouslySetInnerHTML` or build HTML strings from it.
  *
  * @param input - The text string to sanitize
  * @returns Sanitized text string, or empty string if input is falsy
  *
  * @example
- * sanitizeText('<script>alert("xss")</script>Hello')  // 'Hello'
- * sanitizeText('Hello & Goodbye')                     // 'Hello &amp; Goodbye'
+ * sanitizeText('<script>alert("xss")</script>Hello')  // 'alert("xss")Hello'
+ * sanitizeText('Hello & Goodbye')                     // 'Hello & Goodbye'
  * sanitizeText('  Multiple   spaces  ')               // 'Multiple spaces'
  */
 export function sanitizeText(input: string): string {
@@ -24,12 +28,6 @@ export function sanitizeText(input: string): string {
     return input
         // Remove any HTML tags
         .replace(/<[^>]*>/g, '')
-        // Escape HTML entities
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;')
         // Normalize whitespace (but preserve line breaks)
         .replace(/[ \t]+/g, ' ')
         .trim();
@@ -87,19 +85,19 @@ export function sanitizeLineItem(item: LineItem): LineItem {
  * Sanitizes an entire invoice form data object.
  *
  * Applies appropriate sanitization to each field:
- * - Text fields: HTML stripped, entities escaped
+ * - Text fields: HTML tags stripped, whitespace normalized (not HTML-escaped)
  * - Numeric fields: Converted to valid numbers
  * - Date/currency fields: Passed through unchanged (already validated)
  *
- * Use this before rendering invoice data in PDFs or HTML to prevent XSS
- * attacks and ensure data integrity.
+ * Use this before rendering invoice data in the preview or the PDF. Output is
+ * plain text for React / @react-pdf text nodes (both render it literally).
  *
  * @param data - The invoice form data to sanitize
  * @returns A new object with all fields sanitized
  *
  * @example
  * const safeData = sanitizeInvoiceData(formData);
- * // All text fields are now XSS-safe
+ * // All text fields are tag-free plain text
  * // All numeric fields are guaranteed to be valid numbers
  */
 export function sanitizeInvoiceData(data: InvoiceFormData): InvoiceFormData {
