@@ -11,6 +11,7 @@ import ApproveAgent from "./pages/ApproveAgent";
 import Clients from "./pages/Clients";
 import Account from "./accounts/pages/Account";
 import AccountConnect from "./accounts/pages/AccountConnect";
+import Activity from "./pages/Activity";
 import { CloudSyncRuntime } from "@/components/sync/CloudSyncRuntime";
 import { Footer } from "@/components/Footer";
 import { AppThemeProvider } from "@/components/AppThemeProvider";
@@ -47,6 +48,7 @@ const App = () => {
           <Route path="/clients" element={<Clients />} />
           <Route path="/account" element={<Account />} />
           <Route path="/account/connect" element={<AccountConnect />} />
+          <Route path="/activity" element={<Activity />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <Footer />

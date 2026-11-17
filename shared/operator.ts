@@ -112,6 +112,8 @@ export interface WorkspaceItem {
   invoiceCount: number;
   agentCount: number;
   clientCount: number;
+  /** Number of activity log entries (never the entries: they name invoices and clients). */
+  activityCount: number;
   suspended: boolean;
   suspendedAt: number | null;
   suspensionReason: string | null;

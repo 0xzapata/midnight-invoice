@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { Bot, Cloud, CloudUpload, Eye, EyeOff, KeyRound, Link2, RefreshCw, ShieldAlert, Trash2, Unplug } from 'lucide-react';
+import { Bot, Cloud, CloudUpload, Eye, EyeOff, History, KeyRound, Link2, RefreshCw, ShieldAlert, Trash2, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -99,12 +99,21 @@ export function ConnectWorkspaceForm({ onConnected, autoFocus }: { onConnected?:
  * Opt-in explanation with "Turn on cloud sync" and "Connect existing workspace".
  * Used in settings and wherever a feature needs cloud sync (approving agents).
  */
-export function EnableCloudSyncCard({ reason, onEnabled }: { reason?: string; onEnabled?: () => void }) {
+export function EnableCloudSyncCard({
+  reason,
+  onEnabled,
+  offerAccount = true,
+}: {
+  reason?: string;
+  onEnabled?: () => void;
+  /** Show the optional account sign-in (reads the public account flag; only on cloud-sync and connect screens). */
+  offerAccount?: boolean;
+}) {
   const [pending, setPending] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
   const disconnected = useCloudStore((s) => s.disconnectedReason === 'token_rejected');
   // Operator setting: new workspaces need an account (the anonymous "Turn on" button is hidden).
-  const accountRequired = useAccountConfig().data?.requiredForNewWorkspaces === true;
+  const accountRequired = useAccountConfig(offerAccount).data?.requiredForNewWorkspaces === true;
 
   const enable = async () => {
     setPending(true);
@@ -162,7 +171,7 @@ export function EnableCloudSyncCard({ reason, onEnabled }: { reason?: string; on
         </Button>
       </div>
       {showConnect && <ConnectWorkspaceForm onConnected={onEnabled} autoFocus />}
-      <AccountSignInOption />
+      {offerAccount && <AccountSignInOption />}
     </div>
   );
 }
@@ -322,6 +331,12 @@ function ConnectedPanel() {
             <Link to="/agents">
               <Bot className="w-4 h-4" aria-hidden="true" />
               Manage agents
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild className="font-mono">
+            <Link to="/activity">
+              <History className="w-4 h-4" aria-hidden="true" />
+              Activity log
             </Link>
           </Button>
         </div>

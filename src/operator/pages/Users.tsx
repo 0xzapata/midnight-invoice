@@ -138,6 +138,7 @@ function Workspaces() {
               <th className={cn(th, 'text-right')}>Invoices</th>
               <th className={cn(th, 'text-right')}>Clients</th>
               <th className={cn(th, 'text-right')}>Agents</th>
+              <th className={cn(th, 'text-right')}>Activity</th>
               <th className={th}>Status</th>
               <th className={cn(th, 'text-right')}>
                 <span className="sr-only">Actions</span>
@@ -155,6 +156,9 @@ function Workspaces() {
                 <td className={cn(td, 'text-right tabular-nums')}>{fmtNumber(w.invoiceCount)}</td>
                 <td className={cn(td, 'text-right tabular-nums')}>{fmtNumber(w.clientCount)}</td>
                 <td className={cn(td, 'text-right tabular-nums')}>{fmtNumber(w.agentCount)}</td>
+                <td className={cn(td, 'text-right tabular-nums')} title="Activity log entries (contents are not shown to operators)">
+                  {fmtNumber(w.activityCount)}
+                </td>
                 <td className={td}>
                   {w.suspended ? (
                     <span title={w.suspensionReason ?? undefined}>

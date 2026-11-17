@@ -141,6 +141,8 @@ export interface WorkspaceAdminRow {
   invoice_count: number;
   agent_count: number;
   client_count: number;
+  /** Activity log entries (count only: entries hold invoice numbers and client names). */
+  activity_count: number;
   suspended_at: number | null;
   suspension_reason: string | null;
 }
@@ -441,6 +443,7 @@ export function createOperatorDb(db: D1Database) {
           (SELECT COUNT(*) FROM invoices i WHERE i.workspace_id = w.id AND i.deleted_at IS NULL) AS invoice_count,
           (SELECT COUNT(*) FROM agents a WHERE a.workspace_id = w.id AND a.revoked_at IS NULL) AS agent_count,
           (SELECT COUNT(*) FROM clients cl WHERE cl.workspace_id = w.id AND cl.deleted_at IS NULL) AS client_count,
+          (SELECT COUNT(*) FROM activity ac WHERE ac.workspace_id = w.id) AS activity_count,
           s.suspended_at, s.reason AS suspension_reason
         FROM workspaces w
         LEFT JOIN workspace_suspensions s ON s.workspace_id = w.id

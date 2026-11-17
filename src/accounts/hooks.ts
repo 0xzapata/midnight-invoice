@@ -9,9 +9,10 @@ export const ACCOUNT_SESSION_KEY = ['account-session'] as const;
  * approve-agent and account screens use it, so a purely local app still
  * makes no API calls. Any failure (old server, maintenance) means "no".
  */
-export function useAccountConfig() {
+export function useAccountConfig(enabled = true) {
   return useQuery({
     queryKey: ACCOUNT_CONFIG_KEY,
+    enabled,
     queryFn: async () => {
       try {
         return await accountApi.config();

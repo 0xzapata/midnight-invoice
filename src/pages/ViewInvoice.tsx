@@ -21,6 +21,7 @@ import { InvoiceAttribution } from '@/components/AgentBadge';
 import { SyncIssueNotice } from '@/components/sync/SyncIssueNotice';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
+import { InvoiceHistory } from '@/components/activity/InvoiceHistory';
 import { toast } from 'sonner';
 
 export default function ViewInvoice() {
@@ -233,6 +234,7 @@ export default function ViewInvoice() {
         <div className="flex justify-center">
           <InvoicePreview data={invoice} />
         </div>
+        <InvoiceHistory invoiceId={invoice.id} />
       </main>
     </div>
   );
