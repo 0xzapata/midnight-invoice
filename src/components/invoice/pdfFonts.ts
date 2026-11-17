@@ -9,7 +9,9 @@ import { Font } from '@react-pdf/renderer';
  * static TTF faces are declared there with @font-face and here for the PDF, so
  * both use identical glyphs. Noto Sans Mono covers every symbol that
  * `formatCurrency` can print for the currencies in src/lib/currencies.ts
- * (€ £ ¥ ₹ ₪ ₩ ₫ ₱, NBSP, ...), so no fallback face is needed; a test guards that.
+ * (€ £ ¥ ₹ ₪ ₩ ₫ ₱, NBSP, ...) and Latin, Greek and Cyrillic text. Other scripts
+ * (CJK, Arabic, Hebrew, Thai, Devanagari, emoji) use fallback faces that are
+ * registered only when an invoice contains them: see ./pdfFallbackFonts.ts.
  *
  * Files live in `public/fonts/` (SIL OFL 1.1, see NotoSansMono-OFL.txt) and
  * are referenced by their public path. The browser loads them by URL; the API

@@ -1,0 +1,86 @@
+name: Deploy
+
+# Deploys the Worker (SPA + API) to Cloudflare after the same checks as CI.
+# Opt-in: nothing runs until the repository variable CLOUDFLARE_DEPLOY is set
+# to "true" (Settings → Secrets and variables → Actions → Variables); until
+# then the job is skipped, not failed. See README "Continuous deployment".
+#
+# Needs the repository secrets CLOUDFLARE_API_TOKEN (Workers Scripts: Edit,
+# D1: Edit, Account Settings: Read) and CLOUDFLARE_ACCOUNT_ID, and the real
+# database_id in wrangler.jsonc.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits instead of cancelling a deploy in progress.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.CLOUDFLARE_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Vite, Vitest, jsdom and react-router run on Node (>= 22.22).
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Same checks as .github/workflows/ci.yml.
+      - name: Lint
+        run: bun run lint
+
+      - name: Worker types are up to date
+        run: bunx wrangler types --strict-vars=false --check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test:run
+
+      - name: Build
+        run: bun run build
+
+      - name: Refuse the placeholder database id
+        run: |
+          if grep -q '"database_id": "00000000-0000-0000-0000-000000000000"' wrangler.jsonc; then
+            echo "::error file=wrangler.jsonc::Replace the placeholder D1 database_id with the id printed by 'wrangler d1 create midnight-invoice' (see README)."
+            exit 1
+          fi
+
+      # Schema first, so the new code never runs against old tables.
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.163.0"
+          command: d1 migrations apply DB --remote
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.163.0"
+          command: deploy
+        env:
+          WRANGLER_SEND_METRICS: "false"

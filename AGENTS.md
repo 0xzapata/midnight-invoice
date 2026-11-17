@@ -47,6 +47,9 @@ State is managed using Zustand stores located in `src/stores/`.
 - Invoice status: `shared/invoice-status.ts` is the single source of the rules (statuses, transitions, derived overdue, per-currency summary), used by the store, the UI (`src/components/invoice/status/`) and the server (`server/services/invoiceStatus.ts`, `statusFields.ts`, `server/routes/invoiceStatus.ts`, `server/mcpStatusTools.ts`). Missing status = `draft` everywhere. "Today" is the local date in the browser and the UTC date on the server. For the three-way merge, status + `sentAt` + `paidAt` is one field. Migration `0002_invoice_status.sql` exposes status/due date/client as virtual generated columns over the invoice JSON.
 - Tests use `src/test/fakeApi.ts` (an in-memory implementation of the API) with `vi.stubGlobal('fetch', fake.fetch)`.
 
+### Theme
+Light/dark is the `dark` class on `<html>`, stored in `localStorage['theme']` (`src/lib/theme.ts`). `index.html` applies it before the first paint (dark when nothing is stored); `AppThemeProvider` (next-themes, mounted at the root of `App.tsx`) takes over, and `ThemeToggle` / the toaster read it with `useTheme()`. Do not toggle classes by hand. The PDF follows the preview via `resolveDocumentInvoiceTheme`.
+
 ### Routing
 Routes are defined in `src/App.tsx`.
 - `/`: Dashboard (`src/pages/Index.tsx`)
@@ -78,7 +81,7 @@ Example: invoice templates. The engine itself needs no changes.
 4. **Tests**: extend `src/test/fakeApi.ts` with the routes (the engine pulls every registered collection, so the fake must answer them) and add sync tests like `src/lib/sync/clients.sync.test.ts`.
 
 ### Components
-- `src/components/invoice/`: Core business logic components (Form, Preview, PDF). PDF fonts are declared only in `pdfFonts.ts` (files in `public/fonts/`); the Worker loads the same files through the assets binding.
+- `src/components/invoice/`: Core business logic components (Form, Preview, PDF). PDF fonts are declared only in `pdfFonts.ts` (files in `public/fonts/`); the Worker loads the same files through the assets binding. Characters Noto Sans Mono lacks (CJK, Hangul, Arabic, Hebrew, Thai, Devanagari, emoji) use the WOFF faces in `public/fonts/fallback/`, registered on demand by `pdfFallbackFonts.ts` only when the invoice text needs them (preview: same faces via `unicode-range` in `src/index.css`); after changing a font run `node scripts/pdf-font-coverage.mjs` (`server/pdf-fonts.test.ts` fails on drift). Keep `wrapMonospace.ts` widths in line with those faces.
 - `src/components/ui/`: Reusable UI components from shadcn/ui.
 - `src/components/Footer.tsx`: Global footer with attribution.
 - `src/components/clients/`: client form dialog, Bill To client picker and fill rules.
@@ -106,12 +109,13 @@ bun run test:coverage
 ```bash
 bun run lint && bun run typecheck && bun run test:run && bun run build
 ```
+`.github/workflows/deploy.yml` repeats these checks, applies remote D1 migrations and deploys on push to `main` / manual dispatch, only when the repository variable `CLOUDFLARE_DEPLOY` is `true` (secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Keep its steps in line with `ci.yml`; validate with `actionlint`.
 
 ### PDF Generation
 PDF generation is handled by `src/components/invoice/InvoicePDF.tsx` using `@react-pdf/renderer`.
 **Note:** valid CSS in React PDF is limited compared to web CSS. Always verify PDF output when making changes.
-The PDF is a 1:1 rendering of `InvoicePreview.tsx` (595 px card = 595 pt A4 width). When you change one, change the other: colours come from `invoiceTheme.ts` (mirrors the `src/index.css` tokens; a test fails on drift), fonts from `pdfFonts.ts` (same Noto Sans Mono faces as the preview's `@font-face`). In the browser the PDF follows the theme the preview shows; the API takes `?theme=light|dark` (default dark). `sanitizeText` returns plain text and must not HTML-escape (React and react-pdf render text literally).
-The same component is rendered server-side by `GET /api/v1/invoices/:id/pdf` inside the Worker; `server/pdf.test.ts` and `worker/worker.test.ts` check the output text.
+The PDF is a 1:1 rendering of `InvoicePreview.tsx` (595 px card = 595 pt A4 width). The card is always laid out at 595 px; where less room is available `InvoicePreview` scales it down as a whole (`transform: scale`, measured with ResizeObserver) instead of letting it reflow. When you change one, change the other: colours come from `invoiceTheme.ts` (mirrors the `src/index.css` tokens; a test fails on drift), fonts from `pdfFonts.ts` (same Noto Sans Mono faces as the preview's `@font-face`). In the browser the PDF follows the theme the preview shows; the API takes `?theme=light|dark` (default dark). `sanitizeText` returns plain text and must not HTML-escape (React and react-pdf render text literally). The invoice name prints under the number via `printableInvoiceName` (`src/lib/invoiceName.ts`): unnamed invoices store no name and get their dashboard label from `invoiceListLabel` (derived from the id); labels stored by earlier versions match `isGeneratedInvoiceName` and are never printed.
+Page breaks (row-by-row line items, repeated table header, totals kept together, `minPresenceAhead` cancelling section margins) are explained at the top of `InvoicePDF.tsx` and covered by `server/pdf-pagination.test.ts`. The same component is rendered server-side by `GET /api/v1/invoices/:id/pdf` inside the Worker; `server/pdf.test.ts` and `worker/worker.test.ts` check the output text.
 
 ### Styling
 - Use Tailwind CSS utility classes. Theme tokens (colors, radius, fonts) live in `src/index.css` (`@theme` / `@theme inline`).

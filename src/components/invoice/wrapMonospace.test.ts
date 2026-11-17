@@ -26,4 +26,20 @@ describe('wrapMonospace (matches the preview browser line breaks)', () => {
     expect(wrapMonospace('Line 1\n\nLine 3', 500, 14, true)).toEqual(['Line 1', '', 'Line 3']);
     expect(wrapMonospace('Line 1\nLine 2', 500, 14)).toEqual(['Line 1 Line 2']);
   });
+
+  it('measures CJK characters as 1 em and breaks between them like the browser', () => {
+    // 14 pt: 5 CJK characters (70 pt) fit in 75 pt, 6 do not.
+    expect(wrapMonospace('网站设计与开发服务', 75, 14)).toEqual(['网站设计与', '开发服务']);
+    // A Latin word next to CJK text moves as a whole; CJK may break right after it.
+    expect(wrapMonospace('Logo设计', 42, 14)).toEqual(['Logo', '设计']);
+    expect(wrapMonospace('Logo设计', 48, 14)).toEqual(['Logo设', '计']);
+    // Hangul syllables are 0.92 em, emoji 1.27 em.
+    expect(wrapMonospace('웹사이트디자인', 14 * 0.92 * 4, 14)).toEqual(['웹사이트', '디자인']);
+    expect(wrapMonospace('🚀🚀🚀', 14 * 1.27 * 2, 14)).toEqual(['🚀🚀', '🚀']);
+  });
+
+  it('keeps combining marks and variation selectors with their base character', () => {
+    expect(wrapMonospace('❤️❤️', 14 * 1.27, 14)).toEqual(['❤️', '❤️']);
+    expect(wrapMonospace('e\u0301e\u0301', charsWide(2), 14)).toEqual(['e\u0301e\u0301']);
+  });
 });

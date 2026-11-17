@@ -29,6 +29,76 @@
   font-display: swap;
 }
 
+/*
+  Fallback faces for characters Noto Sans Mono lacks (CJK, Hangul, Arabic,
+  Hebrew, Thai, Devanagari, emoji): the same files the PDF registers on demand
+  (src/components/invoice/pdfFallbackFonts.ts), so preview and PDF draw them
+  alike. `unicode-range` makes the browser download a face only when the
+  invoice shows a character in its range.
+*/
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('/fonts/fallback/NotoSansSC-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+2E80-2FDF, U+3000-33FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF, U+20000-2FFFF;
+}
+
+@font-face {
+  font-family: 'Noto Sans KR';
+  src: url('/fonts/fallback/NotoSansKR-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+1100-11FF, U+3130-318F, U+A960-A97F, U+AC00-D7FF;
+}
+
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  src: url('/fonts/fallback/NotoSansArabic-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Noto Sans Hebrew';
+  src: url('/fonts/fallback/NotoSansHebrew-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0590-05FF, U+FB1D-FB4F;
+}
+
+@font-face {
+  font-family: 'Noto Sans Thai';
+  src: url('/fonts/fallback/NotoSansThai-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0E00-0E7F;
+}
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  src: url('/fonts/fallback/NotoSansDevanagari-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0900-097F, U+A8E0-A8FF;
+}
+
+@font-face {
+  font-family: 'Noto Emoji';
+  src: url('/fonts/fallback/NotoEmoji-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+200D, U+2300-23FF, U+2600-27BF, U+2B00-2BFF, U+FE0F, U+1F000-1FAFF;
+}
+
 @font-face {
   font-family: 'BasierCircle';
   src: url('/fonts/BasierCircle-Regular.5dbaf4fc.woff2') format('woff2');
@@ -274,11 +344,13 @@
 
 /* Invoice preview specific font */
 .invoice-preview {
-  font-family: 'Noto Sans Mono', monospace;
+  /* The fallback faces have only a regular weight; the PDF never fakes bold, so neither does the preview. */
+  font-synthesis: none;
+  font-family: 'Noto Sans Mono', 'Noto Sans SC', 'Noto Sans KR', 'Noto Sans Arabic', 'Noto Sans Hebrew', 'Noto Sans Thai', 'Noto Sans Devanagari', 'Noto Emoji', monospace;
 }
 
 .invoice-preview * {
-  font-family: 'Noto Sans Mono', monospace;
+  font-family: 'Noto Sans Mono', 'Noto Sans SC', 'Noto Sans KR', 'Noto Sans Arabic', 'Noto Sans Hebrew', 'Noto Sans Thai', 'Noto Sans Devanagari', 'Noto Emoji', monospace;
 }
 
 @utility invoice-shadow {

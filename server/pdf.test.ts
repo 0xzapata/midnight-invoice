@@ -120,6 +120,19 @@ describe('GET /api/v1/invoices/:id/pdf', () => {
     },
   );
 
+  it('prints the invoice name under the number, but never a generated dashboard label', async () => {
+    const named = extractPdfText(await renderInvoicePdf(formData({ invoiceName: 'Brand refresh — Q4' }), readPublicAsset)).split('\n');
+    const number = named.indexOf('INV-0042');
+    expect(number).toBeGreaterThanOrEqual(0);
+    expect(named[number + 1]).toBe('Brand refresh — Q4');
+
+    for (const invoiceName of ['', 'Cosmic Phoenix 42']) {
+      const lines = extractPdfText(await renderInvoicePdf(formData({ invoiceName }), readPublicAsset)).split('\n');
+      expect(lines[lines.indexOf('INV-0042') + 1]).toMatch(/^issue date$/i);
+      expect(lines).not.toContain('Cosmic Phoenix 42');
+    }
+  });
+
   it('builds safe filenames', () => {
     expect(pdfFilename('INV-0001')).toBe('INV-0001.pdf');
     expect(pdfFilename('a/b"c\r\nd')).toBe('a_b_c_d.pdf');

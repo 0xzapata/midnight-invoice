@@ -8,7 +8,8 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 
 - 📝 Create and edit professional invoices
 - 💾 Auto-save drafts to localStorage
-- 📄 Export to PDF that looks exactly like the on-screen preview (same fonts, light/dark colours and layout)
+- 📄 Export to PDF that looks exactly like the on-screen preview (same fonts, light/dark colours and layout), with clean page breaks on long invoices
+- 🌐 Non-Latin text in PDFs: Chinese, Japanese, Korean, Arabic, Hebrew, Thai, Hindi (Devanagari) and emoji, with fonts downloaded only for invoices that use them
 - 🌙 Dark mode design
 - 💱 Multi-currency support (All currencies)
 - ⚙️ Comprehensive settings management
@@ -131,12 +132,37 @@ New migrations (`migrations/NNNN_*.sql`) are applied with
 changing bindings in `wrangler.jsonc`, regenerate types with
 `bun run cf-typegen`.
 
-Continuous deployment: CI only builds and runs `wrangler deploy --dry-run`
-(no secrets). To deploy on push, either connect the repository in the
-Cloudflare dashboard (Workers & Pages → your Worker → Settings → Builds) with
-build command `bun run build` and deploy command `bunx wrangler deploy`, or add
-a GitHub Actions job using `cloudflare/wrangler-action` with a
-`CLOUDFLARE_API_TOKEN` secret.
+### Continuous deployment (GitHub Actions)
+
+`.github/workflows/deploy.yml` deploys on every push to `main` (after the same
+lint, typecheck, test and build steps as CI) and on demand from the Actions
+tab ("Deploy" → *Run workflow*). It applies remote D1 migrations
+(`wrangler d1 migrations apply DB --remote`) and then runs `wrangler deploy`.
+Deploys never overlap (a newer push waits for the running one).
+
+It is **off until you opt in**: without the variable below the job is skipped
+(grey, not a failure). One-time setup:
+
+1. Do the one-time Cloudflare setup above, and commit the real `database_id`
+   in `wrangler.jsonc` (the workflow refuses the all-zeros placeholder).
+2. Create an API token (Cloudflare dashboard → My Profile → API Tokens →
+   *Create Token* → *Custom token*) with these **account** permissions for
+   your account: **Workers Scripts: Edit** (deploy the Worker and its static
+   assets), **D1: Edit** (apply migrations) and **Account Settings: Read**.
+   If you serve the app on your own domain through a route, also add the
+   zone permission **Workers Routes: Edit**.
+3. In the GitHub repository → Settings → Secrets and variables → Actions:
+   - secret `CLOUDFLARE_API_TOKEN`: the token from step 2;
+   - secret `CLOUDFLARE_ACCOUNT_ID`: your account id (dashboard → Workers &
+     Pages → *Account ID*);
+   - variable `CLOUDFLARE_DEPLOY` = `true` to turn deploys on (any other value,
+     or none, keeps the job skipped).
+4. Optional: add protection rules to the `production` environment the job uses
+   (Settings → Environments), e.g. required reviewers.
+
+Alternatively, connect the repository in the Cloudflare dashboard (Workers &
+Pages → your Worker → Settings → Builds) with build command `bun run build`
+and deploy command `bunx wrangler deploy`, and leave `CLOUDFLARE_DEPLOY` unset.
 
 ## Agent API
 
@@ -235,7 +261,7 @@ routing, API, MCP and PDF rendering).
 
 CI (`.github/workflows/ci.yml`) runs install, a generated-types check, lint,
 typecheck, tests, build and `wrangler deploy --dry-run` on every push and pull
-request.
+request. Deploying is a separate, opt-in workflow (see "Continuous deployment").
 
 ## Project Structure
 
