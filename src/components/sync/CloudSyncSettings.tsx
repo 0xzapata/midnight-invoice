@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { Bot, Cloud, CloudUpload, Eye, EyeOff, KeyRound, Link2, RefreshCw, ShieldAlert, Trash2, Unplug } from 'lucide-react';
+import { Bot, Cloud, CloudUpload, Eye, EyeOff, History, KeyRound, Link2, RefreshCw, ShieldAlert, Trash2, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -313,6 +313,12 @@ function ConnectedPanel() {
             <Link to="/agents">
               <Bot className="w-4 h-4" aria-hidden="true" />
               Manage agents
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild className="font-mono">
+            <Link to="/activity">
+              <History className="w-4 h-4" aria-hidden="true" />
+              Activity log
             </Link>
           </Button>
         </div>
