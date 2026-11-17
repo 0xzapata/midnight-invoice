@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router';
+import { useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Cloud, Mail, Paperclip, Pencil, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
@@ -85,6 +85,11 @@ function Notice({ children, tone = 'info' }: { children: React.ReactNode; tone?:
 
 function NotReady({ readiness, invoice, onClose }: { readiness: Exclude<EmailReadiness, 'ready'>; invoice: Invoice; onClose: () => void }) {
   const [syncing, setSyncing] = useState(false);
+  const navigate = useNavigate();
+  const go = (to: string) => {
+    onClose();
+    navigate(to, { viewTransition: true });
+  };
   if (readiness === 'sync_off') {
     return (
       <>
@@ -99,8 +104,9 @@ function NotReady({ readiness, invoice, onClose }: { readiness: Exclude<EmailRea
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
-          <Button asChild onClick={onClose}>
-            <Link to="/?tab=settings">Turn on cloud sync</Link>
+          <Button onClick={() => go('/?tab=settings')}>
+            <Cloud className="mr-2 h-4 w-4" aria-hidden="true" />
+            Turn on cloud sync
           </Button>
         </DialogFooter>
       </>
@@ -132,11 +138,9 @@ function NotReady({ readiness, invoice, onClose }: { readiness: Exclude<EmailRea
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
-          <Button asChild onClick={onClose}>
-            <Link to={`/create/${invoice.id}`} viewTransition>
-              <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
-              Edit to fix
-            </Link>
+          <Button onClick={() => go(`/create/${invoice.id}`)}>
+            <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
+            Edit to fix
           </Button>
         </DialogFooter>
       </>

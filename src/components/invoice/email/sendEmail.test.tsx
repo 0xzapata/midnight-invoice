@@ -86,8 +86,9 @@ describe('Send by email', () => {
     renderView();
     const dialog = await openDialog(user);
     expect(within(dialog).getByText('Email sending needs cloud sync')).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: 'Turn on cloud sync' })).toHaveAttribute('href', '/?tab=settings');
     expect(fake.requests.filter((r) => r.path.includes('/send'))).toHaveLength(0);
+    await user.click(within(dialog).getByRole('button', { name: 'Turn on cloud sync' }));
+    expect(await screen.findByText('Settings tab')).toBeInTheDocument();
   });
 
   it('waits for an invoice whose latest changes are not uploaded yet', async () => {
