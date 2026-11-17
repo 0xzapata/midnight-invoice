@@ -78,6 +78,15 @@ export type SendEmailRequest = z.infer<typeof sendEmailRequestSchema>;
 export const IDEMPOTENCY_KEY_RE = /^[\x21-\x7e]{1,255}$/;
 
 /**
+ * Prefix of the idempotency keys the server uses for its own sends (a
+ * recurring schedule's period email). Client keys share the per-workspace
+ * key space, so a client key with this prefix is refused: an agent could
+ * otherwise pre-claim a future period's key and block the scheduled email.
+ */
+export const INTERNAL_KEY_PREFIX = 'internal:';
+export const isReservedIdempotencyKey = (key: string) => key.toLowerCase().startsWith(INTERNAL_KEY_PREFIX);
+
+/**
  * An unattended send on the workspace's behalf (a recurring schedule's
  * `send_email` auto action): nobody reviews it, so the agent rules apply —
  * only the invoice's toEmail, only an address the user entered, and the
@@ -336,6 +345,10 @@ async function send(
   const key = opts.idempotencyKey?.trim() || null;
   if (key !== null && !IDEMPOTENCY_KEY_RE.test(key)) {
     throw errors.badRequest('Idempotency-Key must be 1-255 printable ASCII characters');
+  }
+  // Keys the server uses itself (recurring sends) live in a namespace clients cannot claim (security fix L1).
+  if (key !== null && !unattended && isReservedIdempotencyKey(key)) {
+    throw errors.badRequest(`Idempotency-Key must not start with "${INTERNAL_KEY_PREFIX}" (reserved for the server)`);
   }
 
   const config = await loadEmailConfig(deps);

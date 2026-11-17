@@ -10,7 +10,7 @@
  *   holds the send with "needs your review".
  * - Limits: counted like the user's own sends (workspace hourly/daily windows
  *   and the site-wide daily cap; never bypassed), per-invoice cooldown.
- * - Idempotency: the key is `recurring/<schedule>/<period>`, so a retry after a
+ * - Idempotency: the key is `internal:recurring/<schedule>/<period>` (a prefix clients cannot use), so a retry after a
  *   partial failure replays instead of sending twice (the provider also gets a
  *   key derived from the message id).
  * - Status: the invoice is generated as a draft and only becomes `sent` when
@@ -23,7 +23,7 @@ import type { ApiInvoice } from '../../shared/api';
 import type { AppDeps } from '../deps';
 import { loadEmailConfig } from '../email/config';
 import { ApiError } from '../errors';
-import { sendInvoiceEmail } from '../services/invoiceEmail';
+import { INTERNAL_KEY_PREFIX, sendInvoiceEmail } from '../services/invoiceEmail';
 import { recurringRepo } from './generate';
 import type { ServiceContext } from '../services/invoices';
 
@@ -35,7 +35,7 @@ export interface RecurringEmailSender {
 }
 
 /** Idempotency key of a period's email: retries never send twice. */
-export const recurringEmailKey = (scheduleId: string, period: string) => `recurring/${scheduleId}/${period}`;
+export const recurringEmailKey = (scheduleId: string, period: string) => `${INTERNAL_KEY_PREFIX}recurring/${scheduleId}/${period}`;
 
 /**
  * Security fix M1: an unattended email sends what the user approved. The

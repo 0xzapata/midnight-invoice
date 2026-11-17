@@ -192,7 +192,7 @@ export const emailOpenApiPaths: Record<string, Json> = {
           name: 'Idempotency-Key',
           in: 'header',
           required: false,
-          description: 'Up to 255 printable ASCII characters. A repeat with the same key and body replays the first result (Idempotent-Replayed: true); a different body → 409 idempotency_conflict.',
+          description: 'Up to 255 printable ASCII characters, not starting with "internal:" (reserved for the server’s own sends → 400). A repeat with the same key and body replays the first result (Idempotent-Replayed: true); a different body → 409 idempotency_conflict.',
           schema: str({ maxLength: EMAIL_LIMITS.idempotencyKey }),
         },
       ],

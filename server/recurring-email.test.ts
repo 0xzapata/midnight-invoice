@@ -201,7 +201,7 @@ describe('send_email: generation and delivery', () => {
     // The send for this period again (as a retry would): replayed, nothing sent.
     const again = await serviceEmailSender.send(systemContext(s.deps, s.ws.workspace.id), { invoiceId: inv.id, schedule: { id, name: 'Globex monthly' }, period: '2026-12-01' });
     expect(again.replayed).toBe(true);
-    expect(recurringEmailKey(id, '2026-12-01')).toBe(`recurring/${id}/2026-12-01`);
+    expect(recurringEmailKey(id, '2026-12-01')).toBe(`internal:recurring/${id}/2026-12-01`); // security fix L1: a namespace clients cannot use
     // The email went out but recording that failed: the schedule still thinks it is pending.
     const pending = { code: 'email_failed', message: 'x', at: '2026-12-01T00:30:00.000Z', period: '2026-12-01', attempts: 1, invoiceId: inv.id, sendPending: true, nextAttemptAt: '2026-12-01T00:31:00.000Z' };
     await d1.db.prepare('UPDATE recurring_schedules SET last_error = ? WHERE id = ?').bind(JSON.stringify(pending), id).run();

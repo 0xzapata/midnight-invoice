@@ -226,3 +226,21 @@ describe('M1: automatic emails send what the user approved', () => {
     expect((await e.state()).lastError.message).toMatch(/client’s email address was changed by an agent/);
   });
 });
+
+describe('L1: clients cannot claim the idempotency keys of scheduled emails', () => {
+  it('refuses reserved keys, and a key in the old recurring namespace no longer blocks the scheduled email', async () => {
+    const s = await setup();
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'Retainer', quantity: 1, price: 1000 }] }, s.token)).json.template;
+    const id = (await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-02', timezone: 'UTC', autoAction: 'send_email' }, s.token)).json.recurring.id;
+    const decoy = (await s.client.post('/api/v1/invoices', { toName: 'Globex', toEmail: CLIENT_EMAIL, lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.token)).json.invoice;
+    // The agent tries to pre-claim the next period's key, in the server's namespace and in the old one.
+    const reserved = await s.client.post(`/api/v1/invoices/${decoy.id}/send`, {}, s.key, { 'idempotency-key': `internal:recurring/${id}/2026-12-02` });
+    expect(reserved.status).toBe(400);
+    expect(reserved.json.error.message).toMatch(/reserved/);
+    expect((await s.client.post(`/api/v1/invoices/${decoy.id}/send`, {}, s.key, { 'idempotency-key': `recurring/${id}/2026-12-02` })).status).toBe(200);
+    s.clock.now = new Date('2026-12-02T10:00:00.000Z');
+    await runRecurringGeneration(s.deps, s.clock.now.getTime());
+    expect(s.resend.calls).toHaveLength(2);
+    expect((await s.client.get(`/api/v1/invoices?recurring_id=${id}`, s.token)).json.invoices[0].status).toBe('sent');
+  });
+});
