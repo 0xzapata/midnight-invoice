@@ -579,6 +579,33 @@ describe('account deletion', () => {
     expect(await count('SELECT COUNT(*) AS n FROM workspaces')).toBe(0);
   });
 
+  it('refuses workspace-affecting account changes while the operator has suspended the workspace (security fix L3)', async () => {
+    const { app, workos, operator } = await accountsApp(d1.db);
+    const client = api(app);
+    const anon = await createWorkspace(client);
+    const { b } = await signInUser(app, workos, alice);
+    const ws = (await b.post('/api/account/workspace', {})).json;
+    expect((await operator.post(`/api/operator/workspaces/${ws.workspace.id}/suspend`, { reason: 'fraud' })).status).toBe(200);
+    expect((await operator.post(`/api/operator/workspaces/${anon.workspace.id}/suspend`, {})).status).toBe(200);
+    const refused = async (res: Promise<{ status: number; json: { error?: { code: string } } }>) => {
+      const r = await res;
+      expect(r.status).toBe(403);
+      expect(r.json.error?.code).toBe('workspace_suspended');
+    };
+    await refused(b.call('DELETE', '/api/account', { body: { confirm: 'alice@example.com', deleteWorkspace: true } }));
+    await refused(b.call('DELETE', '/api/account', { body: { confirm: 'alice@example.com', deleteWorkspace: false } }));
+    await refused(b.post('/api/account/recovery-key/rotate', {}));
+    await refused(b.post('/api/account/recovery-key/disable', {}));
+    await refused(b.post('/api/account/workspace/connect', {}));
+    const { b: bobB } = await signInUser(app, workos, bob);
+    await refused(bobB.post('/api/account/workspace/claim', {}, { headers: bearer(anon.token) }));
+    // The workspace, its data and the suspension record are all still there.
+    expect(await count('SELECT COUNT(*) AS n FROM workspace_suspensions WHERE workspace_id = ?', ws.workspace.id)).toBe(1);
+    expect(await count('SELECT COUNT(*) AS n FROM workspaces WHERE id = ?', ws.workspace.id)).toBe(1);
+    // Signing out still works.
+    expect((await b.post('/api/account/sign-out', undefined)).status).toBe(204);
+  });
+
   it('deleting the workspace from the API (device token) leaves the account signed in without a workspace', async () => {
     const { app, workos } = await accountsApp(d1.db);
     const { b } = await signInUser(app, workos, alice);

@@ -347,6 +347,23 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     return adb.ownedWorkspace(userId);
   }
 
+  /**
+   * Security fix L3: while the site operator has suspended a workspace, account
+   * routes that change it (claim, connect a device, recovery key, deleting the
+   * account with or without the workspace) refuse, so the owner cannot wipe
+   * the workspace and its suspension record or mint fresh credentials.
+   * Signing out and revoking devices (which only remove access) still work.
+   */
+  async function requireNotSuspended(workspaceId: string) {
+    if (await adb.isSuspended(workspaceId)) {
+      throw accountError(
+        403,
+        'workspace_suspended',
+        'This workspace has been suspended by the site operator. Changes to it (devices, recovery key, deleting it or the account) are not available until the operator lifts the suspension; you can still sign out.',
+      );
+    }
+  }
+
   /** Mints a device token for this browser, binding it to the current session. */
   async function mintDevice(
     c: Context<AccEnv>,
@@ -443,6 +460,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     }
     const ws = await adb.findWorkspaceByRecoveryHash(hash);
     if (!ws) throw accountError(401, 'unauthorized', 'That workspace token was not accepted.');
+    await requireNotSuspended(ws.id);
     if (await ownedOrNull(s.user.id)) throw accountError(409, 'workspace_exists', 'This account already has a workspace.');
     if (await adb.workspaceOwner(ws.id)) throw accountError(409, 'workspace_owned', 'This workspace belongs to another account.');
     let minted;
@@ -471,6 +489,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     await enforceRateLimit(deps.rateLimiters.create, `account-connect:${clientIp(c)}`);
     const ws = await ownedOrNull(s.user.id);
     if (!ws) throw accountError(409, 'no_workspace', 'This account has no workspace yet.');
+    await requireNotSuspended(ws.id);
     const current = bearerToken(c.req.header('authorization'));
     if (current?.startsWith(TOKEN_PREFIX.workspace)) {
       const device = await adb.findActiveDeviceByHash(await sha256Hex(current));
@@ -535,6 +554,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     const s = c.get('session');
     const ws = await ownedOrNull(s.user.id);
     if (!ws) throw accountError(409, 'no_workspace', 'This account has no workspace yet.');
+    await requireNotSuspended(ws.id);
     const recoveryKey = deps.secrets.generate(TOKEN_PREFIX.workspace);
     await adb.setRecoveryTokenHash(ws.id, await sha256Hex(recoveryKey));
     await recordAccountActivity(
@@ -550,6 +570,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     const s = c.get('session');
     const ws = await ownedOrNull(s.user.id);
     if (!ws) throw accountError(409, 'no_workspace', 'This account has no workspace yet.');
+    await requireNotSuspended(ws.id);
     await adb.setRecoveryTokenHash(ws.id, `${DISABLED_TOKEN_HASH_PREFIX}${deps.ids.uuid()}`);
     if (workspaceView(ws).recoveryKeyEnabled) await recordAccountActivity(accountActivityContext(deps, c), accountEntry('account.recovery_key_disabled', ws.id));
     settings.invalidate();
@@ -567,6 +588,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     const input = await body(c, z.object({ confirm: z.string().max(320), deleteWorkspace: z.boolean() }));
     if (input.confirm.trim().toLowerCase() !== s.user.email) throw accountError(400, 'validation_failed', 'Type your email address to confirm.');
     const ws = await ownedOrNull(s.user.id);
+    if (ws) await requireNotSuspended(ws.id);
     let recoveryKey: string | null = null;
     if (ws && input.deleteWorkspace) {
       await repo.deleteWorkspace(ws.id);
