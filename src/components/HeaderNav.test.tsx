@@ -18,7 +18,7 @@ describe('HeaderNav', () => {
     );
     const inline = screen.getByRole('navigation', { name: 'Pages' });
     expect(inline).toHaveClass('hidden', 'sm:flex');
-    expect(within(inline).getAllByRole('link').map((l) => l.textContent)).toEqual(['Clients', 'Templates', 'Recurring', 'Agents']);
+    expect(within(inline).getAllByRole('link').map((l) => l.textContent)).toEqual(['Clients', 'Templates', 'Recurring', 'Agents', 'Activity']);
     const menuButton = screen.getByRole('button', { name: 'Pages menu' });
     expect(menuButton).toHaveClass('sm:hidden');
     await user.click(menuButton);
