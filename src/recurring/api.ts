@@ -39,7 +39,7 @@ export const RECURRING_KEY = ['recurring'] as const;
 /** All schedules of the workspace; refetched after each sync cycle (the job may have run meanwhile). */
 export function useRecurringList() {
   const enabled = useCloudEnabled();
-  const query = useQuery({ queryKey: RECURRING_KEY, queryFn: async () => (await recurringApi.list()).recurring, enabled });
+  const query = useQuery({ queryKey: RECURRING_KEY, queryFn: () => recurringApi.list(), enabled });
   const queryClient = useQueryClient();
   const lastSyncedAt = useCloudStore((s) => s.lastSyncedAt);
   const seen = useRef(lastSyncedAt);

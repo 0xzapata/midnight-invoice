@@ -88,7 +88,11 @@ export interface RecurringOverrides {
 
 /** Why the last attempt failed (cleared by the next success or by editing the schedule). */
 export interface RecurringError {
-  /** Stable code: template_deleted, template_not_found, client_deleted, validation_failed, workspace_suspended, maintenance, email_unavailable, internal_error. */
+  /**
+   * Stable code. Generation: template_deleted, template_not_found, client_deleted, validation_failed, workspace_suspended,
+   * maintenance, internal_error. Email (the invoice was created, as a draft): email_needs_review, email_address_not_confirmed,
+   * email_no_recipient, email_not_configured, email_rate_limited, email_unavailable, email_failed.
+   */
   code: string;
   message: string;
   at: string;
@@ -96,6 +100,12 @@ export interface RecurringError {
   period: string | null;
   /** Consecutive failed attempts. */
   attempts: number;
+  /** For an email that could not be sent (`send_email`): the generated invoice (it exists, as a draft). */
+  invoiceId?: string;
+  /** The email is retried automatically (only the send, never the generation). */
+  sendPending?: boolean;
+  /** When the email is tried next (ISO), while `sendPending`. */
+  nextAttemptAt?: string | null;
 }
 
 export interface RecurringSchedule extends RecurringScheduleConfig {

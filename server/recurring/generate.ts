@@ -37,9 +37,9 @@ import type { AppDeps } from '../deps';
 import { ApiError } from '../errors';
 import { activityWrite } from '../services/activity';
 import { clientRepo } from '../services/clients';
-import { createInvoiceIfAbsent, getInvoice, toApiInvoice, type ServiceContext } from '../services/invoices';
+import { createInvoiceIfAbsent, toApiInvoice, type ServiceContext } from '../services/invoices';
 import { templateRepo, toApiTemplate } from '../services/templates';
-import { recurringEmailSender } from './autoActions';
+import { emailPeriodInvoice } from './emailSend';
 import { createRecurringRepository, type RecurringRepository, type ScheduleRow, type StoredScheduleData } from './repository';
 import { formatInvoiceNumber } from '../../shared/invoice-totals';
 
@@ -187,8 +187,8 @@ export interface GenerateResult {
 /**
  * Generates the invoice of `period` and advances the schedule (see the
  * module comment). Throws a GenerationError when it cannot be built; a
- * failure of the e-mail auto action is recorded on the schedule instead (the
- * invoice exists).
+ * failure of the email auto action is recorded on the schedule instead (the
+ * invoice exists, as a draft; emailSend.ts retries the send).
  */
 export async function generatePeriod(args: GenerateArgs): Promise<GenerateResult> {
   const { ctx, row, period } = args;
@@ -198,9 +198,6 @@ export async function generatePeriod(args: GenerateArgs): Promise<GenerateResult
   const workspaceId = row.workspace_id;
   const expected = row.next_run_date!;
 
-  if (cfg.autoAction === 'send_email' && !recurringEmailSender()) {
-    throw new GenerationError('email_unavailable', 'This schedule emails invoices, but email sending is not available on this server. Change what happens on generation.', 409);
-  }
   const built = await buildPeriodInvoice(ctx, row.id, cfg, period);
   const invoiceId = await periodInvoiceId(workspaceId, row.id, period);
   const runCount = row.run_count + 1;
@@ -253,13 +250,10 @@ export async function generatePeriod(args: GenerateArgs): Promise<GenerateResult
   }
 
   if (generated && cfg.autoAction === 'send_email') {
-    try {
-      await recurringEmailSender()!.send(ctx, invoiceId);
-      invoice = await getInvoice(ctx, invoiceId).catch(() => invoice);
-    } catch (error) {
-      // The invoice exists (a draft): record why it was not sent; never retried automatically (no double sends).
-      const reason = generationErrorOf(error);
-      await recordFailure(deps, { ...row, next_run_date: next }, { code: 'email_failed', message: `Invoice ${invoice!.invoiceNumber} was created but not emailed: ${reason.message}` }, period, { retry: false });
+    // The invoice exists (a draft); the email is attempted now and, if it cannot go out, retried on its own (emailSend.ts).
+    if (await emailPeriodInvoice(deps, row, period, invoiceId, 1)) {
+      const sent = await ctx.repo.getInvoice(workspaceId, invoiceId);
+      if (sent && !sent.deleted_at) invoice = toApiInvoice(sent);
     }
   }
   return { generated, invoice, invoiceId, ended: next === null };

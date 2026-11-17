@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Plus, FileText, Settings, Sparkles, Mail, Paperclip, Lock, Save, Repeat } from 'lucide-react';
+import { Plus, FileText, Settings, Sparkles, Paperclip, Save, Repeat } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -374,32 +374,12 @@ const Index = () => {
 
               <div className="space-y-4">
                 <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
-                  <div className="w-10 h-10 rounded-md bg-pink-500/10 flex items-center justify-center">
-                    <Mail className="w-5 h-5 text-pink-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">Email Sending</p>
-                    <p className="text-sm text-muted-foreground">Send invoices directly via email</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
                   <div className="w-10 h-10 rounded-md bg-yellow-500/10 flex items-center justify-center">
                     <Paperclip className="w-5 h-5 text-yellow-500" />
                   </div>
                   <div>
                     <p className="font-medium text-foreground">File Attachments</p>
                     <p className="text-sm text-muted-foreground">Add logos and documents to invoices</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
-                  <div className="w-10 h-10 rounded-md bg-red-500/10 flex items-center justify-center">
-                    <Lock className="w-5 h-5 text-red-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">User Authentication</p>
-                    <p className="text-sm text-muted-foreground">Secure login with WorkOS</p>
                   </div>
                 </div>
               </div>

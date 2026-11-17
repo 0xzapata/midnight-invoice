@@ -41,6 +41,8 @@ interface Props {
   /** Editing this schedule; omitted = new schedule. */
   schedule?: RecurringSchedule;
   prefill?: RecurringPrefill;
+  /** Whether emailing can be turned on (email set up on the server), from GET /recurring. */
+  email?: { configured: boolean; reason: string | null };
   /** Resolves with null when saved, or with a message to show. */
   onSave: (input: RecurringInput) => Promise<string | null>;
 }
@@ -168,12 +170,12 @@ function toInput(d: Draft): RecurringInput {
 }
 
 /** Create or edit a recurring schedule. Renders nothing while closed (remounts with fresh values on open). */
-export function RecurringFormDialog({ open, onOpenChange, schedule, prefill, onSave }: Props) {
+export function RecurringFormDialog({ open, onOpenChange, schedule, prefill, email, onSave }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-lg sm:w-full sm:max-w-3xl">
-          <RecurringForm schedule={schedule} prefill={prefill} onCancel={() => onOpenChange(false)} onSave={onSave} />
+          <RecurringForm schedule={schedule} prefill={prefill} email={email} onCancel={() => onOpenChange(false)} onSave={onSave} />
         </DialogContent>
       )}
     </Dialog>
@@ -184,7 +186,7 @@ const control =
   'flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-1 text-sm text-foreground shadow-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring';
 const label = 'text-xs text-muted-foreground';
 
-function RecurringForm({ schedule, prefill, onCancel, onSave }: Omit<Props, 'open' | 'onOpenChange'> & { onCancel: () => void }) {
+function RecurringForm({ schedule, prefill, email, onCancel, onSave }: Omit<Props, 'open' | 'onOpenChange'> & { onCancel: () => void }) {
   const templates = useTemplateStore((s) => s.templates);
   const clients = useClientStore((s) => s.clients);
   const settings = useSettingsStore((s) => s.settings);
@@ -363,14 +365,28 @@ function RecurringForm({ schedule, prefill, onCancel, onSave }: Omit<Props, 'ope
                 {a === 'draft' && <span className="text-muted-foreground"> (recommended)</span>}
               </Radio>
             ))}
-            {draft.autoAction === 'send_email' ? (
-              <Radio name={`${id}-action`} checked onChange={() => undefined}>
-                {AUTO_ACTION_LABELS.send_email}
-              </Radio>
+            {email?.configured || draft.autoAction === 'send_email' ? (
+              <div className="space-y-1">
+                <Radio name={`${id}-action`} checked={draft.autoAction === 'send_email'} onChange={() => setDraft((d) => ({ ...d, autoAction: 'send_email' }))}>
+                  {AUTO_ACTION_LABELS.send_email}
+                </Radio>
+                <p id={`${id}-email-help`} className="flex items-start gap-1.5 pl-6 text-xs text-muted-foreground">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Sent to {client?.email ? <span className="break-all font-code text-foreground">{client.email}</span> : 'the client’s email'} with the PDF attached, and marked as sent
+                    once it went out. Only to an address you entered yourself; if an agent changed the client’s email or the template’s payment details, it waits for
+                    your review instead. Only you can turn this on.
+                    {!email?.configured && email?.reason ? ` Right now email is not available: ${email.reason}` : ''}
+                  </span>
+                </p>
+              </div>
             ) : (
-              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <p className="flex items-start gap-1.5 text-xs text-muted-foreground" data-testid="email-unavailable">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Emailing invoices automatically will be available once email sending is set up. Only you can turn it on; agents never can.
+                <span>
+                  Emailing each invoice automatically needs email to be set up on this server{email?.reason ? ` (${email.reason.replace(/\.$/, '')})` : ''}. Only you can turn it on;
+                  agents never can.
+                </span>
               </p>
             )}
           </div>

@@ -285,6 +285,36 @@ export function createRecurringRepository(db: D1Database) {
         .bind(JSON.stringify(args.error), args.failureCount, args.retryAt, args.workspaceId, args.scheduleId, args.expectedNextRunDate);
     },
 
+    /**
+     * Stores the outcome of a period's email (`error` null = sent). After the
+     * generation (`generated`) only while the schedule still points at that
+     * invoice; on a retry (`pending`) only while the pending record is still
+     * about that invoice (a newer period's generation replaced it otherwise).
+     */
+    sendStateStatement(args: { workspaceId: string; scheduleId: string; invoiceId: string; error: object | null; guard: 'generated' | 'pending' }): D1PreparedStatement {
+      const guard = args.guard === 'generated' ? 'last_invoice_id = ?4' : `json_extract(last_error, '$.invoiceId') = ?4`;
+      return db
+        .prepare(`UPDATE recurring_schedules SET last_error = ?1, updated_at = ${DB_NOW} WHERE workspace_id = ?2 AND id = ?3 AND deleted_at IS NULL AND ${guard}`)
+        .bind(args.error ? JSON.stringify(args.error) : null, args.workspaceId, args.scheduleId, args.invoiceId);
+    },
+
+    /** Schedules whose generated invoice's email is due for another try (all workspaces, oldest first). */
+    async pendingSends(nowIso: string, limit: number): Promise<DueRow[]> {
+      const { results } = await db
+        .prepare(
+          `SELECT ${COLUMNS.split(', ').map((c) => `s.${c}`).join(', ')},
+                  EXISTS (SELECT 1 FROM workspace_suspensions w WHERE w.workspace_id = s.workspace_id) AS suspended
+             FROM recurring_schedules s
+            WHERE s.deleted_at IS NULL AND s.last_error IS NOT NULL
+              AND json_extract(s.last_error, '$.sendPending') = 1 AND json_extract(s.last_error, '$.nextAttemptAt') <= ?1
+            ORDER BY json_extract(s.last_error, '$.nextAttemptAt'), s.workspace_id, s.id
+            LIMIT ?2`,
+        )
+        .bind(nowIso, limit)
+        .all<DueRow>();
+      return results;
+    },
+
     /** Ends an active schedule (its end date passed or its occurrences are used up). */
     endStatement(args: { workspaceId: string; scheduleId: string; expectedNextRunDate: string | null }): D1PreparedStatement {
       return db

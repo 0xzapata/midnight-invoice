@@ -34,6 +34,8 @@ import { clientRepo } from '../services/clients';
 import { getInvoice, newInvoiceData, parseOrThrow, toApiInvoice, type RevisionPrecondition, type ServiceContext } from '../services/invoices';
 import { templateRepo } from '../services/templates';
 import { recurringEmailSender } from './autoActions';
+import { createEmailRepository } from '../db/emailRepository';
+import { normalizeEmail } from '../../shared/email-template';
 import { buildPeriodInvoice, configOf, GenerationError, generatePeriod, recurringRepo } from './generate';
 import type { ScheduleRow, StoredScheduleData } from './repository';
 import { recurringInputSchema, recurringPatchSchema, runNowSchema, type RecurringInputParsed } from './schemas';
@@ -98,15 +100,44 @@ async function requireActivation(ctx: ServiceContext, cfg: Pick<StoredScheduleDa
   if (clientId) requireScope(p, 'clients:read');
 }
 
-/** Automatic emailing is the user's decision only (see the module comment). */
-function guardAutoEmail(p: Principal, next: Pick<StoredScheduleData, 'autoAction'>, current?: Pick<StoredScheduleData, 'autoAction'>): void {
+/**
+ * Automatic emailing is the user's decision only (see the module comment).
+ * Turning it on needs email to be set up on the server, and (whenever the
+ * template or client changes) a client whose email address the user entered
+ * themselves, so an unattended send can never go to an address an agent wrote.
+ */
+async function guardAutoEmail(ctx: ServiceContext, next: StoredScheduleData, current?: StoredScheduleData): Promise<void> {
+  const p = ctx.principal;
   if (p.type === 'agent' && (next.autoAction === 'send_email' || current?.autoAction === 'send_email')) {
     throw errors.forbidden(
       'Only the user can set up or change a schedule that emails invoices automatically (autoAction "send_email"). Agents can create schedules that make drafts ("draft") or mark invoices sent ("mark_sent"); ask the user to turn on emailing in the app.',
     );
   }
-  if (next.autoAction === 'send_email' && current?.autoAction !== 'send_email' && !recurringEmailSender()) {
-    throw errors.validation([{ path: 'autoAction', message: 'Email sending is not available on this server' }], 'Email sending is not available');
+  if (next.autoAction !== 'send_email') return;
+  requireScope(p, 'invoices:send');
+  const enabling = current?.autoAction !== 'send_email';
+  if (enabling) {
+    const sender = recurringEmailSender();
+    if (!sender) throw errors.validation([{ path: 'autoAction', message: 'Email sending is not available on this server' }], 'Email sending is not available');
+    const available = await sender.availability(ctx.deps);
+    if (!available.ok) {
+      throw new ApiError(503, 'email_not_configured', `Emailing invoices automatically needs email to be set up on this server. ${available.reason}`, { reason: available.reason });
+    }
+  }
+  if (!enabling && next.clientId === current?.clientId && next.templateId === current?.templateId) return;
+  const ws = p.workspaceId;
+  let clientId = next.clientId;
+  if (!clientId) {
+    const t = await templateRepo(ctx).getTemplate(ws, next.templateId);
+    clientId = t && !t.deleted_at ? ((JSON.parse(t.data) as { clientId?: string | null }).clientId ?? null) : null;
+  }
+  const noEmail = (message: string) => errors.validation([{ path: 'clientId', message }], 'No confirmed client email');
+  if (!clientId) throw noEmail('Emailing invoices automatically needs a saved client with an email address (on the schedule or its template).');
+  const row = await clientRepo(ctx).getClient(ws, clientId);
+  const email = row && !row.deleted_at ? ((JSON.parse(row.data) as { email?: string }).email ?? '').trim() : '';
+  if (!email) throw noEmail('The client has no email address. Add it on the Clients page first.');
+  if (!(await createEmailRepository(ctx.deps.db).isUserEnteredAddress(ws, normalizeEmail(email)))) {
+    throw noEmail('The client’s email address was added by an agent. Open the client on the Clients page and save it to confirm the address first.');
   }
 }
 
@@ -197,7 +228,9 @@ const entity = (row: Pick<ScheduleRow, 'id'>, name: string) => ({ type: 'recurri
 export async function listRecurring(ctx: ServiceContext, q: { status?: string[]; templateId?: string } = {}): Promise<ListRecurringResponse> {
   requireScope(ctx.principal, 'recurring:read');
   const rows = await recurringRepo(ctx.deps).list(ctx.principal.workspaceId, { statuses: q.status, templateId: q.templateId });
-  return { recurring: rows.map(toApiRecurring) };
+  const sender = recurringEmailSender();
+  const available = sender ? await sender.availability(ctx.deps) : { ok: false as const, reason: 'Email sending is not available on this server.' };
+  return { recurring: rows.map(toApiRecurring), email: available.ok ? { configured: true, reason: null } : { configured: false, reason: available.reason } };
 }
 
 export async function getRecurring(ctx: ServiceContext, rawId: string): Promise<RecurringSchedule> {
@@ -215,7 +248,7 @@ export async function createRecurring(ctx: ServiceContext, body: unknown): Promi
   const cfg = toStored(input);
   if (input.status !== 'paused') await requireActivation(ctx, cfg);
   else requireScope(ctx.principal, 'templates:read');
-  guardAutoEmail(ctx.principal, cfg);
+  await guardAutoEmail(ctx, cfg);
   await checkRefs(ctx, cfg);
   const id = ctx.deps.ids.uuid();
   const state = scheduleState(ctx, cfg, undefined, input.status ?? 'active');
@@ -260,7 +293,7 @@ export async function putRecurring(ctx: ServiceContext, rawId: string, body: unk
   const current = configOf(row);
   const cfg = toStored(input, current);
   await requireActivation(ctx, cfg);
-  guardAutoEmail(ctx.principal, cfg, current);
+  await guardAutoEmail(ctx, cfg, current);
   await checkRefs(ctx, cfg, current);
   return writeConfig(ctx, row, cfg);
 }
@@ -284,7 +317,7 @@ export async function patchRecurring(ctx: ServiceContext, rawId: string, body: u
   }
   if (cfg.endDate && cfg.endDate < cfg.startDate) throw errors.validation([{ path: 'endDate', message: 'The end date must be on or after the start date' }]);
   await requireActivation(ctx, cfg);
-  guardAutoEmail(ctx.principal, cfg, current);
+  await guardAutoEmail(ctx, cfg, current);
   await checkRefs(ctx, cfg, current);
   return writeConfig(ctx, row, cfg);
 }
@@ -335,7 +368,7 @@ export async function resumeRecurring(ctx: ServiceContext, rawId: string, pre: {
   checkIfMatch(pre, row);
   const cfg = configOf(row);
   await requireActivation(ctx, cfg);
-  guardAutoEmail(ctx.principal, cfg, cfg);
+  await guardAutoEmail(ctx, cfg, cfg);
   if (row.status === 'active') return toApiRecurring(row);
   if (row.status === 'ended') throw errors.conflict('This schedule has ended. Change its end date or number of invoices to continue it.', { status: row.status });
   const today = todayIn(ctx, cfg.timezone);
@@ -384,7 +417,7 @@ export async function runRecurringNow(ctx: ServiceContext, rawId: string, body: 
   const row = await loadLive(ctx, rawId);
   const cfg = configOf(row);
   await requireActivation(ctx, cfg);
-  guardAutoEmail(ctx.principal, cfg, cfg);
+  await guardAutoEmail(ctx, cfg, cfg);
   const repo = recurringRepo(ctx.deps);
   const loadInvoice = async (id: string | null) => {
     if (!id) return null;

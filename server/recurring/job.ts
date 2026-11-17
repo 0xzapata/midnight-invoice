@@ -22,6 +22,7 @@ import type { AppDeps } from '../deps';
 import type { ScheduledJob } from '../scheduled';
 import { configOf, endSchedule, generatePeriod, generationErrorOf, recordFailure, recurringRepo, systemContext } from './generate';
 import type { DueRow } from './repository';
+import { retryPendingEmails } from './emailSend';
 
 export const RECURRING_CRON = '7 * * * *';
 const PAGE = 50;
@@ -36,13 +37,29 @@ export interface RecurringRunStats {
   skippedPeriods: number;
   /** True when the per-run limit stopped the run with due schedules left. */
   more: boolean;
+  /** Pending emails (`send_email`) retried in this run, and how many went out. */
+  emailRetries: number;
+  emailsSent: number;
 }
 
 /** Runs one generation pass at `nowMs`. Never throws for a single schedule's problem. */
 export async function runRecurringGeneration(deps: AppDeps, nowMs: number): Promise<RecurringRunStats> {
   await deps.settings.refresh(true);
-  const stats: RecurringRunStats = { processed: 0, generated: 0, failed: 0, ended: 0, skippedPeriods: 0, more: false };
+  const stats: RecurringRunStats = { processed: 0, generated: 0, failed: 0, ended: 0, skippedPeriods: 0, more: false, emailRetries: 0, emailsSent: 0 };
   if (!deps.settings.get('recurring.enabled')) return stats;
+  await generateDue(deps, nowMs, stats);
+  // Then the emails that could not go out earlier (only the send is retried; bounded like generation).
+  try {
+    const retried = await retryPendingEmails(deps, nowMs, deps.settings.get('recurring.maxGeneratedPerRun'));
+    stats.emailRetries = retried.attempted;
+    stats.emailsSent = retried.sent;
+  } catch (error) {
+    deps.logError?.('Retrying recurring emails failed', error);
+  }
+  return stats;
+}
+
+async function generateDue(deps: AppDeps, nowMs: number, stats: RecurringRunStats): Promise<void> {
   const max = deps.settings.get('recurring.maxGeneratedPerRun');
   const repo = recurringRepo(deps);
   const now = new Date(nowMs);
@@ -58,7 +75,7 @@ export async function runRecurringGeneration(deps: AppDeps, nowMs: number): Prom
       if (row.next_run_date! > today) continue; // not yet due in its own time zone
       if (stats.processed >= max) {
         stats.more = true;
-        return stats;
+        return;
       }
       stats.processed++;
       try {
@@ -69,7 +86,7 @@ export async function runRecurringGeneration(deps: AppDeps, nowMs: number): Prom
         await recordFailure(deps, row, { code: 'internal_error', message: 'The invoice could not be generated because of a server error. It will be retried.' }, row.next_run_date);
       }
     }
-    if (rows.length < PAGE) return stats;
+    if (rows.length < PAGE) return;
   }
 }
 

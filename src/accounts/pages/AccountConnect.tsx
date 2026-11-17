@@ -72,6 +72,8 @@ export function ConnectChoice({
                   ? 'Switch this browser to your account’s workspace and copy these invoices into it? '
                   : 'Create a workspace for your account and copy these invoices into it? '}
                 The other workspace is not changed or merged on the server and stays reachable with its recovery key.
+                Recurring invoices are not copied: schedules set up there stay in that workspace and keep creating invoices
+                there until you pause them.
               </p>
             ) : (
               <p>Upload them into your account so they sync with your other devices. Invoices with the same id are merged, nothing is deleted.</p>

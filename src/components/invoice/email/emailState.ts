@@ -50,6 +50,7 @@ export function describeEmailError(error: unknown): string {
 }
 
 export function emailActorLabel(email: Pick<InvoiceEmail, 'sentBy'>): string {
+  if (email.sentBy.type === 'system') return email.sentBy.recurringName ? `the recurring invoice “${email.sentBy.recurringName}”` : 'a recurring invoice';
   return email.sentBy.type === 'agent' ? (email.sentBy.agentName ?? 'an agent') : 'you';
 }
 

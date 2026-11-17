@@ -17,6 +17,7 @@ import type { Invoice } from '@/types/invoice';
 import ApproveAgent from '@/pages/ApproveAgent';
 import AuthorizeAgent from '@/pages/oauth/AuthorizeAgent';
 import ViewInvoice from '@/pages/ViewInvoice';
+import Index from '@/pages/Index';
 
 vi.mock('sonner', () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }),
@@ -237,5 +238,25 @@ describe('"Make recurring" from an invoice', () => {
     expect(screen.getByTestId('recurring-origin')).toHaveTextContent('Created automatically by the recurring schedule “Globex care” from the template “Care”.');
     await user.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.queryAllByRole('button', { name: 'Make recurring' })).toHaveLength(0);
+  });
+});
+
+describe('Coming Soon tab', () => {
+  it('lists only what is still to come (recurring invoices, email and accounts are delivered)', () => {
+    useCloudStore.setState({ ...EMPTY_CLOUD_STATE, status: 'disabled' });
+    render(
+      <QueryClientProvider client={client()}>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={['/?tab=coming']}>
+            <Routes>
+              <Route path="/" element={<Index />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole('heading', { name: 'Coming Soon' })).toBeInTheDocument();
+    expect(screen.getByText('File Attachments')).toBeInTheDocument();
+    for (const gone of ['Recurring Invoices', 'Email Sending', 'User Authentication']) expect(screen.queryByText(gone)).not.toBeInTheDocument();
   });
 });

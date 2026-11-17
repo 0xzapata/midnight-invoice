@@ -466,7 +466,10 @@ run them; `recurring:read` lets it list them. The server generates each
 period's invoice exactly once (hourly job, run dates in the schedule's time
 zone; only the most recent missed period is caught up after downtime or a
 pause). Generated invoices are drafts or marked sent; **only you** can make a
-schedule email invoices automatically, never an agent. See AGENT_API.md,
+schedule email each invoice automatically (with email set up on the server),
+never an agent — and an automatic email only goes to a client address you
+entered, and waits for your review if an agent changed the template's payment
+details. See AGENT_API.md,
 *Recurring invoices*.
 
 ### Connecting an agent (as a user)

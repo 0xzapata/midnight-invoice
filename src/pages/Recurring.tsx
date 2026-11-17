@@ -151,9 +151,28 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
           <div className="min-w-0 space-y-0.5">
             <p className="font-medium text-foreground">
-              {err.code === 'email_failed' ? 'Created, but not emailed' : `Could not create the invoice${err.period ? ` for ${formatRunDate(err.period)}` : ''}`}
+              {err.code.startsWith('email_') ? (
+                <>
+                  {err.code === 'email_needs_review' ? 'Needs your review: created, but not emailed' : 'Created, but not emailed'}
+                  {err.invoiceId && (
+                    <>
+                      {' · '}
+                      <Link to={`/invoice/${err.invoiceId}`} className="text-primary underline-offset-4 hover:underline">
+                        Open the invoice
+                      </Link>
+                    </>
+                  )}
+                </>
+              ) : (
+                `Could not create the invoice${err.period ? ` for ${formatRunDate(err.period)}` : ''}`
+              )}
             </p>
             <p className="break-words text-muted-foreground">{err.message}</p>
+            {err.sendPending && err.nextAttemptAt && (
+              <p className="text-xs text-muted-foreground">
+                The email is tried again after {new Date(err.nextAttemptAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} (attempt {err.attempts + 1}).
+              </p>
+            )}
             {schedule.retryAt && schedule.status === 'active' && (
               <p className="text-xs text-muted-foreground">
                 Tried {err.attempts === 1 ? 'once' : `${err.attempts} times`}; next try after{' '}
@@ -268,7 +287,7 @@ function ScheduleList({ onEdit, onNew }: { onEdit: (s: RecurringSchedule) => voi
       </div>
     );
   }
-  if (list.data.length === 0) {
+  if (list.data.recurring.length === 0) {
     return (
       <div className={cn(card, 'flex flex-col items-center gap-4 py-12 text-center')}>
         <div className="flex h-12 w-12 items-center justify-center rounded-md bg-secondary" aria-hidden="true">
@@ -295,7 +314,7 @@ function ScheduleList({ onEdit, onNew }: { onEdit: (s: RecurringSchedule) => voi
     );
   }
   const order = { active: 0, paused: 1, ended: 2 } as const;
-  const sorted = [...list.data].sort((a, b) => order[a.status] - order[b.status] || (a.nextRunDate ?? '9').localeCompare(b.nextRunDate ?? '9') || a.name.localeCompare(b.name));
+  const sorted = [...list.data.recurring].sort((a, b) => order[a.status] - order[b.status] || (a.nextRunDate ?? '9').localeCompare(b.nextRunDate ?? '9') || a.name.localeCompare(b.name));
   return (
     <ul className="space-y-3" aria-label="Recurring invoices">
       {sorted.map((s) => (
@@ -314,6 +333,7 @@ export default function Recurring() {
     prefillTemplate ? { prefill: { templateId: prefillTemplate, clientId: search.get('client') } } : null,
   );
   const create = useRecurringMutation((input: RecurringInput) => recurringApi.create(input));
+  const emailAvailability = useRecurringList().data?.email;
   const update = useRecurringMutation((args: { id: string; input: RecurringInput; revision: number }) => recurringApi.update(args.id, args.input, args.revision));
 
   const close = () => {
@@ -371,7 +391,14 @@ export default function Recurring() {
         </div>
       </main>
       {enabled && (
-        <RecurringFormDialog open={editing !== null} onOpenChange={(open) => !open && close()} schedule={editing?.schedule} prefill={editing?.prefill} onSave={save} />
+        <RecurringFormDialog
+          open={editing !== null}
+          onOpenChange={(open) => !open && close()}
+          schedule={editing?.schedule}
+          prefill={editing?.prefill}
+          email={emailAvailability}
+          onSave={save}
+        />
       )}
     </div>
   );

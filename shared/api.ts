@@ -571,6 +571,8 @@ export type {
 /** GET /api/v1/recurring */
 export interface ListRecurringResponse {
   recurring: RecurringSchedule[];
+  /** Whether the `send_email` auto action can be turned on (email set up on this server), and why not. */
+  email: { configured: boolean; reason: string | null };
 }
 
 export interface RecurringResponse {

@@ -22,7 +22,7 @@ const E = {
   412: err('If-Match precondition failed'),
   413: err('Body too large'),
   415: err('Content-Type must be application/json'),
-  503: err('recurring_disabled: generation is switched off on this server'),
+  503: err('recurring_disabled (run-now: generation is switched off on this server) or email_not_configured (turning on autoAction send_email)'),
 };
 
 const idParam = { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } };
@@ -53,7 +53,8 @@ const configFields: Json = {
     type: 'string',
     enum: [...RECURRING_AUTO_ACTIONS],
     default: 'draft',
-    description: 'draft = leave for review; mark_sent = mark sent on its run date; send_email = email it (only with the workspace token, and only where email sending is available)',
+    description:
+      'draft = leave for review; mark_sent = mark sent on its run date; send_email = email it to the client with the PDF (user only; needs email set up and a client address the user entered; held for review if an agent changed the template’s payment details; marked sent once delivered)',
   },
   overrides: {
     type: 'object',
@@ -149,7 +150,7 @@ export const recurringOpenApiPaths: Record<string, Json> = {
         'Agents also need invoices:write and templates:read (plus clients:read with clientId), and can never choose autoAction send_email.',
       ...scoped('recurring:write', ACTIVATE),
       requestBody: body('RecurringInput'),
-      responses: { 201: result('Created'), 400: E[400], 401: E[401], 403: E[403], 409: E[409], 413: E[413], 415: E[415] },
+      responses: { 201: result('Created'), 400: E[400], 401: E[401], 403: E[403], 409: E[409], 413: E[413], 415: E[415], 503: E[503] },
     },
   },
   '/recurring/{id}': {

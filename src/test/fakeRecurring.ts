@@ -9,8 +9,9 @@ import type { RecurringInput } from '../../shared/api';
 import { addDays, describeSchedule, localDateIn, nextRunDate, type RecurringSchedule } from '../../shared/recurring';
 import type { FakeApi, RecordedRequest } from './fakeApi';
 
-export function installFakeRecurring(fake: FakeApi, opts: { today?: string } = {}) {
+export function installFakeRecurring(fake: FakeApi, opts: { today?: string; email?: { configured: boolean; reason: string | null } } = {}) {
   const schedules = new Map<string, RecurringSchedule>();
+  const emailState = { value: opts.email ?? { configured: false, reason: 'Sending email is turned off on this server.' } };
   let seq = 0;
   const today = (tz: string) => opts.today ?? localDateIn(new Date(), tz);
   const withSummary = (s: RecurringSchedule): RecurringSchedule => ({ ...s, summary: describeSchedule(s, { nextRunDate: s.nextRunDate, status: s.status }) });
@@ -63,7 +64,7 @@ export function installFakeRecurring(fake: FakeApi, opts: { today?: string } = {
     const { method, path, body } = req;
     if (!path.startsWith('/recurring')) return undefined;
     if (req.headers.authorization !== `Bearer ${fake.state.token}`) return fake.apiError(401, 'unauthorized', 'Missing or invalid bearer token');
-    if (path === '/recurring' && method === 'GET') return fake.json(200, { recurring: [...schedules.values()].filter((s) => !s.deletedAt) });
+    if (path === '/recurring' && method === 'GET') return fake.json(200, { recurring: [...schedules.values()].filter((s) => !s.deletedAt), email: emailState.value });
     if (path === '/recurring' && method === 'POST') {
       const input = body as RecurringInput;
       const invalid = invalidRefs(input);
@@ -122,6 +123,10 @@ export function installFakeRecurring(fake: FakeApi, opts: { today?: string } = {
 
   return {
     schedules,
+    /** What GET /recurring says about email (the send_email option). */
+    setEmail(value: { configured: boolean; reason: string | null }) {
+      emailState.value = value;
+    },
     add(input: RecurringInput, extra: Partial<RecurringSchedule> = {}): RecurringSchedule {
       const s = withSummary({ ...build(`00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`, input), ...extra });
       schedules.set(s.id, s);

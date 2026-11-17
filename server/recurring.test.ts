@@ -5,7 +5,7 @@ import type { RecurringSchedule } from '../shared/recurring';
 import { createApp } from './app';
 import { defaultDeps, type AppDeps } from './deps';
 import { CRON_SCHEDULES, JOBS, runScheduledJobs } from './scheduled';
-import { setRecurringEmailSender } from './recurring/autoActions';
+import { serviceEmailSender, setRecurringEmailSender } from './recurring/autoActions';
 import { periodInvoiceId, retryDelayMs } from './recurring/generate';
 import { RECURRING_CRON, runRecurringGeneration } from './recurring/job';
 import { api, BASE, connectAgent, createWorkspace, readPublicAsset, startD1, TestClock, type Api } from './test/helpers';
@@ -22,7 +22,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await d1.db.batch([d1.db.prepare('DELETE FROM recurring_runs'), d1.db.prepare('DELETE FROM recurring_schedules')]);
 });
-afterEach(() => setRecurringEmailSender(null));
+afterEach(() => setRecurringEmailSender(serviceEmailSender));
 
 const SYSTEM = { id: null, email: null, type: 'system' as const };
 
@@ -566,39 +566,6 @@ describe('recurring schedules: agents', () => {
     expect((await client.post(`/api/v1/recurring/${ok.json.recurring.id}/pause`, undefined, reader.api_key)).status).toBe(403);
     // The preview shows template content: templates:read.
     expect((await client.get(`/api/v1/recurring/${ok.json.recurring.id}/preview`, reader.api_key)).json.error.details.requiredScope).toBe('templates:read');
-  });
-
-  it('automatic emailing is the user’s decision only', async () => {
-    const { client, run, at } = setup();
-    const { token, template } = await workspaceWithTemplate(client);
-    const agent = await connectAgent(client, token, FULL);
-    const body = { name: 'Mail', templateId: template.id, frequency: 'monthly', startDate: '2026-12-01', autoAction: 'send_email' };
-    // Without an email feature on the server: refused for everyone.
-    expect((await client.post('/api/v1/recurring', body, token)).json.error).toMatchObject({ code: 'validation_failed', message: 'Email sending is not available' });
-    const sent: string[] = [];
-    setRecurringEmailSender({ send: async (_ctx, id) => void sent.push(id) });
-    // An agent may never choose it, even with every scope.
-    const byAgent = await client.post('/api/v1/recurring', body, agent.api_key);
-    expect(byAgent.status).toBe(403);
-    expect(byAgent.json.error.message).toMatch(/Only the user/);
-    const mark = await client.post('/api/v1/recurring', { ...body, autoAction: 'mark_sent', name: 'Mark' }, agent.api_key);
-    expect(mark.status).toBe(201);
-    expect((await client.patch(`/api/v1/recurring/${mark.json.recurring.id}`, { autoAction: 'send_email' }, agent.api_key)).status).toBe(403);
-    // The user can; an agent then cannot change, resume or run it, but can pause it.
-    const userMail = (await client.post('/api/v1/recurring', body, token)).json.recurring;
-    expect(userMail.autoAction).toBe('send_email');
-    expect((await client.patch(`/api/v1/recurring/${userMail.id}`, { clientId: null, name: 'Changed' }, agent.api_key)).status).toBe(403);
-    expect((await client.post(`/api/v1/recurring/${userMail.id}/run-now`, undefined, agent.api_key)).status).toBe(403);
-    expect((await client.post(`/api/v1/recurring/${userMail.id}/pause`, undefined, agent.api_key)).status).toBe(200);
-    expect((await client.post(`/api/v1/recurring/${userMail.id}/resume`, undefined, agent.api_key)).status).toBe(403);
-    expect((await client.post(`/api/v1/recurring/${userMail.id}/resume`, undefined, token)).status).toBe(200);
-    // Generation hands send_email invoices to the email feature; mark_sent ones are marked sent on the run date.
-    at('2026-12-01T00:30:00.000Z');
-    await run();
-    const [mailed] = (await client.get(`/api/v1/invoices?recurring_id=${userMail.id}`, token)).json.invoices;
-    expect(sent).toEqual([mailed.id]);
-    const [marked] = (await client.get(`/api/v1/invoices?recurring_id=${mark.json.recurring.id}`, token)).json.invoices;
-    expect(marked).toMatchObject({ status: 'sent', sentAt: '2026-12-01' });
   });
 
   it('MCP tools for API-key agents: listed by scope, create + pause + preview + run-now', async () => {

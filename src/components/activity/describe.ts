@@ -68,8 +68,13 @@ const RECURRING_FAILURES: Record<string, string> = {
   validation_failed: 'the invoice would not be valid',
   workspace_suspended: 'the workspace is suspended',
   maintenance: 'the site was in maintenance',
-  email_unavailable: 'email sending is not available',
-  email_failed: 'the email could not be sent',
+  email_unavailable: 'email sending is not available, so the invoice was created but not emailed',
+  email_failed: 'the email could not be sent (the invoice was created as a draft)',
+  email_needs_review: 'the invoice needs your review before it is emailed (an agent changed the template’s payment details)',
+  email_address_not_confirmed: 'the client’s email address was added by an agent, so it was not emailed',
+  email_no_recipient: 'the client has no usable email address, so it was not emailed',
+  email_not_configured: 'email is not set up on this server, so it was not emailed',
+  email_rate_limited: 'the email limit was reached; it is emailed later',
   internal_error: 'of a server error',
 };
 
@@ -176,11 +181,13 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       if (e?.resend) details.push('Sent again');
       if (c.status?.to === 'sent') details.push('Marked as sent');
       if (e?.cc) details.push(`Copy to ${plural(e.cc, 'more recipient')}`);
+      if (c.recurring) details.push(`Automatically, for the recurring invoice “${c.recurring.label ?? 'a schedule'}”`);
       break;
     }
     case 'invoice.email_failed':
       parts = ['could not email ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
       if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
+      if (c.recurring) details.push(`Automatically, for the recurring invoice “${c.recurring.label ?? 'a schedule'}”; it is tried again`);
       break;
     case 'invoice.email_blocked':
       parts = ['was stopped from emailing ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];

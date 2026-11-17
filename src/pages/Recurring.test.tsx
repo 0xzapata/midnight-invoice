@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
@@ -219,6 +219,51 @@ describe('Recurring page', () => {
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete schedule' }));
     await waitFor(() => expect(screen.getByText('No recurring invoices yet')).toBeInTheDocument());
   }, 20_000);
+
+  it('offers automatic emailing only when email is set up, explains the rules, and sends the choice', async () => {
+    connect();
+    const user = userEvent.setup({ delay: null });
+    renderAt(`/recurring?template=${T1}`);
+    let dialog = await screen.findByRole('dialog', { name: 'New recurring invoice' });
+    expect(await within(dialog).findByTestId('email-unavailable')).toHaveTextContent('needs email to be set up on this server (Sending email is turned off on this server)');
+    expect(within(dialog).queryByLabelText('Create it and email it to the client')).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    cleanup();
+
+    recurring.setEmail({ configured: true, reason: null });
+    renderAt(`/recurring?template=${T1}`);
+    dialog = await screen.findByRole('dialog', { name: 'New recurring invoice' });
+    const option = await within(dialog).findByLabelText('Create it and email it to the client');
+    await user.click(option);
+    expect(within(dialog).getByText(/Only to an address you entered yourself/)).toHaveTextContent('ap@globex.example');
+    await user.click(within(dialog).getByRole('button', { name: 'Create schedule' }));
+    await waitFor(() => expect(fake.requests.find((r) => r.method === 'POST' && r.path === '/recurring')?.body).toMatchObject({ autoAction: 'send_email' }));
+  });
+
+  it('shows an email that is waiting for review on the schedule, with a link to the invoice', async () => {
+    connect();
+    recurring.add(
+      { name: 'Globex retainer', templateId: T1, frequency: 'monthly', startDate: '2026-12-01', timezone: 'UTC', autoAction: 'send_email' },
+      {
+        nextRunDate: '2027-01-01',
+        lastError: {
+          code: 'email_needs_review',
+          message: 'Needs your review: the invoice’s paymentDetails differs from your default settings.',
+          at: '2026-12-01T00:30:00.000Z',
+          period: '2026-12-01',
+          attempts: 1,
+          invoiceId: 'inv-9',
+          sendPending: true,
+          nextAttemptAt: '2026-12-01T01:30:00.000Z',
+        },
+      },
+    );
+    renderAt('/recurring');
+    const alert = within(await screen.findByTestId('recurring-row')).getByRole('alert');
+    expect(alert).toHaveTextContent('Needs your review: created, but not emailed');
+    expect(within(alert).getByRole('link', { name: 'Open the invoice' })).toHaveAttribute('href', '/invoice/inv-9');
+    expect(alert).toHaveTextContent('The email is tried again after');
+  });
 
   it('"Make recurring" from a template opens the dialog prefilled', async () => {
     connect();

@@ -750,11 +750,40 @@ h, 2 h, 4 h … 24 h); one failing schedule never stops the others. Editing the
 schedule clears the error. Ended schedules stop; raising `maxOccurrences` or
 the end date continues them.
 
-**Agents and email.** An agent cannot choose `send_email`, and cannot change,
+**Automatic emailing (`autoAction: "send_email"`).** Only the user (workspace
+or device token) can turn it on; an agent cannot choose it, and cannot change,
 resume or run a schedule that has it (it may pause or delete one): emailing a
 client every period without review is the user's decision, not something a
-consent-screen grant should imply. `send_email` is only accepted where the
-server can send email; otherwise 400.
+consent-screen grant should imply. Turning it on needs email to be set up on
+the server (`503 email_not_configured`; `GET /recurring` returns
+`email: {configured, reason}` for the app) and a client — the schedule's, or
+the template's — whose email address the user entered themselves (`400`
+otherwise). Each period's invoice is generated as a draft and then sent with
+the [email feature's own send](#sending-invoices-by-email) (PDF attached, to
+the client on file), under these rules:
+
+- **Unattended rules**: like an agent's send — only the invoice's `toEmail`,
+  only an address the user entered (an agent-edited client email is held as
+  `email_address_not_confirmed`), and sender details that are the user's
+  (payment details from the settings or from a template the user saved last;
+  if an agent changed the template's payment details last, the email is held
+  as `email_needs_review` until the user saves the template).
+- **Limits**: counted like the user's own sends (workspace hourly/daily
+  windows and the site-wide daily cap, never bypassed; held as
+  `email_rate_limited` and retried after the window).
+- **Exactly once**: the send's idempotency key is `recurring/<schedule>/<period>`
+  (and the provider gets a key per message), so a retry after a partial
+  failure replays instead of sending twice.
+- **Status**: the invoice becomes `sent` only when the email went out (one
+  `invoice.emailed` entry, actor system, with `changes.recurring`; no separate
+  `invoice.status_changed`).
+- **Failures**: the invoice stays a draft; `lastError` gets the reason plus
+  `invoiceId`, `sendPending` and `nextAttemptAt`, and only the send is retried
+  by the hourly job (backoff 1 h … 24 h, at most 8 attempts; not after the
+  invoice was deleted, voided or emailed some other way). The next period's
+  invoice is generated on time regardless. Failures also appear in the
+  invoice's email history (`invoice.email_failed` for provider errors) and as
+  `recurring.run_failed` with the `email_*` reason.
 
 ### Activity log
 
