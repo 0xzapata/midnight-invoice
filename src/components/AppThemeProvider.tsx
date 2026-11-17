@@ -16,6 +16,10 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       themes={[...THEMES]}
       enableSystem={false}
       disableTransitionOnChange
+      // next-themes renders an inline <script> for server rendering; in this client-only app it
+      // never runs (index.html applies the theme before the first paint), and React logs an
+      // error for every executable <script> it renders. A data-block type keeps it inert and quiet.
+      scriptProps={{ type: 'application/json' }}
     >
       {children}
     </ThemeProvider>

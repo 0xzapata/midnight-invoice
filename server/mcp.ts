@@ -40,8 +40,9 @@ import { registerActivityTools } from './mcpActivity';
 import { registerRecurringTools } from './recurring/mcp';
 import type { ActivityRequest } from './services/activity';
 import { downloadInvoicePdf } from './services/invoicePdf';
+import { APP_VERSION } from '../shared/version';
 
-export const MCP_SERVER_INFO = { name: 'midnight-invoice', version: '1.0.0' };
+export const MCP_SERVER_INFO = { name: 'midnight-invoice', version: APP_VERSION };
 
 const FIELD_DOCS: Record<string, string> = {
   invoiceNumber: 'Invoice number, e.g. "INV-0042". Omit on create to allocate the next number automatically.',

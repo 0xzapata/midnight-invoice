@@ -343,7 +343,7 @@ export default function Agents() {
           <div>
             <h2 className="mb-2 text-2xl font-semibold text-foreground">Agents</h2>
             <p className="text-sm text-muted-foreground">
-              AI agents you approve can work with this workspace’s invoices and saved clients, with only the permissions you
+              AI agents you approve can work with this workspace’s invoices, clients, templates and recurring invoices, with only the permissions you
               give them. Their changes are marked with their name.
             </p>
           </div>
@@ -356,7 +356,7 @@ export default function Agents() {
                 <h3 id="agents-connected" className="text-lg font-semibold text-foreground">
                   Connected agents
                 </h3>
-                <Button variant="outline" size="sm" asChild>
+                <Button variant="outline" size="sm" asChild className="font-mono">
                   <Link to="/activity">
                     <History className="h-4 w-4" aria-hidden="true" />
                     Activity log

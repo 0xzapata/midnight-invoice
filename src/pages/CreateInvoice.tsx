@@ -15,6 +15,7 @@ import { isGeneratedInvoiceName } from '@/lib/invoiceName';
 import { StatusBadge } from '@/components/invoice/status/StatusBadge';
 import { useToday } from '@/components/invoice/status/useInvoiceStatus';
 import { statusOf } from '../../shared/invoice-status';
+import { duplicateInvoiceData } from '@/lib/duplicateInvoice';
 
 export default function CreateInvoice() {
   const navigate = useNavigate();
@@ -150,21 +151,9 @@ export default function CreateInvoice() {
   };
 
   const handleDuplicate = () => {
-    // Generate new ID for the duplicated invoice
+    // Save the copy as a draft under a new id, then edit it.
     const newId = crypto.randomUUID();
-    
-    // Prepare duplicate data (reset dates)
-    const duplicateData: InvoiceFormData = {
-      ...formData,
-      invoiceNumber: getNextInvoiceNumber, // Will get fresh number
-      issueDate: new Date().toISOString().split('T')[0], // Set to today
-      dueDate: '', // Clear due date
-    };
-    
-    // Save as draft with new ID
-    saveDraft(newId, duplicateData);
-    
-    // Navigate to create page with the new ID
+    saveDraft(newId, duplicateInvoiceData(formData, getNextInvoiceNumber));
     toast.success('Invoice duplicated');
     navigate(`/create/${newId}`, { viewTransition: true, replace: true });
   };

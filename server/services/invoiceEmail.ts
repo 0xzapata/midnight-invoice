@@ -425,7 +425,9 @@ async function send(
     }
   }
 
-  const resend = statusOf(invoice) !== 'draft' || (await emails.lastDeliveredAt(principal.workspaceId, id, messageId)) !== null;
+  // "Sent again" in the activity log: this invoice was emailed before. Its status says nothing
+  // about that (users often mark an invoice sent and email it afterwards).
+  const resend = (await emails.lastDeliveredAt(principal.workspaceId, id, messageId)) !== null;
   const entity = { type: 'invoice', id, label: invoice.invoiceNumber };
   const fail = async (code: string, message: string, status: number, retryable: boolean): Promise<never> => {
     const at = deps.clock().toISOString();

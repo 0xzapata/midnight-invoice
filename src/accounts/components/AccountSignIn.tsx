@@ -80,7 +80,7 @@ export function AccountSignInOption({
           Signed in as <span className="font-medium text-foreground break-all">{session.data.user.email}</span>, but this browser is not connected to
           your account yet.
         </p>
-        <Button variant="outline" size="sm" asChild>
+        <Button variant="outline" size="sm" asChild className="font-mono">
           <Link to={`/account/connect?return_to=${encodeURIComponent(safeReturnTo(target))}`}>
             <UserRound className="w-4 h-4" aria-hidden="true" />
             Connect this browser
@@ -200,7 +200,7 @@ export function AccountLinkedPanel() {
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {!accountsOff && (
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="outline" size="sm" asChild className="font-mono">
             <Link to="/account">
               <UserRound className="w-4 h-4" aria-hidden="true" />
               Manage account
