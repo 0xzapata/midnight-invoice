@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Download, Save, ArrowLeft, Copy, Settings } from 'lucide-react';
+import { Download, Save, ArrowLeft, Copy, Settings, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InvoiceForm, type InvoiceFormHandle } from '@/components/invoice/InvoiceForm';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
@@ -12,6 +12,9 @@ import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsSto
 import { InvoiceFormData } from '@/types/invoice';
 import { toast } from 'sonner';
 import { isGeneratedInvoiceName } from '@/lib/invoiceName';
+import { StatusBadge } from '@/components/invoice/status/StatusBadge';
+import { useToday } from '@/components/invoice/status/useInvoiceStatus';
+import { statusOf } from '../../shared/invoice-status';
 
 export default function CreateInvoice() {
   const navigate = useNavigate();
@@ -93,10 +96,15 @@ export default function CreateInvoice() {
     saveDraft(invoiceId, data);
   }, [saveDraft, invoiceId]);
 
-  const isEditing = !!getInvoice(invoiceId);
+  const savedInvoice = getInvoice(invoiceId);
+  const isEditing = !!savedInvoice;
+  const today = useToday();
+  // "Save & mark sent" is offered while the invoice is new or still a draft.
+  const canSaveAsSent = statusOf(savedInvoice) === 'draft';
 
   // Saving runs the same rules the API enforces (drafts stay unvalidated), so a
-  // saved invoice can always be uploaded by cloud sync.
+  // saved invoice can always be uploaded by cloud sync. Nothing is saved or
+  // marked sent while a field is invalid.
   const formRef = useRef<InvoiceFormHandle>(null);
   const validateForSave = async () => {
     if (!formRef.current || (await formRef.current.validate())) return true;
@@ -104,11 +112,13 @@ export default function CreateInvoice() {
     return false;
   };
 
-  const handleSave = async () => {
+  const handleSave = async (options?: { status?: 'sent' }) => {
     if (!(await validateForSave())) return;
-    saveInvoice(formData, invoiceId);
+    saveInvoice(formData, invoiceId, options);
     clearDraft(invoiceId);
-    toast.success('Invoice saved successfully');
+    toast.success(
+      options?.status === 'sent' ? 'Invoice saved and marked as sent' : canSaveAsSent ? 'Invoice saved as draft' : 'Invoice saved successfully',
+    );
     navigate('/', { viewTransition: true });
   };
 
@@ -171,20 +181,27 @@ export default function CreateInvoice() {
             <h1 className="truncate text-sm font-medium text-foreground">
               {isEditing ? 'Edit Invoice' : 'Create Invoice'}
             </h1>
+            {savedInvoice && <StatusBadge invoice={savedInvoice} today={today} className="hidden sm:inline-flex" />}
           </div>
-          {/* Below md the actions are icon-only (labelled for assistive tech) so the header fits at 320 px. */}
+          {/* Below lg the actions are icon-only (labelled for assistive tech) so the header fits at 320 px. */}
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            <Button variant="outline" size="sm" onClick={handleDownload} className="h-8 w-8 p-0 md:h-9 md:w-auto md:px-3" aria-label="Download PDF">
-              <Download className="w-4 h-4 md:mr-2" aria-hidden="true" />
-              <span className="hidden md:inline">Download PDF</span>
+            <Button variant="outline" size="sm" onClick={handleDownload} className="h-8 w-8 p-0 lg:h-9 lg:w-auto lg:px-3" aria-label="Download PDF">
+              <Download className="w-4 h-4 lg:mr-2" aria-hidden="true" />
+              <span className="hidden lg:inline">Download PDF</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={handleDuplicate} className="h-8 w-8 p-0 md:h-9 md:w-auto md:px-3" aria-label="Duplicate">
-              <Copy className="w-4 h-4 md:mr-2" aria-hidden="true" />
-              <span className="hidden md:inline">Duplicate</span>
+            <Button variant="outline" size="sm" onClick={handleDuplicate} className="h-8 w-8 p-0 lg:h-9 lg:w-auto lg:px-3" aria-label="Duplicate">
+              <Copy className="w-4 h-4 lg:mr-2" aria-hidden="true" />
+              <span className="hidden lg:inline">Duplicate</span>
             </Button>
-            <Button size="sm" onClick={handleSave} className="h-8 w-8 p-0 md:h-9 md:w-auto md:px-3" aria-label="Save Invoice">
-              <Save className="w-4 h-4 md:mr-2" aria-hidden="true" />
-              <span className="hidden md:inline">Save Invoice</span>
+            {canSaveAsSent && (
+              <Button variant="outline" size="sm" onClick={() => handleSave({ status: 'sent' })} title="Save and mark as sent" className="h-8 w-8 p-0 lg:h-9 lg:w-auto lg:px-3" aria-label="Save & mark sent">
+                <Send className="w-4 h-4 lg:mr-2" aria-hidden="true" />
+                <span className="hidden lg:inline">Save &amp; mark sent</span>
+              </Button>
+            )}
+            <Button size="sm" onClick={() => handleSave()} title={canSaveAsSent ? 'Save as draft' : undefined} className="h-8 w-8 p-0 lg:h-9 lg:w-auto lg:px-3" aria-label="Save Invoice">
+              <Save className="w-4 h-4 lg:mr-2" aria-hidden="true" />
+              <span className="hidden lg:inline">Save Invoice</span>
             </Button>
             <ThemeToggle />
           </div>

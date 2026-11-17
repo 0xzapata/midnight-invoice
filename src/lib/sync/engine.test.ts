@@ -100,7 +100,7 @@ describe('enabling', () => {
     const cloud = useCloudStore.getState();
     expect(cloud.token).toBe(FAKE_TOKEN);
     expect(cloud.queue).toEqual([]);
-    expect(cloud.cursor).not.toBeNull();
+    expect(cloud.cursors.invoices).toEqual(expect.any(String));
     expect(cloud.status).toBe('synced');
     expect(local(ID.a)?.revision).toBe(1);
     expect(local(ID.a)?.createdBy).toEqual({ type: 'user' });
@@ -143,7 +143,7 @@ describe('pull', () => {
     expect(lists[0].query.get('updated_since')).toBeNull();
     expect(lists[1].query.get('after_id')).toBe(ID.b);
     expect(useInvoiceStore.getState().invoices).toHaveLength(3);
-    const cursor = useCloudStore.getState().cursor!;
+    const cursor = useCloudStore.getState().cursors.invoices!;
 
     // The inclusive feed may repeat items: applying them again changes nothing.
     fake.state.pageSize = 1000;
@@ -159,7 +159,7 @@ describe('pull', () => {
     fake.server.create(ID.b, { toName: 'B', fromName: 'Ada', lineItems: [{ description: 'x', quantity: 1, price: 1 }] });
     fake.use((req) => (req.query.get('after_id') ? fake.apiError(500, 'internal_error', 'boom') : undefined));
     await syncNow();
-    expect(useCloudStore.getState().cursor).toBeNull();
+    expect(useCloudStore.getState().cursors.invoices).toBeUndefined();
     expect(useCloudStore.getState().status).toBe('error');
     expect(local(ID.a)).toBeDefined();
   });
@@ -196,7 +196,7 @@ describe('push queue', () => {
     save(ID.a, { invoiceNumber: 'INV-0001' });
     save(ID.b, { invoiceNumber: 'INV-0002' });
     save(ID.a, { invoiceNumber: 'INV-0001', toName: 'Second edit' });
-    expect(useCloudStore.getState().queue.map((op) => op.invoiceId)).toEqual([ID.a, ID.b]);
+    expect(useCloudStore.getState().queue.map((op) => op.entityId)).toEqual([ID.a, ID.b]);
 
     await syncNow();
     expect(fake.writes()).toEqual([`PUT /invoices/${ID.a}`, `PUT /invoices/${ID.b}`]);
@@ -255,7 +255,7 @@ describe('push queue', () => {
     const before = Date.now();
     await syncNow();
     const queue = useCloudStore.getState().queue;
-    expect(queue.map((op) => op.invoiceId)).toEqual([ID.a, ID.b]);
+    expect(queue.map((op) => op.entityId)).toEqual([ID.a, ID.b]);
     expect(queue[0].attempts).toBe(1);
     expect(queue[0].notBefore).toBeGreaterThanOrEqual(before + 30_000);
     expect(fake.writes()).toEqual([`PUT /invoices/${ID.a}`]); // B waits behind A

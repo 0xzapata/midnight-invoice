@@ -1,32 +1,38 @@
 /**
- * Cloud sync engine: mirrors useInvoiceStore (local-first source of truth)
- * and useSettingsStore with the workspace on the server, following the sync
- * contract in AGENT_API.md ("Sync semantics").
+ * Cloud sync engine: mirrors the local-first stores of every synced
+ * collection (invoices, clients — see collections/) and useSettingsStore with
+ * the workspace on the server, following the sync contract in AGENT_API.md
+ * ("Sync semantics"). The engine is collection-agnostic; each collection is a
+ * descriptor (collection.ts) registered in collections/index.ts.
  *
  * One cycle = pull, then push:
- *  1. Pull `GET /invoices?include_deleted=true&updated_since=<cursor>`, paging
+ *  1. Pull each collection, in dependency order (SYNCED_COLLECTIONS):
+ *     `GET /<collection>?include_deleted=true&updated_since=<cursor>`, paging
  *     with `next` until `hasMore` is false, applying every item by id
  *     (idempotent: `updated_since` is inclusive). Tombstones delete local
- *     copies. The cursor becomes `syncedAt` only after the last page.
- *  2. Push the queue of local changes in order. Invoices are uploaded with
- *     `PUT` + `If-Match: "<last known revision>"`, or `If-None-Match: *` if
- *     never uploaded; deletes with `DELETE` + `If-Match`.
+ *     copies. A collection's cursor becomes `syncedAt` only after its last page.
+ *  2. Push the single queue of local changes (all collections + settings) in
+ *     order. Entities are uploaded with `PUT` + `If-Match: "<last known
+ *     revision>"`, or `If-None-Match: *` if never uploaded; deletes with
+ *     `DELETE` + `If-Match`. Before an upload, pending uploads of the entities
+ *     it depends on (e.g. the client an invoice references) are moved ahead of
+ *     it, so the server never sees a reference to something it does not have.
  *
  * Rules:
  *  - Local writes apply immediately and are queued (persisted, so they survive
- *    reloads and offline periods). Repeated edits of one invoice coalesce into
+ *    reloads and offline periods). Repeated edits of one entity coalesce into
  *    one queue entry that keeps its original position.
  *  - Transient failures (offline, 5xx, 429, write races) stop the queue at
  *    that entry and retry with exponential backoff (or `Retry-After`).
- *    Permanent failures (e.g. 400 validation) drop the entry, keep the invoice
+ *    Permanent failures (e.g. 400 validation) drop the entry, keep the entity
  *    local-only and record why.
  *  - Deleted stays deleted: a tombstone or `410` drops the local copy, even if
  *    it had unsynced edits (the user is told).
  *  - `412` on an upload → fetch the server version and three-way merge against
- *    the last version both agreed on (see mergeContent): non-overlapping edits
- *    are combined, a field edited on both sides keeps the server's value. The
- *    user is told when changes were merged or discarded.
- *  - `412` on a delete (someone changed the invoice after this browser's last
+ *    the last version both agreed on (the descriptor's merge): non-overlapping
+ *    edits are combined, a field edited on both sides keeps the server's
+ *    value. The user is told when changes were merged or discarded.
+ *  - `412` on a delete (someone changed the entity after this browser's last
  *    sync) → the newer server version is restored locally rather than deleting
  *    someone else's change; the user is told.
  *  - `401` → the workspace token is no longer valid: the browser is marked
@@ -39,18 +45,11 @@ import type { DefaultSettings } from '../../../shared/settings';
 import { api } from '@/lib/api';
 import { ApiError, describeError, isApiError, NetworkError } from '@/lib/api/errors';
 import { useCloudStore, type PendingOp } from '@/stores/useCloudStore';
-import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
-import {
-  contentEquals,
-  contentOf,
-  FIELD_LABELS,
-  fromApiInvoice,
-  mergeContent,
-  toInvoiceInput,
-  type InvoiceContent,
-} from './fields';
-import { setLocalInvoiceChangeListener, type LocalInvoiceChange } from './localChanges';
+import type { LocalEntity, ServerEntity, SyncCollection } from './collection';
+import { syncKey, type CollectionName } from './collectionNames';
+import { COLLECTIONS, orderedCollections } from './collections';
+import { setLocalChangeListener, type LocalChange, type LocalEntityLike } from './localChanges';
 
 /** How often the app pulls while the tab is visible (agents' changes show up within this). */
 export const POLL_INTERVAL_MS = 15_000;
@@ -91,38 +90,38 @@ function actorLabel(actor: Actor | undefined): string {
   return 'another device';
 }
 
-function listFields(fields: readonly (keyof typeof FIELD_LABELS)[]): string {
-  const labels = fields.map((f) => FIELD_LABELS[f]);
+function listFields(col: SyncCollection, fields: readonly string[]): string {
+  const labels = fields.map((f) => col.fieldLabel(f));
   if (labels.length <= 1) return labels.join('');
   return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
 const notices = {
-  deletedElsewhere(invoiceNumber: string, by: Actor | undefined) {
-    toast.warning(by ? `${invoiceNumber} was deleted by ${actorLabel(by)}` : `${invoiceNumber} was deleted elsewhere`, {
-      description: 'Your unsynced changes to it were discarded. Deleted invoices stay deleted.',
+  deletedElsewhere(col: SyncCollection, label: string, by: Actor | undefined) {
+    toast.warning(by ? `${label} was deleted by ${actorLabel(by)}` : `${label} was deleted elsewhere`, {
+      description: `Your unsynced changes to it were discarded. Deleted ${col.plural} stay deleted.`,
     });
   },
-  deletedByAgent(invoiceNumber: string, by: Actor | undefined) {
-    toast.info(`${invoiceNumber} was deleted by ${actorLabel(by)}`);
+  deletedByAgent(label: string, by: Actor | undefined) {
+    toast.info(`${label} was deleted by ${actorLabel(by)}`);
   },
-  merged(invoiceNumber: string, by: Actor | undefined) {
-    toast.info(`${invoiceNumber} was also changed by ${actorLabel(by)}`, {
+  merged(label: string, by: Actor | undefined) {
+    toast.info(`${label} was also changed by ${actorLabel(by)}`, {
       description: 'Both sets of changes were kept.',
     });
   },
-  lost(invoiceNumber: string, by: Actor | undefined, fields: readonly (keyof typeof FIELD_LABELS)[]) {
-    toast.warning(`Some of your changes to ${invoiceNumber} were not applied`, {
-      description: `${actorLabel(by)[0].toUpperCase()}${actorLabel(by).slice(1)} changed the ${listFields(fields)} at the same time; the newer version was kept.`,
+  lost(col: SyncCollection, label: string, by: Actor | undefined, fields: readonly string[]) {
+    toast.warning(`Some of your changes to ${label} were not applied`, {
+      description: `${actorLabel(by)[0].toUpperCase()}${actorLabel(by).slice(1)} changed the ${listFields(col, fields)} at the same time; the newer version was kept.`,
     });
   },
-  restored(invoiceNumber: string, by: Actor | undefined) {
-    toast.warning(`${invoiceNumber} was kept`, {
+  restored(label: string, by: Actor | undefined) {
+    toast.warning(`${label} was kept`, {
       description: `It was changed by ${actorLabel(by)} after this browser last synced, so it was not deleted. Delete it again if you still want it gone.`,
     });
   },
-  rejected(invoiceNumber: string, message: string) {
-    toast.error(`${invoiceNumber} could not be synced`, {
+  rejected(label: string, message: string) {
+    toast.error(`${label} could not be synced`, {
       description: `${message} It stays in this browser only; edit and save it to try again.`,
     });
   },
@@ -135,61 +134,47 @@ const notices = {
 // Local state helpers (these bypass the store actions, so they are not queued)
 // ---------------------------------------------------------------------------
 
-function getLocal(id: string): Invoice | undefined {
-  return useInvoiceStore.getState().invoices.find((inv) => inv.id === id);
-}
+const isEntityOp = (op: PendingOp, collection: CollectionName, id: string) =>
+  op.type !== 'settings' && op.collection === collection && op.entityId === id;
 
-function replaceLocal(id: string, next: Invoice, insertIfMissing = true): void {
-  useInvoiceStore.setState((state) => {
-    const index = state.invoices.findIndex((inv) => inv.id === id);
-    if (index < 0) return insertIfMissing ? { invoices: [next, ...state.invoices] } : {};
-    const invoices = [...state.invoices];
-    invoices[index] = next;
-    return { invoices };
-  });
-}
-
-function removeLocal(id: string): void {
-  useInvoiceStore.setState((state) => ({ invoices: state.invoices.filter((inv) => inv.id !== id) }));
-}
-
-function setBase(id: string, content: InvoiceContent | null): void {
+function setBase(col: SyncCollection, id: string, content: unknown | null): void {
+  const key = syncKey(col.name, id);
   useCloudStore.setState((state) => {
     const bases = { ...state.bases };
-    if (content) bases[id] = content;
-    else delete bases[id];
+    if (content) bases[key] = content;
+    else delete bases[key];
     return { bases };
   });
 }
 
-function setSyncError(id: string, message: string | null): void {
+function setSyncError(col: SyncCollection, id: string, message: string | null): void {
+  const key = syncKey(col.name, id);
   useCloudStore.setState((state) => {
-    if (message === null && !(id in state.syncErrors)) return {};
+    if (message === null && !(key in state.syncErrors)) return {};
     const syncErrors = { ...state.syncErrors };
-    if (message === null) delete syncErrors[id];
-    else syncErrors[id] = message;
+    if (message === null) delete syncErrors[key];
+    else syncErrors[key] = message;
     return { syncErrors };
   });
 }
 
-function baseOf(id: string): InvoiceContent | null {
-  const base = cloud().bases[id];
-  return base ? (base as InvoiceContent) : null;
+function baseOf(col: SyncCollection, id: string): unknown | null {
+  return cloud().bases[syncKey(col.name, id)] ?? null;
 }
 
 /** Local copy := server version (keeps the list position). */
-function adoptServer(server: ApiInvoice): void {
-  replaceLocal(server.id, fromApiInvoice(server));
-  setBase(server.id, contentOf(server));
-  setSyncError(server.id, null);
+function adoptServer(col: SyncCollection, server: ServerEntity): void {
+  col.setLocal(server.id, col.fromServer(server), true);
+  setBase(col, server.id, col.contentOf(server));
+  setSyncError(col, server.id, null);
 }
 
-/** Drops an invoice the server says is deleted, with everything queued for it. */
-function dropDeleted(id: string): void {
-  removeLocal(id);
-  setBase(id, null);
-  setSyncError(id, null);
-  useCloudStore.setState((state) => ({ queue: state.queue.filter((op) => op.invoiceId !== id) }));
+/** Drops an entity the server says is deleted, with everything queued for it. */
+function dropDeleted(col: SyncCollection, id: string): void {
+  col.removeLocal(id);
+  setBase(col, id, null);
+  setSyncError(col, id, null);
+  useCloudStore.setState((state) => ({ queue: state.queue.filter((op) => !isEntityOp(op, col.name, id)) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -200,52 +185,61 @@ function newOp(partial: Pick<PendingOp, 'type'> & Partial<PendingOp>): PendingOp
   return { opId: crypto.randomUUID(), seq: 0, attempts: 0, notBefore: 0, ...partial };
 }
 
-/** Queues the upload of a local invoice (created or edited). */
-export function enqueueInvoiceUpsert(id: string): void {
+/** Queues the upload of a local entity (created or edited). */
+export function enqueueUpsert(collection: CollectionName, id: string): void {
   if (!cloud().token) return;
+  const key = syncKey(collection, id);
   useCloudStore.setState((state) => {
-    const index = state.queue.findIndex((op) => op.invoiceId === id && op.type !== 'settings');
+    const index = state.queue.findIndex((op) => isEntityOp(op, collection, id));
     const queue = [...state.queue];
     if (index >= 0) {
       const current = queue[index];
       queue[index] = { ...current, type: 'upsert', baseRevision: undefined, seq: current.seq + 1, notBefore: 0 };
     } else {
-      queue.push(newOp({ type: 'upsert', invoiceId: id }));
+      queue.push(newOp({ type: 'upsert', collection, entityId: id }));
     }
     const syncErrors = { ...state.syncErrors };
-    delete syncErrors[id];
+    delete syncErrors[key];
     return { queue, syncErrors };
   });
   scheduleFlush();
 }
 
-/** Queues the deletion of an invoice the user deleted locally. */
-export function enqueueInvoiceDelete(invoice: Invoice): void {
+/** Queues the deletion of an entity the user deleted locally. */
+export function enqueueDelete(collection: CollectionName, entity: LocalEntityLike): void {
   if (!cloud().token) return;
+  const col = COLLECTIONS[collection];
+  const key = syncKey(collection, entity.id);
   useCloudStore.setState((state) => {
-    const index = state.queue.findIndex((op) => op.invoiceId === invoice.id && op.type !== 'settings');
+    const index = state.queue.findIndex((op) => isEntityOp(op, collection, entity.id));
     const queue = [...state.queue];
-    const neverUploaded = invoice.revision === undefined;
+    const neverUploaded = entity.revision === undefined;
     const del = newOp({
       type: 'delete',
-      invoiceId: invoice.id,
-      baseRevision: invoice.revision,
-      invoiceNumber: invoice.invoiceNumber,
+      collection,
+      entityId: entity.id,
+      baseRevision: entity.revision,
+      label: col.label(entity as LocalEntity),
     });
     if (index >= 0) {
       const current = queue[index];
-      // A pending upload of an invoice the server never saw: nothing to delete there.
-      if (current.type === 'upsert' && neverUploaded && !(invoice.id in state.bases)) queue.splice(index, 1);
+      // A pending upload of an entity the server never saw: nothing to delete there.
+      if (current.type === 'upsert' && neverUploaded && !(key in state.bases)) queue.splice(index, 1);
       else queue[index] = { ...del, opId: current.opId, seq: current.seq + 1 };
-    } else if (!(neverUploaded && invoice.id in state.syncErrors)) {
+    } else if (!(neverUploaded && key in state.syncErrors)) {
       queue.push(del);
     }
     const syncErrors = { ...state.syncErrors };
-    delete syncErrors[invoice.id];
+    delete syncErrors[key];
     return { queue, syncErrors };
   });
   scheduleFlush();
 }
+
+/** Queues the upload of a local invoice (created or edited). */
+export const enqueueInvoiceUpsert = (id: string): void => enqueueUpsert('invoices', id);
+/** Queues the deletion of an invoice the user deleted locally. */
+export const enqueueInvoiceDelete = (invoice: Invoice): void => enqueueDelete('invoices', invoice);
 
 /** Queues uploading the default settings (coalesced). */
 export function enqueueSettings(): void {
@@ -260,11 +254,16 @@ export function enqueueSettings(): void {
   scheduleFlush();
 }
 
-/** Queues every local invoice (oldest first) for upload, e.g. after joining a workspace. */
-export function enqueueAllLocalInvoices(): void {
-  // The store lists newest first; reverse so ties keep creation order, then sort (stable) by createdAt.
-  const invoices = [...useInvoiceStore.getState().invoices].reverse().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  for (const invoice of invoices) enqueueInvoiceUpsert(invoice.id);
+/**
+ * Queues every local entity of every collection for upload, e.g. after
+ * joining a workspace: collections in dependency order (clients before the
+ * invoices that reference them), each in its upload order (oldest first).
+ */
+export function enqueueAllLocal(): void {
+  for (const col of orderedCollections()) {
+    const entities = col.uploadOrder ? col.uploadOrder(col.all()) : col.all();
+    for (const entity of entities) enqueueUpsert(col.name, entity.id);
+  }
 }
 
 function removeOpIfUnchanged(opId: string, seq: number): void {
@@ -281,45 +280,73 @@ function backoffDelay(attempts: number, error: unknown): number {
   return Math.round(exp * (0.8 + Math.random() * 0.4));
 }
 
+/**
+ * If the head of the queue is an upload whose dependencies still have
+ * uploads waiting further back, moves those to the front (keeping their
+ * relative order). Returns true when the queue was reordered.
+ */
+function hoistDependencies(op: PendingOp): boolean {
+  if (op.type !== 'upsert' || !op.collection || !op.entityId) return false;
+  const col = COLLECTIONS[op.collection];
+  const local = col.getLocal(op.entityId);
+  const deps = local && col.dependencies ? col.dependencies(local) : [];
+  if (deps.length === 0) return false;
+  const queue = cloud().queue;
+  const waiting = queue.filter((q) => q.type === 'upsert' && deps.some((d) => isEntityOp(q, d.collection, d.id)) && q.opId !== op.opId);
+  if (waiting.length === 0) return false;
+  const ids = new Set(waiting.map((q) => q.opId));
+  useCloudStore.setState({ queue: [...waiting, ...queue.filter((q) => !ids.has(q.opId))] });
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Pull
 // ---------------------------------------------------------------------------
 
-/** Applies one page of the delta feed. Exported for tests. */
-export function applyServerInvoices(items: ApiInvoice[]): void {
+/** Applies one page of a collection's delta feed. */
+export function applyServerItems(col: SyncCollection, items: ServerEntity[]): void {
   for (const server of items) {
-    const pending = cloud().queue.find((op) => op.invoiceId === server.id && op.type !== 'settings');
-    const local = getLocal(server.id);
+    const pending = cloud().queue.find((op) => isEntityOp(op, col.name, server.id));
+    const local = col.getLocal(server.id);
 
     if (server.deletedAt) {
       if (local || pending) {
-        dropDeleted(server.id);
-        if (pending?.type === 'upsert') notices.deletedElsewhere(local?.invoiceNumber ?? server.invoiceNumber, server.updatedBy);
-        else if (!pending && local && server.updatedBy?.type === 'agent') notices.deletedByAgent(local.invoiceNumber, server.updatedBy);
+        dropDeleted(col, server.id);
+        if (pending?.type === 'upsert') notices.deletedElsewhere(col, local ? col.label(local) : col.label(server), server.updatedBy);
+        else if (!pending && local && server.updatedBy?.type === 'agent') notices.deletedByAgent(col.label(local), server.updatedBy);
       } else {
-        setBase(server.id, null);
+        setBase(col, server.id, null);
       }
       continue;
     }
     // Local changes are waiting to be uploaded: the push resolves them against this version.
     if (pending) continue;
     if (local?.revision !== undefined && local.revision >= server.revision) continue;
-    adoptServer(server);
+    adoptServer(col, server);
+  }
+}
+
+/** Applies one page of the invoice feed. Exported for tests. */
+export function applyServerInvoices(items: ApiInvoice[]): void {
+  applyServerItems(COLLECTIONS.invoices, items);
+}
+
+async function pullCollection(col: SyncCollection, token: string): Promise<void> {
+  const cursor = cloud().cursors[col.name];
+  let page = await col.listPage({ updatedSince: cursor });
+  for (;;) {
+    assertSession(token);
+    applyServerItems(col, page.items);
+    if (!page.hasMore || !page.next) {
+      useCloudStore.setState((state) => ({ cursors: { ...state.cursors, [col.name]: page.syncedAt } }));
+      return;
+    }
+    page = await col.listPage({ updatedSince: page.next.updated_since, afterId: page.next.after_id });
   }
 }
 
 async function pull(token: string): Promise<void> {
-  const cursor = cloud().cursor;
-  let page = await api.listInvoices({ includeDeleted: true, updatedSince: cursor ?? undefined });
-  for (;;) {
-    assertSession(token);
-    applyServerInvoices(page.invoices);
-    if (!page.hasMore || !page.next) {
-      useCloudStore.setState({ cursor: page.syncedAt });
-      return;
-    }
-    page = await api.listInvoices({ includeDeleted: true, updatedSince: page.next.updated_since, afterId: page.next.after_id });
-  }
+  for (const col of orderedCollections()) await pullCollection(col, token);
 }
 
 function applyRemoteSettings(settings: DefaultSettings): void {
@@ -348,14 +375,14 @@ const isPermanent = (e: unknown) =>
   e instanceof ApiError && e.status !== 401 && e.status !== 410 && e.status !== 412 && !e.isTransient;
 
 /** After a successful write: adopt the server's copy unless the user edited it meanwhile. */
-function acceptWrite(op: PendingOp, seqAtStart: number, server: ApiInvoice): void {
+function acceptWrite(col: SyncCollection, op: PendingOp, seqAtStart: number, server: ServerEntity): void {
   const latest = currentOp(op.opId);
   if (latest?.seq === seqAtStart) {
-    adoptServer(server);
+    adoptServer(col, server);
     return;
   }
-  setBase(server.id, contentOf(server));
-  const local = getLocal(server.id);
+  setBase(col, server.id, col.contentOf(server));
+  const local = col.getLocal(server.id);
   if (!local) {
     // Deleted here while the upload was in flight: delete the copy we just created.
     if (latest?.type === 'delete') {
@@ -364,13 +391,13 @@ function acceptWrite(op: PendingOp, seqAtStart: number, server: ApiInvoice): voi
       }));
     } else if (!latest) {
       useCloudStore.setState((state) => ({
-        queue: [...state.queue, newOp({ type: 'delete', invoiceId: server.id, baseRevision: server.revision, invoiceNumber: server.invoiceNumber })],
+        queue: [...state.queue, newOp({ type: 'delete', collection: col.name, entityId: server.id, baseRevision: server.revision, label: col.label(server) })],
       }));
     }
     return;
   }
   // Edited here while the upload was in flight: keep the newer local content, learn the revision.
-  replaceLocal(server.id, {
+  col.setLocal(server.id, {
     ...local,
     revision: server.revision,
     updatedAt: server.updatedAt,
@@ -385,101 +412,93 @@ function acceptWrite(op: PendingOp, seqAtStart: number, server: ApiInvoice): voi
  * Returns 'done' when nothing of ours is left to upload, 'retry' to PUT the
  * merged content with the server's revision.
  */
-async function resolveUpsertConflict(id: string, token: string): Promise<'done' | 'retry'> {
-  let server: ApiInvoice;
+async function resolveUpsertConflict(col: SyncCollection, id: string, token: string): Promise<'done' | 'retry'> {
+  let server: ServerEntity;
   try {
-    server = (await api.getInvoice(id)).invoice;
+    server = await col.fetchOne(id);
   } catch (e) {
     if (isApiError(e, 410)) {
-      const local = getLocal(id);
-      dropDeleted(id);
-      notices.deletedElsewhere(local?.invoiceNumber ?? 'An invoice', undefined);
+      const local = col.getLocal(id);
+      dropDeleted(col, id);
+      notices.deletedElsewhere(col, local ? col.label(local) : col.fallbackLabel, undefined);
       return 'done';
     }
     if (isApiError(e, 404)) {
       // We knew a revision the server no longer has: upload it as new.
-      const local = getLocal(id);
+      const local = col.getLocal(id);
       if (local) {
         const { revision: _r, ...rest } = local;
-        replaceLocal(id, rest, false);
+        col.setLocal(id, rest as LocalEntity, false);
       }
-      setBase(id, null);
+      setBase(col, id, null);
       return 'retry';
     }
     throw e;
   }
   assertSession(token);
-  const local = getLocal(id);
+  const local = col.getLocal(id);
   if (!local) return 'done';
 
-  const base = baseOf(id);
-  const serverContent = contentOf(server);
-  const { merged, conflicts } = mergeContent(base, contentOf(local), serverContent);
-  if (conflicts.length > 0) notices.lost(local.invoiceNumber, server.updatedBy, conflicts);
+  const base = baseOf(col, id);
+  const serverContent = col.contentOf(server);
+  const { merged, conflicts } = col.merge(base, col.contentOf(local), serverContent);
+  if (conflicts.length > 0) notices.lost(col, col.label(local), server.updatedBy, conflicts);
 
-  if (contentEquals(merged, serverContent)) {
-    adoptServer(server);
+  if (col.contentEquals(merged, serverContent)) {
+    adoptServer(col, server);
     return 'done';
   }
-  if (conflicts.length === 0 && base !== null && !contentEquals(base, serverContent)) {
-    notices.merged(local.invoiceNumber, server.updatedBy);
+  if (conflicts.length === 0 && base !== null && !col.contentEquals(base, serverContent)) {
+    notices.merged(col.label(local), server.updatedBy);
   }
-  replaceLocal(id, {
-    ...fromApiInvoice(server),
-    ...merged,
-    invoiceName: merged.invoiceName || local.invoiceName,
-  }, false);
-  setBase(id, serverContent);
+  col.setLocal(id, col.withContent(server, merged, local), false);
+  setBase(col, id, serverContent);
   return 'retry';
 }
 
-async function pushUpsert(op: PendingOp, token: string): Promise<void> {
-  const id = op.invoiceId!;
+async function pushUpsert(col: SyncCollection, op: PendingOp, token: string): Promise<void> {
+  const id = op.entityId!;
   const seqAtStart = op.seq;
   for (let round = 0; round <= MAX_CONFLICT_ROUNDS; round++) {
-    const local = getLocal(id);
+    const local = col.getLocal(id);
     if (!local) return;
     try {
-      const { invoice } = await api.putInvoice(
-        id,
-        toInvoiceInput(local),
-        local.revision !== undefined ? { ifMatch: local.revision } : { ifNoneMatch: true },
-      );
+      const server = await col.put(local, local.revision !== undefined ? { ifMatch: local.revision } : { ifNoneMatch: true });
       assertSession(token);
-      acceptWrite(op, seqAtStart, invoice);
+      acceptWrite(col, op, seqAtStart, server);
       return;
     } catch (e) {
       if (e instanceof SessionChanged) throw e;
       if (isApiError(e, 410)) {
-        dropDeleted(id);
-        notices.deletedElsewhere(local.invoiceNumber, undefined);
+        dropDeleted(col, id);
+        notices.deletedElsewhere(col, col.label(local), undefined);
         return;
       }
       if (isApiError(e, 412)) {
-        if ((await resolveUpsertConflict(id, token)) === 'done') return;
+        if ((await resolveUpsertConflict(col, id, token)) === 'done') return;
         continue;
       }
       if (isPermanent(e)) {
         const message = describeRejection(e as ApiError);
-        setSyncError(id, message);
-        notices.rejected(local.invoiceNumber, message);
+        setSyncError(col, id, message);
+        notices.rejected(col.label(local), message);
         return;
       }
       throw e;
     }
   }
   // Someone keeps changing it under us: try again later.
-  throw new ApiError(409, 'conflict', 'The invoice is being changed elsewhere; retrying shortly');
+  throw new ApiError(409, 'conflict', `The ${col.plural.replace(/s$/, '')} is being changed elsewhere; retrying shortly`);
 }
 
-async function pushDelete(op: PendingOp, token: string): Promise<void> {
-  const id = op.invoiceId!;
+async function pushDelete(col: SyncCollection, op: PendingOp, token: string): Promise<void> {
+  const id = op.entityId!;
   try {
-    await api.deleteInvoice(id, op.baseRevision !== undefined ? { ifMatch: op.baseRevision } : {});
-    setBase(id, null);
+    await col.remove(id, op.baseRevision !== undefined ? { ifMatch: op.baseRevision } : {});
+    setBase(col, id, null);
   } catch (e) {
     if (isApiError(e, 404) || isApiError(e, 410)) {
-      setBase(id, null);
+      setBase(col, id, null);
       return;
     }
     if (!isApiError(e, 412)) {
@@ -487,19 +506,19 @@ async function pushDelete(op: PendingOp, token: string): Promise<void> {
       throw e;
     }
     // Changed (or already deleted) after our last sync.
-    let server: ApiInvoice;
+    let server: ServerEntity;
     try {
-      server = (await api.getInvoice(id)).invoice;
+      server = await col.fetchOne(id);
     } catch (inner) {
       if (isApiError(inner, 410) || isApiError(inner, 404)) {
-        setBase(id, null);
+        setBase(col, id, null);
         return;
       }
       throw inner;
     }
     assertSession(token);
-    adoptServer(server);
-    notices.restored(server.invoiceNumber, server.updatedBy);
+    adoptServer(col, server);
+    notices.restored(col.label(server), server.updatedBy);
   }
 }
 
@@ -525,19 +544,25 @@ function describeRejection(e: ApiError): string {
 
 /** Pushes queued changes in order; stops at the first transient failure. */
 async function flushQueue(token: string): Promise<void> {
+  // Each hoist moves at least one entry permanently ahead; bound it anyway.
+  let hoists = cloud().queue.length;
   for (;;) {
     assertSession(token);
     const op = cloud().queue[0];
     if (!op) return;
+    if (hoists > 0 && hoistDependencies(op)) {
+      hoists--;
+      continue;
+    }
     if (op.notBefore > Date.now()) {
       scheduleRetry(op.notBefore - Date.now());
       return;
     }
     const seqAtStart = op.seq;
     try {
-      if (op.type === 'upsert') await pushUpsert(op, token);
-      else if (op.type === 'delete') await pushDelete(op, token);
-      else await pushSettings();
+      if (op.type === 'settings') await pushSettings();
+      else if (op.type === 'upsert') await pushUpsert(COLLECTIONS[op.collection!], op, token);
+      else await pushDelete(COLLECTIONS[op.collection!], op, token);
       assertSession(token);
       removeOpIfUnchanged(op.opId, seqAtStart);
       queueBlocked = null;
@@ -634,9 +659,9 @@ function scheduleRetry(delayMs: number): void {
 // Wiring
 // ---------------------------------------------------------------------------
 
-function onLocalInvoiceChange(change: LocalInvoiceChange): void {
-  if (change.type === 'upsert') enqueueInvoiceUpsert(change.id);
-  else enqueueInvoiceDelete(change.invoice);
+function onLocalChange(change: LocalChange): void {
+  if (change.type === 'upsert') enqueueUpsert(change.collection, change.id);
+  else enqueueDelete(change.collection, change.entity);
 }
 
 /**
@@ -644,12 +669,12 @@ function onLocalInvoiceChange(change: LocalInvoiceChange): void {
  * get uploaded. Returns a function that disconnects them again.
  */
 export function startCloudSync(): () => void {
-  setLocalInvoiceChangeListener(onLocalInvoiceChange);
+  setLocalChangeListener(onLocalChange);
   const unsubscribeSettings = useSettingsStore.subscribe((state, prev) => {
     if (state.settings !== prev.settings && !applyingRemoteSettings) enqueueSettings();
   });
   return () => {
-    setLocalInvoiceChangeListener(null);
+    setLocalChangeListener(null);
     unsubscribeSettings();
     if (flushTimer) clearTimeout(flushTimer);
     if (retryTimer) clearTimeout(retryTimer);

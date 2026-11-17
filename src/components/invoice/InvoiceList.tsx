@@ -25,6 +25,9 @@ function notSyncedSummary(invoice: Invoice, serverMessage: string): string {
   const issues = invoiceIssues(invoice).map((issue) => issue.message);
   return `Not synced: ${issues.length > 0 ? issues.join('; ') : serverMessage}`;
 }
+import { StatusBadge } from '@/components/invoice/status/StatusBadge';
+import { StatusActionsMenu } from '@/components/invoice/status/StatusActions';
+import { useToday } from '@/components/invoice/status/useInvoiceStatus';
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -37,6 +40,7 @@ interface InvoiceListProps {
 export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDelete }: InvoiceListProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null);
   const syncErrors = useCloudStore((state) => state.syncErrors);
+  const today = useToday();
 
   if (invoices.length === 0) {
     return (
@@ -67,15 +71,16 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
             className="group flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors cursor-pointer"
             onClick={() => onView(invoice)}
           >
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center self-start mt-1">
+            <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
+              <div className="w-10 h-10 shrink-0 rounded-md bg-secondary flex items-center justify-center self-start mt-1">
                 <FileText className="w-5 h-5 text-muted-foreground" />
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex min-w-0 flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <p className="font-medium text-foreground">
                     {invoiceListLabel(invoice)}
                   </p>
+                  <StatusBadge invoice={invoice} today={today} />
                   <AgentBadge invoice={invoice} />
                   {syncErrors[invoice.id] && (
                     <button
@@ -97,7 +102,8 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+              <StatusActionsMenu invoice={invoice} />
               <Button
                 variant="ghost"
                 size="icon"

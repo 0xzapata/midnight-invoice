@@ -3,12 +3,16 @@
  * `vi.stubGlobal('fetch', fake.fetch)`. Implements the parts of the contract
  * the browser uses (AGENT_API.md), including the sync feed (inclusive
  * `updated_since`, keyset paging, tombstones), revisions with If-Match /
- * If-None-Match, 410 for deleted invoices and settings.
+ * If-None-Match, 410 for deleted invoices and settings. Clients
+ * (`/clients`) follow the same contract, and an invoice write that sets a
+ * `clientId` the fake does not have (live) is rejected with 400, like the
+ * real server.
  */
 import { vi } from 'vitest';
 import type { Actor } from '@/types/invoice';
-import type { AgentSummary, ApiInvoice, InvoiceInput, Scope } from '../../shared/api';
+import type { AgentSummary, ApiClientRecord, ApiInvoice, ClientInput, InvoiceInput, Scope } from '../../shared/api';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
+import { daysOverdue, isOverdue, normalizeStatusFields, utcToday } from '../../shared/invoice-status';
 
 export interface RecordedRequest {
   method: string;
@@ -31,6 +35,7 @@ export function createFakeApi() {
   let now = Date.parse('2026-11-17T10:00:00.000Z');
   const tick = () => new Date((now += 1000)).toISOString();
   const invoices = new Map<string, ApiInvoice>();
+  const clients = new Map<string, ApiClientRecord>();
   const state = {
     token: FAKE_TOKEN,
     tokenValid: true,
@@ -48,7 +53,13 @@ export function createFakeApi() {
     const subtotal = lineItems.reduce((s, li) => s + li.quantity * li.price, 0);
     const taxRate = input.taxRate ?? state.settings.settings.taxRate;
     const at = tick();
+    const status = normalizeStatusFields(input.status === undefined && existing ? existing : input, at.slice(0, 10));
+    const dueDate = input.dueDate ?? '';
+    const today = utcToday(new Date(at));
     return {
+      ...status,
+      isOverdue: isOverdue({ ...status, dueDate }, today),
+      daysOverdue: daysOverdue({ ...status, dueDate }, today),
       version: 1,
       id,
       invoiceNumber: input.invoiceNumber ?? existing?.invoiceNumber ?? `INV-${String(invoices.size + 1).padStart(4, '0')}`,
@@ -66,6 +77,7 @@ export function createFakeApi() {
       notes: input.notes ?? '',
       paymentDetails: input.paymentDetails ?? state.settings.settings.paymentDetails,
       currency: input.currency ?? state.settings.settings.currency,
+      ...(input.clientId ? { clientId: input.clientId } : {}),
       createdAt: existing?.createdAt ?? input.createdAt ?? at,
       updatedAt: at,
       deletedAt: null,
@@ -87,6 +99,56 @@ export function createFakeApi() {
       if (!li.description) details.push({ path: `lineItems.${i}.description`, message: 'Description is required' });
     });
     return details.length ? apiError(400, 'validation_failed', 'Request validation failed', details) : undefined;
+  }
+
+  function buildClient(id: string, input: ClientInput, actor: Actor, existing?: ApiClientRecord): ApiClientRecord {
+    const at = tick();
+    return {
+      id,
+      name: input.name,
+      email: input.email ?? '',
+      address: input.address ?? '',
+      defaultCurrency: input.defaultCurrency ?? null,
+      defaultTaxRate: input.defaultTaxRate ?? null,
+      paymentTermsDays: input.paymentTermsDays ?? null,
+      notes: input.notes ?? '',
+      archivedAt: input.archivedAt ?? null,
+      createdAt: existing?.createdAt ?? input.createdAt ?? at,
+      updatedAt: at,
+      deletedAt: null,
+      revision: (existing?.revision ?? 0) + 1,
+      createdBy: existing?.createdBy ?? actor,
+      updatedBy: actor,
+    };
+  }
+
+  /** The real server's rule: a newly set or changed clientId must name a live client. */
+  function validateClientRef(input: InvoiceInput, existing?: ApiInvoice): Response | undefined {
+    if (!input.clientId || input.clientId === existing?.clientId) return undefined;
+    const client = clients.get(input.clientId);
+    if (!client) return apiError(400, 'validation_failed', 'Unknown client', [{ path: 'clientId', message: 'No client with this id exists in this workspace' }]);
+    if (client.deletedAt) return apiError(400, 'validation_failed', 'Client was deleted', [{ path: 'clientId', message: 'This client was deleted' }]);
+    return undefined;
+  }
+
+  /** Delta feed shared by /invoices and /clients. */
+  function feed<T extends { id: string; updatedAt: string; deletedAt: string | null }>(items: Iterable<T>, query: URLSearchParams) {
+    const since = query.get('updated_since');
+    const afterId = query.get('after_id');
+    const includeDeleted = query.get('include_deleted') === 'true';
+    const syncedAt = new Date(now).toISOString();
+    const all = [...items]
+      .filter((it) => includeDeleted || !it.deletedAt)
+      .filter((it) => {
+        if (!since) return true;
+        if (afterId) return it.updatedAt > since || (it.updatedAt === since && it.id > afterId);
+        return it.updatedAt >= since;
+      })
+      .sort((a, b) => (a.updatedAt === b.updatedAt ? a.id.localeCompare(b.id) : a.updatedAt.localeCompare(b.updatedAt)));
+    const page = all.slice(0, state.pageSize);
+    const hasMore = all.length > state.pageSize;
+    const last = page[page.length - 1];
+    return { page: structuredClone(page), syncedAt, hasMore, next: hasMore ? { updated_since: last.updatedAt, after_id: last.id } : null };
   }
 
   const ifMatchOf = (h: Record<string, string>) => {
@@ -168,7 +230,7 @@ export function createFakeApi() {
         if (existing && ifMatch !== undefined && ifMatch !== existing.revision) {
           return apiError(412, 'precondition_failed', 'Revision mismatch', { id, currentRevision: existing.revision });
         }
-        const invalid = validate(input);
+        const invalid = validate(input) ?? validateClientRef(input, existing);
         if (invalid) return invalid;
         const saved = build(id, input, { type: 'user' }, existing);
         invoices.set(id, saved);
@@ -186,6 +248,48 @@ export function createFakeApi() {
         }
         const at = tick();
         invoices.set(id, { ...existing, deletedAt: at, updatedAt: at, revision: existing.revision + 1, updatedBy: { type: 'user' } });
+        return new Response(null, { status: 204 });
+      }
+    }
+    if (path === '/clients' && method === 'GET') {
+      const { page, syncedAt, hasMore, next } = feed(clients.values(), query);
+      return json(200, { clients: page, syncedAt, hasMore, next });
+    }
+    const clientMatch = /^\/clients\/([^/]+)$/.exec(path);
+    if (clientMatch) {
+      const id = clientMatch[1];
+      const existing = clients.get(id);
+      const ifMatch = ifMatchOf(headers);
+      if (method === 'GET') {
+        if (!existing) return apiError(404, 'not_found', 'Client not found');
+        if (existing.deletedAt) return apiError(410, 'gone', 'Client was deleted', { id, deletedAt: existing.deletedAt });
+        return json(200, { client: structuredClone(existing) }, { etag: `"${existing.revision}"` });
+      }
+      if (method === 'PUT') {
+        const input = body as ClientInput;
+        if (existing && headers['if-none-match'] === '*') return apiError(412, 'precondition_failed', 'Client already exists', { id, currentRevision: existing.revision });
+        if (existing?.deletedAt) return apiError(410, 'gone', 'Client was deleted and cannot be recreated with the same id', { id });
+        if (!existing && ifMatch !== undefined) return apiError(412, 'precondition_failed', 'Client does not exist', { id });
+        if (existing && ifMatch !== undefined && ifMatch !== existing.revision) {
+          return apiError(412, 'precondition_failed', 'Revision mismatch', { id, currentRevision: existing.revision });
+        }
+        if (!input.name?.trim()) return apiError(400, 'validation_failed', 'Request validation failed', [{ path: 'name', message: 'Client name is required' }]);
+        const saved = buildClient(id, input, { type: 'user' }, existing);
+        clients.set(id, saved);
+        return json(existing ? 200 : 201, { client: structuredClone(saved) }, { etag: `"${saved.revision}"` });
+      }
+      if (method === 'DELETE') {
+        if (!existing) return apiError(404, 'not_found', 'Client not found');
+        if (existing.deletedAt) {
+          return ifMatch !== undefined
+            ? apiError(412, 'precondition_failed', 'Client was already deleted', { id, currentRevision: existing.revision })
+            : new Response(null, { status: 204 });
+        }
+        if (ifMatch !== undefined && ifMatch !== existing.revision) {
+          return apiError(412, 'precondition_failed', 'Revision mismatch', { id, currentRevision: existing.revision });
+        }
+        const at = tick();
+        clients.set(id, { ...existing, deletedAt: at, updatedAt: at, revision: existing.revision + 1, updatedBy: { type: 'user' } });
         return new Response(null, { status: 204 });
       }
     }
@@ -233,6 +337,24 @@ export function createFakeApi() {
     },
     get: (id: string) => invoices.get(id),
     all: () => [...invoices.values()],
+    createClient(id: string, input: ClientInput, actor: Actor = agentActor('Claude Desktop')): ApiClientRecord {
+      const c = buildClient(id, input, actor);
+      clients.set(id, c);
+      return structuredClone(c);
+    },
+    updateClient(id: string, patch: Partial<ClientInput>, actor: Actor = agentActor('Claude Desktop')): ApiClientRecord {
+      const existing = clients.get(id)!;
+      const c = buildClient(id, { ...existing, ...patch } as ClientInput, actor, existing);
+      clients.set(id, c);
+      return structuredClone(c);
+    },
+    removeClient(id: string, actor: Actor = agentActor('Claude Desktop')): void {
+      const existing = clients.get(id)!;
+      const at = tick();
+      clients.set(id, { ...existing, deletedAt: at, updatedAt: at, revision: existing.revision + 1, updatedBy: actor });
+    },
+    getClient: (id: string) => clients.get(id),
+    allClients: () => [...clients.values()],
   };
 
   return {
@@ -255,4 +377,4 @@ export function createFakeApi() {
 
 export type FakeApi = ReturnType<typeof createFakeApi>;
 
-export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read'];
+export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write'];

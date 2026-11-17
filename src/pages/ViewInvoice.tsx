@@ -20,6 +20,7 @@ import { useInvoices } from '@/hooks/useInvoices';
 import { InvoiceAttribution } from '@/components/AgentBadge';
 import { SyncIssueNotice } from '@/components/sync/SyncIssueNotice';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
 import { toast } from 'sonner';
 
 export default function ViewInvoice() {
@@ -227,6 +228,7 @@ export default function ViewInvoice() {
       {/* Main Content */}
       <main className="container py-8">
         <SyncIssueNotice invoice={invoice} />
+        <InvoiceStatusBar invoice={invoice} />
         <InvoiceAttribution invoice={invoice} />
         <div className="flex justify-center">
           <InvoicePreview data={invoice} />

@@ -48,18 +48,27 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
     expect(full.getServerVersion()).toMatchObject({ name: 'midnight-invoice' });
     const allTools = (await full.listTools()).tools;
     expect(allTools.map((t) => t.name).sort()).toEqual([
+      'create_client',
       'create_invoice',
+      'delete_client',
       'delete_invoice',
+      'get_client',
       'get_invoice',
       'get_invoice_pdf',
+      'get_invoice_summary',
       'get_next_invoice_number',
       'get_settings',
+      'list_clients',
       'list_invoices',
+      'set_invoice_status',
+      'update_client',
       'update_invoice',
     ]);
     const create = allTools.find((t) => t.name === 'create_invoice')!;
     expect(create.description).toMatch(/Requires scope invoices:write/);
-    expect(create.inputSchema).toMatchObject({ type: 'object', required: expect.arrayContaining(['toName', 'lineItems']) });
+    // toName may be omitted when clientId names a saved client (the server fills it).
+    expect(create.inputSchema).toMatchObject({ type: 'object', required: ['lineItems'] });
+    expect(Object.keys((create.inputSchema as { properties: object }).properties)).toEqual(expect.arrayContaining(['toName', 'clientId']));
     expect(create.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
     expect(allTools.find((t) => t.name === 'delete_invoice')!.annotations).toMatchObject({ destructiveHint: true, idempotentHint: true });
     expect(allTools.find((t) => t.name === 'list_invoices')!.annotations).toMatchObject({ readOnlyHint: true });
@@ -70,6 +79,7 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
     expect((await readOnly.listTools()).tools.map((t) => t.name).sort()).toEqual([
       'get_invoice',
       'get_invoice_pdf',
+      'get_invoice_summary',
       'get_next_invoice_number',
       'list_invoices',
     ]);

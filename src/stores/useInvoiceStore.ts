@@ -4,6 +4,16 @@ import { Invoice, InvoiceFormData } from '@/types/invoice';
 import { CURRENT_INVOICE_VERSION, migrateInvoiceStore } from '@/lib/storageMigrations';
 import { emitLocalInvoiceChange } from '@/lib/sync/localChanges';
 import { isGeneratedInvoiceName } from '@/lib/invoiceName';
+import {
+    actionTarget,
+    localToday,
+    normalizeStatusFields,
+    statusOf,
+    transitionStatus,
+    type InvoiceStatus,
+    type StatusAction,
+    type TransitionResult,
+} from '../../shared/invoice-status';
 
 /**
  * Invoice store state interface.
@@ -19,7 +29,16 @@ interface InvoiceState {
 
     // Actions
     setHasHydrated: (value: boolean) => void;
-    saveInvoice: (formData: InvoiceFormData, id?: string) => Invoice;
+    /**
+     * Status is not part of the form: an existing invoice keeps its status;
+     * a new one is a draft unless `options.status` says otherwise.
+     */
+    saveInvoice: (formData: InvoiceFormData, id?: string, options?: { status?: InvoiceStatus }) => Invoice;
+    /**
+     * Changes the status with the shared transition rules (shared/invoice-status.ts).
+     * Returns the rule's verdict; on success the change is saved and synced like any edit.
+     */
+    setInvoiceStatus: (id: string, change: StatusAction | { status: InvoiceStatus; paidAt?: string }) => TransitionResult | { ok: false; message: string };
     deleteInvoice: (id: string) => void;
     getInvoice: (id: string) => Invoice | undefined;
     getNextInvoiceNumber: () => string;
@@ -70,7 +89,7 @@ export const useInvoiceStore = create<InvoiceState>()(
              * @param id - Optional ID for updating existing invoice
              * @returns The saved invoice object
              */
-            saveInvoice: (formData, id) => {
+            saveInvoice: (formData, id, options) => {
                 const invoiceId = id || crypto.randomUUID();
                 const existing = get().invoices.find((inv) => inv.id === invoiceId);
                 // Only a name the user typed is stored (and printed). Unnamed invoices get
@@ -87,12 +106,23 @@ export const useInvoiceStore = create<InvoiceState>()(
                     deletedAt: _deletedAt,
                     createdBy: _createdBy,
                     updatedBy: _updatedBy,
+                    // Status is changed through setInvoiceStatus, never by the form.
+                    status: _status,
+                    sentAt: _sentAt,
+                    paidAt: _paidAt,
                     ...fields
                 } = formData as InvoiceFormData & Partial<Invoice>;
+                const today = localToday();
+                let statusFields = normalizeStatusFields(existing, today);
+                if (options?.status && options.status !== statusFields.status) {
+                    const result = transitionStatus(statusFields, options.status, { today });
+                    if (result.ok) statusFields = result.fields;
+                }
 
                 const newInvoice: Invoice = {
                     ...fields,
                     version: CURRENT_INVOICE_VERSION,
+                    ...statusFields,
                     invoiceName,
                     id: invoiceId,
                     createdAt: existing?.createdAt ?? new Date().toISOString(),
@@ -120,6 +150,30 @@ export const useInvoiceStore = create<InvoiceState>()(
 
                 emitLocalInvoiceChange({ type: 'upsert', id: invoiceId });
                 return newInvoice;
+            },
+
+            setInvoiceStatus: (id, change) => {
+                const existing = get().invoices.find((inv) => inv.id === id);
+                if (!existing) return { ok: false, message: 'Invoice not found' };
+                const today = localToday();
+                let target: InvoiceStatus | null;
+                let paidAt: string | undefined;
+                if (typeof change === 'string') {
+                    target = actionTarget(change, existing);
+                    if (target === null) {
+                        return { ok: false, message: `Cannot ${change.replace('_', ' ')} an invoice that is ${statusOf(existing)}` };
+                    }
+                } else {
+                    target = change.status;
+                    paidAt = change.paidAt;
+                }
+                const result = transitionStatus(existing, target, { today, paidAt });
+                if (!result.ok || !result.changed) return result;
+                set((state) => ({
+                    invoices: state.invoices.map((inv) => (inv.id === id ? { ...inv, ...result.fields } : inv)),
+                }));
+                emitLocalInvoiceChange({ type: 'upsert', id });
+                return result;
             },
 
             /**

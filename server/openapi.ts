@@ -4,7 +4,9 @@
  * every route is documented.
  */
 import { SCOPES, SCOPE_DESCRIPTIONS } from '../shared/api';
+import { INVOICE_STATUSES, STATUS_TRANSITIONS } from '../shared/invoice-status';
 import { LIMITS } from './schemas';
+import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
 type Json = Record<string, unknown>;
@@ -74,12 +76,68 @@ const invoiceFields: Json = {
   notes: str({ maxLength: LIMITS.longText }),
   paymentDetails: str({ maxLength: LIMITS.longText, description: 'Defaults to settings.paymentDetails' }),
   currency: str({ description: 'ISO 4217 code; defaults to settings.currency' }),
+  clientId: {
+    type: ['string', 'null'],
+    format: 'uuid',
+    description:
+      'Saved client to bill (requires clients:read when set or changed; must be a live client of this workspace). Omitted to* fields are filled from the client; ' +
+      'omitted currency/taxRate/dueDate from its defaults, then from settings. null = no client.',
+  },
+  status: {
+    type: 'string',
+    enum: [...INVOICE_STATUSES],
+    description:
+      'Default draft on create; omitted on PUT/PATCH = unchanged. PATCH enforces transitions (' +
+      Object.entries(STATUS_TRANSITIONS).map(([from, to]) => `${from}→${to.join('|')}`).join(', ') +
+      '); PUT (full replace, sync) accepts any status. Invoices saved before statuses existed read as draft.',
+  },
+  sentAt: { type: ['string', 'null'], format: 'date', description: 'YYYY-MM-DD; defaults to today when status is sent' },
+  paidAt: { type: ['string', 'null'], format: 'date', description: 'YYYY-MM-DD; set iff status is paid (defaults to today)' },
 };
+
+const statusFilterParams = [
+  {
+    name: 'status',
+    in: 'query',
+    description: 'Comma list of statuses (OR): draft, sent, paid, void, plus the virtual overdue (sent and dueDate before today, UTC)',
+    schema: str({ example: 'sent,overdue' }),
+  },
+  { name: 'due_before', in: 'query', description: 'dueDate < this date (no due date never matches)', schema: str({ format: 'date' }) },
+  { name: 'due_after', in: 'query', description: 'dueDate > this date (no due date never matches)', schema: str({ format: 'date' }) },
+  { name: 'client', in: 'query', description: 'Case-insensitive substring of toName', schema: str({ maxLength: LIMITS.shortText }) },
+  { name: 'client_id', in: 'query', description: 'Only invoices billed to this saved client (exact clientId)', schema: str({ format: 'uuid' }) },
+];
+
+const summaryBucket = { type: 'object', required: ['count', 'total'], properties: { count: { type: 'integer' }, total: { type: 'number' } } };
 
 const actor = {
   type: 'object',
   required: ['type'],
   properties: { type: { type: 'string', enum: ['user', 'agent'] }, agentId: str(), agentName: str() },
+};
+
+const statusActionPaths = () => {
+  const actions: [string, string, Json | undefined][] = [
+    ['mark-sent', 'Mark a draft as sent (sentAt defaults to today, UTC)', { type: 'object', properties: { sentAt: str({ format: 'date' }) } }],
+    ['mark-paid', 'Mark a sent invoice as paid (paidAt defaults to today, UTC)', { type: 'object', properties: { paidAt: str({ format: 'date' }) } }],
+    ['void', 'Void (cancel) the invoice (draft, sent or paid)', undefined],
+    ['reopen', 'Reopen: paid → sent (undo payment), void → sent if it had been sent, else draft', undefined],
+  ];
+  return Object.fromEntries(
+    actions.map(([path, summary, body]) => [
+      `/invoices/{id}/${path}`,
+      {
+        post: {
+          summary,
+          description: 'Repeating the current state is a no-op (same revision). Disallowed transitions → 409 invalid_status_transition.',
+          ...scoped('invoices:write'),
+          parameters: [idParam, ifMatch],
+          ...(body ? { requestBody: { required: false, content: jsonContent(body) } } : {}),
+          responses: { 200: invoiceResult('Updated'), 400: E[400], 401: E[401], 403: E[403], 404: E[404], 409: E[409], 410: E[410], 412: E[412] },
+        },
+      },
+    ]),
+  );
 };
 
 export function buildOpenApiDocument(baseUrl: string) {
@@ -115,6 +173,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
         Scope: { ...scopeSchema, description: Object.entries(SCOPE_DESCRIPTIONS).map(([k, v]) => `${k}: ${v}`).join('; ') },
         Actor: actor,
+        ...clientOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
         LineItem: {
           type: 'object',
@@ -133,13 +192,14 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
         InvoiceInput: {
           type: 'object',
-          required: ['toName', 'lineItems'],
+          required: ['lineItems'],
+          description: 'toName is required unless clientId is given',
           properties: { ...invoiceFields, createdAt: str({ format: 'date-time', description: 'PUT only: kept when the PUT creates the invoice' }) },
         },
         InvoicePatch: { type: 'object', properties: invoiceFields, description: 'Any subset; lineItems replaces the list' },
         Invoice: {
           type: 'object',
-          required: ['id', 'invoiceNumber', 'issueDate', 'lineItems', 'currency', 'createdAt', 'updatedAt', 'revision', 'createdBy', 'updatedBy', 'subtotal', 'taxAmount', 'total', 'deletedAt'],
+          required: ['id', 'invoiceNumber', 'issueDate', 'lineItems', 'currency', 'createdAt', 'updatedAt', 'revision', 'createdBy', 'updatedBy', 'subtotal', 'taxAmount', 'total', 'deletedAt', 'status', 'sentAt', 'paidAt', 'isOverdue', 'daysOverdue'],
           properties: {
             id: str({ format: 'uuid' }),
             version: { type: 'integer' },
@@ -154,6 +214,47 @@ export function buildOpenApiDocument(baseUrl: string) {
             subtotal: { type: 'number' },
             taxAmount: { type: 'number' },
             total: { type: 'number' },
+            isOverdue: { type: 'boolean', description: 'Derived: status sent and dueDate before today (UTC)' },
+            daysOverdue: { type: 'integer', minimum: 0, description: 'Derived: whole days past dueDate, 0 unless overdue' },
+          },
+        },
+        InvoiceSummary: {
+          type: 'object',
+          required: ['asOf', 'currencies', 'oldestOverdue'],
+          properties: {
+            asOf: str({ format: 'date', description: 'The UTC date the summary was computed for' }),
+            currencies: {
+              type: 'array',
+              description: 'One entry per currency used by non-void invoices; amounts are never summed across currencies',
+              items: {
+                type: 'object',
+                required: ['currency', 'draft', 'outstanding', 'overdue', 'paidThisMonth', 'paidThisYear'],
+                properties: {
+                  currency: str(),
+                  draft: summaryBucket,
+                  outstanding: { ...summaryBucket, description: 'Sent, not overdue' },
+                  overdue: { ...summaryBucket, description: 'Sent, dueDate before today' },
+                  paidThisMonth: { ...summaryBucket, description: 'Paid, paidAt in the current month' },
+                  paidThisYear: { ...summaryBucket, description: 'Paid, paidAt in the current year' },
+                },
+              },
+            },
+            oldestOverdue: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: str({ format: 'uuid' }),
+                  invoiceNumber: str(),
+                  invoiceName: str(),
+                  toName: str(),
+                  currency: str(),
+                  total: { type: 'number' },
+                  dueDate: str({ format: 'date' }),
+                  daysOverdue: { type: 'integer' },
+                },
+              },
+            },
           },
         },
         Settings: {
@@ -186,6 +287,7 @@ export function buildOpenApiDocument(baseUrl: string) {
     paths: {
       '/health': { get: { summary: 'Health check', security: [], responses: { 200: ok('OK', { type: 'object', properties: { status: { const: 'ok' }, time: str() } }) } } },
       '/openapi.json': { get: { summary: 'This document', security: [], responses: { 200: { description: 'OpenAPI 3.1 document' } } } },
+      ...clientOpenApiPaths,
       '/workspaces': {
         post: {
           summary: 'Create an anonymous workspace',
@@ -309,6 +411,7 @@ export function buildOpenApiDocument(baseUrl: string) {
             { name: 'after_id', in: 'query', schema: str(), description: 'From `next.after_id`; requires updated_since' },
             { name: 'include_deleted', in: 'query', schema: { type: 'string', enum: ['true', 'false'] } },
             { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: LIMITS.listMax, default: LIMITS.listMax } },
+            ...statusFilterParams,
           ],
           responses: {
             200: ok('Invoices', {
@@ -375,6 +478,20 @@ export function buildOpenApiDocument(baseUrl: string) {
           responses: { 200: { description: 'PDF', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } }, 400: E[400], 401: E[401], 403: E[403], 404: E[404], 410: E[410] },
         },
       },
+      '/invoices/summary': {
+        get: {
+          summary: 'What is unpaid: counts and totals per currency',
+          description:
+            'Draft, outstanding (sent, not overdue), overdue, paid this month and paid this year, grouped by currency, plus the oldest overdue invoices. ' +
+            'Void and deleted invoices are excluded. "Today" is the UTC date.',
+          ...scoped('invoices:read'),
+          parameters: [
+            { name: 'oldest_overdue_limit', in: 'query', required: false, schema: { type: 'integer', minimum: 0, maximum: 50, default: 5 } },
+          ],
+          responses: { 200: ok('Summary', ref('InvoiceSummary')), 400: E[400], 401: E[401], 403: E[403] },
+        },
+      },
+      ...statusActionPaths(),
       '/settings': {
         get: { summary: 'Default sender settings', ...scoped('settings:read'), responses: { 200: ok('Settings', { type: 'object', properties: { settings: ref('Settings'), updatedAt: { type: ['string', 'null'] } } }), 401: E[401], 403: E[403] } },
         put: {

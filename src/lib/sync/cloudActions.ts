@@ -5,7 +5,7 @@ import { TOKEN_PREFIX } from '../../../shared/api';
 import { api } from '@/lib/api';
 import { ApiError, isApiError } from '@/lib/api/errors';
 import { useCloudStore } from '@/stores/useCloudStore';
-import { adoptOrUploadSettings, enqueueAllLocalInvoices, enqueueSettings, syncNow, whenIdle } from './engine';
+import { adoptOrUploadSettings, enqueueAllLocal, enqueueSettings, syncNow, whenIdle } from './engine';
 import { joinWorkspace, leaveWorkspace } from './session';
 
 /** Workspace tokens: prefix + 43 base64url characters. */
@@ -20,21 +20,22 @@ export class InvalidRecoveryKeyError extends Error {
 
 /**
  * Turns cloud sync on: creates an anonymous workspace, then uploads the
- * default settings and every local invoice (drafts stay local).
+ * default settings, every saved client and every local invoice (clients
+ * first, since invoices may reference them; drafts stay local).
  */
 export async function enableCloudSync(): Promise<void> {
   const { workspace, token } = await api.createWorkspace();
   joinWorkspace(workspace, token);
   enqueueSettings();
-  enqueueAllLocalInvoices();
+  enqueueAllLocal();
   await syncNow();
 }
 
 /**
  * Links this browser to an existing workspace with its recovery key (the
  * workspace token). Validated with GET /workspace before anything is stored.
- * Server settings win if they were ever saved; local invoices are added to
- * the workspace (same-id conflicts are merged by the sync engine).
+ * Server settings win if they were ever saved; local clients and invoices are
+ * added to the workspace (same-id conflicts are merged by the sync engine).
  */
 export async function connectExistingWorkspace(rawKey: string): Promise<void> {
   const key = rawKey.trim();
@@ -48,7 +49,7 @@ export async function connectExistingWorkspace(rawKey: string): Promise<void> {
   }
   joinWorkspace(workspace, key);
   await adoptOrUploadSettings();
-  enqueueAllLocalInvoices();
+  enqueueAllLocal();
   await syncNow();
 }
 
@@ -59,8 +60,8 @@ export async function disconnectThisBrowser(): Promise<void> {
 }
 
 /**
- * Deletes the workspace on the server (all cloud invoices, settings and agent
- * connections) and disconnects this browser. Local invoices are kept.
+ * Deletes the workspace on the server (all cloud invoices, clients, settings
+ * and agent connections) and disconnects this browser. Local copies are kept.
  */
 export async function deleteCloudWorkspace(): Promise<void> {
   const token = useCloudStore.getState().token;

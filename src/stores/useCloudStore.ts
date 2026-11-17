@@ -35,9 +35,10 @@ export const CLOUD_STORAGE_KEY = 'cloud-sync-storage';
 /**
  * Cloud sync & agents state (opt-in). Holds the anonymous workspace this
  * browser belongs to, its bearer token (the "recovery key"), the delta-sync
- * cursor and the queue of local changes waiting to be uploaded. Invoices
- * themselves stay in useInvoiceStore, the local-first source of truth; the
- * sync engine (src/lib/sync/engine.ts) moves changes between the two.
+ * cursors and the queue of local changes waiting to be uploaded. Invoices and
+ * clients themselves stay in useInvoiceStore / useClientStore, the
+ * local-first source of truth; the sync engine (src/lib/sync/engine.ts)
+ * moves changes between them and the server.
  */
 export const useCloudStore = create<CloudState>()(
   persist(
@@ -56,7 +57,7 @@ export const useCloudStore = create<CloudState>()(
         workspace: state.workspace,
         token: state.token,
         disconnectedReason: state.disconnectedReason,
-        cursor: state.cursor,
+        cursors: state.cursors,
         queue: state.queue,
         bases: state.bases,
         syncErrors: state.syncErrors,

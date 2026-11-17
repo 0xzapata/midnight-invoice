@@ -93,12 +93,12 @@ describe('CreateInvoice: saving validates like the API', () => {
     expect(screen.queryByText('Your name/company is required')).not.toBeInTheDocument();
   });
 
-  it('keeps the header actions icon-only (with accessible names) below md so it fits at 320 px', () => {
+  it('keeps the header actions icon-only (with accessible names) below lg so it fits at 320 px', () => {
     renderAt('/create/new-5');
-    for (const name of ['Download PDF', 'Duplicate', 'Save Invoice']) {
+    for (const name of ['Download PDF', 'Duplicate', 'Save & mark sent', 'Save Invoice']) {
       const button = screen.getByRole('button', { name });
-      expect(button).toHaveClass('h-8', 'w-8', 'md:w-auto');
-      expect(button.querySelector('span')).toHaveClass('hidden', 'md:inline');
+      expect(button).toHaveClass('h-8', 'w-8', 'lg:w-auto');
+      expect(button.querySelector('span')).toHaveClass('hidden', 'lg:inline');
     }
     expect(screen.getByRole('heading', { name: 'Create Invoice' })).toHaveClass('truncate');
     expect(screen.getByRole('button', { name: /switch to (light|dark) mode/i })).toBeInTheDocument();
