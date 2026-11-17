@@ -19,6 +19,7 @@ import { ClientLinkStatus, ClientPicker } from '@/components/clients/BillToClien
 import { clientFillPatch } from '@/components/clients/clientFill';
 import { useClientStore } from '@/stores/useClientStore';
 import type { Client } from '../../../shared/types/client';
+import { InvoiceTemplateBar } from '@/components/templates/TemplateControls';
 
 interface InvoiceFormProps {
   initialData?: Partial<InvoiceFormData>;
@@ -131,6 +132,15 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
 
   return (
     <div className="space-y-6">
+      {/* Templates: apply one (never silently overwriting what was typed) or save this invoice as one */}
+      <InvoiceTemplateBar
+        values={formState}
+        touched={() => ({ currency: !!form.getFieldMeta('currency')?.isDirty, taxRate: !!form.getFieldMeta('taxRate')?.isDirty })}
+        onApply={(patch) => {
+          for (const [key, value] of Object.entries(patch) as [keyof InvoiceFormData, never][]) form.setFieldValue(key, value);
+        }}
+      />
+
       {/* Invoice Name */}
       <form.Field name="invoiceName">
         {(field) => (

@@ -19,6 +19,7 @@ import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { useInvoices } from '@/hooks/useInvoices';
 import { InvoiceAttribution } from '@/components/AgentBadge';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
+import { SaveAsTemplateButton } from '@/components/templates/TemplateControls';
 import { toast } from 'sonner';
 
 export default function ViewInvoice() {
@@ -170,6 +171,7 @@ export default function ViewInvoice() {
               <Copy className="w-4 h-4 mr-2" />
               Duplicate
             </Button>
+            <SaveAsTemplateButton invoice={() => invoice} />
             <Button
               variant="outline"
               size="sm"
