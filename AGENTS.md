@@ -9,14 +9,16 @@ Midnight Invoice is a modern invoice generator built with React 19, Vite, and Ty
 ## Tech Stack
 
 - **Framework**: React 19
-- **Build Tool**: Vite
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Components**: shadcn/ui
+- **Build Tool**: Vite 8 (`@vitejs/plugin-react`, `@tailwindcss/vite`, `vite-plugin-pwa`)
+- **Language**: TypeScript 6 (not `strict`; held below 7 until typescript-eslint supports it)
+- **Styling**: Tailwind CSS 4, configured CSS-first in `src/index.css` (no `tailwind.config.*`), animations via `tw-animate-css`
+- **Components**: shadcn/ui (Radix UI), icons from `lucide-react`
 - **State Management**: Zustand (with persist middleware)
+- **Forms**: TanStack Form + Zod 4
 - **PDF Generation**: @react-pdf/renderer
-- **Routing**: react-router-dom
-- **Testing**: Vitest + React Testing Library
+- **Routing**: `react-router` 8 in declarative mode (`BrowserRouter`/`Routes`); import from `react-router`, not `react-router-dom`
+- **Testing**: Vitest + React Testing Library (jsdom)
+- **Linting**: ESLint 10 flat config + typescript-eslint + react-hooks 7
 
 ## Architecture
 
@@ -46,6 +48,8 @@ bun install
 bun run dev
 ```
 
+Requires Bun 1.4+ and Node.js 22.22+. No `.env` is needed; see `.env.example` for optional overrides. The dev server runs on port 8080.
+
 ### Testing
 Tests are co-located with components (e.g., `Component.test.tsx`).
 ```bash
@@ -53,12 +57,18 @@ bun run test
 bun run test:coverage
 ```
 
+### Checks (same as CI)
+```bash
+bun run lint && bun run typecheck && bun run test:run && bun run build
+```
+
 ### PDF Generation
 PDF generation is handled by `src/components/invoice/InvoicePDF.tsx` using `@react-pdf/renderer`.
 **Note:** valid CSS in React PDF is limited compared to web CSS. Always verify PDF output when making changes.
 
 ### Styling
-- Use Tailwind CSS utility classes.
+- Use Tailwind CSS utility classes. Theme tokens (colors, radius, fonts) live in `src/index.css` (`@theme` / `@theme inline`).
+- `src/index.css` contains Tailwind v3 compatibility rules (v3 `space-*` sibling margins, placeholder colour, button cursor, pinned palette colours) that keep the original look; keep them unless you deliberately restyle.
 - Follow the existing dark mode aesthetic.
 - Use `lucide-react` for icons.
 
