@@ -11,6 +11,11 @@ All notable changes to this project will be documented in this file.
 - **Environment**: No `.env` file is needed; `VITE_APP_NAME` defaults to "Midnight Invoice". `.env.example` documents both variables.
 
 ### Added
+- **Cloud sync & agents in the app** (opt-in, Settings → Cloud sync & agents): creates an anonymous workspace and uploads local invoices and default settings; local-first sync engine with a persisted offline queue, delta pulls (on start, focus, reconnect and every 15 s), tombstones, revisions with `If-Match`, and a three-way merge on conflicts (server wins per conflicting field; the user is told); header sync status; recovery key to link another browser and "Connect existing workspace"; disconnect this browser; delete the cloud workspace (local copies kept).
+- **Agent approval page** (`/agents/approve?code=…`): consent screen with the agent's name and description as plain text, anti-phishing guidance, per-permission checkboxes to narrow scopes, expiry countdown, approve/deny and clear states for unknown, expired, already decided and rate-limited codes.
+- **Agents page** (`/agents`): connected and revoked agents with permissions and last use, revoke with confirmation, code entry, and copyable connection help (prompt, API base URL, MCP endpoint and client config).
+- Invoices created or edited by agents show a "by / edited by <agent>" badge in the list and provenance on the invoice view.
+- Typed API client (`src/lib/api`) and an in-memory API fake for tests.
 - **Cloudflare hosting**: the app now runs as one Cloudflare Worker with static assets (`wrangler.jsonc`, `@cloudflare/vite-plugin`). SPA not-found handling keeps deep links working; `/api/*` always reaches the Worker. New scripts: `deploy`, `cf-typegen`, `db:migrate:local`, `db:migrate:remote`.
 - **Agent API** (`/api/v1`, Hono on Workers + Cloudflare D1): anonymous workspaces with a one-time workspace token; RFC 8628-style agent registration (user code approval, scope narrowing, deny, expiry, one-time API key), agent listing and revocation; invoice CRUD with soft deletes, `updated_since` delta sync, revisions/ETags and `If-Match` preconditions, atomic invoice-number allocation, defaults from workspace settings, server-computed totals; settings; `createdBy`/`updatedBy` attribution; rate limiting (Workers Rate Limiting + D1 counters); OpenAPI 3.1 at `/api/v1/openapi.json`. See `AGENT_API.md`.
 - **Remote MCP server** at `/api/mcp` (official MCP TypeScript SDK v2, stateless Streamable HTTP, JSON responses) with scope-filtered invoice tools.
@@ -20,6 +25,10 @@ All notable changes to this project will be documented in this file.
 - Vitest projects: `web` (jsdom), `server` (API against local D1 in workerd), `workerd` (production build in workerd).
 
 ### Changed
+- Saving an existing invoice keeps its original `createdAt` and its sync metadata.
+- The dashboard tab is reflected in the URL (`/?tab=settings`); the "Cloud Sync" teaser left "Coming Soon".
+- The service worker explicitly never caches `/api/*` (NetworkOnly).
+- Agent user-code helpers moved to `shared/user-code.ts` (re-exported from `server/crypto.ts`).
 - PDF fonts are declared once in `src/components/invoice/pdfFonts.ts` (used by the browser and the Worker).
 - Invoice, settings and API types live in `shared/` (re-exported from the old `src/` paths); `Invoice` gained optional server fields (`updatedAt`, `deletedAt`, `revision`, `createdBy`, `updatedBy`).
 - The service worker never serves the SPA shell for `/api/*` navigations.

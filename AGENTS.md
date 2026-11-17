@@ -28,7 +28,17 @@ Midnight Invoice is a modern invoice generator built with React 19, Vite, and Ty
 State is managed using Zustand stores located in `src/stores/`.
 - `useInvoiceStore.ts`: Manages the list of saved invoices.
 - `useSettingsStore.ts`: Manages default invoice settings (from address, currency, etc.).
-- Both stores use `persist` middleware to save data to `localStorage`.
+- `useCloudStore.ts`: opt-in cloud sync state: workspace, workspace token (the "recovery key"), sync cursor, pending-change queue, merge bases, per-invoice sync errors, plus runtime status for the header. Persisted as `cloud-sync-storage` (version + `migrateCloudStore` in `src/lib/storageMigrations.ts`).
+- All stores use `persist` middleware to save data to `localStorage`. Invoices stay local-first: `useInvoiceStore` is the source of truth the UI reads; the sync engine mirrors it with the server.
+
+### Cloud sync (opt-in) and agents
+- Off by default: with no workspace token the app makes no API calls and behaves as a purely local app.
+- `src/lib/api/`: typed client for `/api/v1` (same origin only). The token goes only in the `Authorization` header; never put it in URLs, logs, errors or toasts. A 401 for the stored token calls `leaveWorkspace('token_rejected')` (local data kept). `ApiError` carries `status/code/details/retryAfterMs`; `NetworkError` = offline/unreachable.
+- `src/lib/sync/engine.ts`: the sync engine (contract: AGENT_API.md "Sync semantics"). A cycle pulls `GET /invoices?include_deleted=true&updated_since=<cursor>` (pages via `next`, cursor = `syncedAt` only after the last page, items applied idempotently by id, tombstones delete local copies) and then flushes the queue in order (`PUT` with `If-Match` / `If-None-Match: *`, `DELETE` with `If-Match`, `PUT /settings`). Transient errors (offline, 5xx, 429, 409) stop the queue with backoff / `Retry-After`; permanent ones (400…) drop the entry and mark the invoice "Not synced". `410` drops the local copy. `412` → GET + three-way merge against the last agreed version (`mergeContent` in `fields.ts`): fields changed only locally win, fields changed only on the server win, fields changed on both keep the **server** value; the user gets a toast either way. A `412` on delete restores the newer server copy.
+- Local edits reach the engine through `src/lib/sync/localChanges.ts` (emitted by `saveInvoice`/`deleteInvoice`); changes applied from the server use `setState` directly so they are never echoed back. Drafts are never synced.
+- `src/components/sync/CloudSyncRuntime.tsx` (mounted in `App.tsx`) triggers cycles on start, focus, `online`, and every 15 s while visible. `cloudActions.ts`: enable (create workspace + upload), connect with a recovery key (validated via `GET /workspace`), disconnect, delete workspace.
+- Agent-facing UI: `/agents/approve` (consent screen, never auto-approves; agent-supplied text is rendered as plain text) and `/agents` (list/revoke, connection help). Server state there uses react-query (`['agents']`, `['agent-registration', code]`).
+- Tests use `src/test/fakeApi.ts` (an in-memory implementation of the API) with `vi.stubGlobal('fetch', fake.fetch)`.
 
 ### Routing
 Routes are defined in `src/App.tsx`.
@@ -36,6 +46,9 @@ Routes are defined in `src/App.tsx`.
 - `/create`: Create new invoice (`src/pages/CreateInvoice.tsx`)
 - `/create/:id`: Edit existing invoice or draft
 - `/invoice/:id`: View saved invoice (`src/pages/ViewInvoice.tsx`)
+- `/?tab=settings`: Dashboard settings tab, including "Cloud sync & agents"
+- `/agents`: Connected agents and how to connect one (`src/pages/Agents.tsx`)
+- `/agents/approve?code=XXXX-XXXX`: Approve or deny an agent (`src/pages/ApproveAgent.tsx`)
 
 ### Backend (Cloudflare Worker)
 - `worker/index.ts`: thin Worker entry. Builds `AppDeps` from the env (`DB`, `ASSETS`, `RATE_LIMIT_*`, `APP_URL`) and hands `/api/*` to the Hono app. Static assets and SPA fallback are handled by the assets layer (`run_worker_first: ["/api/*"]`).
@@ -53,6 +66,8 @@ Routes are defined in `src/App.tsx`.
 - `src/components/invoice/`: Core business logic components (Form, Preview, PDF). PDF fonts are declared only in `pdfFonts.ts` (files in `public/fonts/`); the Worker loads the same files through the assets binding.
 - `src/components/ui/`: Reusable UI components from shadcn/ui.
 - `src/components/Footer.tsx`: Global footer with attribution.
+- `src/components/sync/`, `src/components/AgentBadge.tsx`, `src/components/PageHeader.tsx`: cloud sync settings and header status, agent attribution, header for secondary pages.
+- `font-mono` (ProtoMono) has capitals only; use `font-code` for keys, URLs and code where case matters.
 
 ## Development Workflows
 

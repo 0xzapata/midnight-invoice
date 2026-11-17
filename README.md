@@ -15,7 +15,8 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - 📋 Duplicate invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
-- 🤖 Agent API: AI agents can connect to your workspace after you approve them (REST + remote MCP)
+- ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
+- 🤖 AI agents: approve an agent from the app (scopes you can narrow), see what it created or edited, revoke it any time (REST + remote MCP)
 - 🧾 Server-side PDF rendering with the same PDF component as the app
 
 ## Tech Stack
@@ -149,6 +150,29 @@ approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`).
    Every change it makes is attributed to it (`createdBy` / `updatedBy`), and
    you can revoke it at any time.
 
+### Connecting an agent (as a user)
+
+1. In the app, open **Settings → Cloud sync & agents** and turn on cloud sync.
+   Your invoices and default settings are then stored on the server (in an
+   anonymous workspace) so approved agents can work with them. The app keeps
+   working offline; nothing leaves the browser until you turn this on.
+2. Open **Agents** (header) and copy the prompt under *Connect an agent* into
+   your AI tool (it tells the agent to read `/llms.txt` and register), or give
+   it the MCP endpoint `https://<your app>/api/mcp`.
+3. The agent shows you a code and a link to `/agents/approve?code=…`. Open it,
+   check that the code matches, untick any permission you do not want to give
+   and click **Approve**. Only approve requests you started yourself.
+4. Invoices the agent creates or edits appear in your dashboard within ~15
+   seconds, marked *by &lt;agent&gt;* / *edited by &lt;agent&gt;*. Revoke it on
+   the Agents page.
+
+To use the same workspace in another browser or device, reveal the
+**recovery key** in Settings → Cloud sync & agents → *Link another browser or
+device* and paste it under *Connect existing workspace* there. Keep it secret
+(it is the workspace's only credential) and never give it to an agent.
+
+### How the API works
+
 There are no accounts: the browser creates an anonymous workspace
 (`POST /api/v1/workspaces`) whose token is the user credential. Full contract,
 sync semantics, curl examples and the MCP client configuration:
@@ -201,6 +225,7 @@ shared/                      # Types and helpers used by both the app and the AP
 ├── api.ts                   # API contract types
 ├── types/invoice.ts         # Invoice types (re-exported from src/types)
 ├── settings.ts
+├── user-code.ts             # Agent user-code normalisation (app + API)
 └── invoice-totals.ts
 migrations/                  # D1 migrations (wrangler d1 migrations)
 wrangler.jsonc               # Worker, assets, D1 and rate-limit configuration
@@ -218,12 +243,19 @@ src/
 │   │   └── InvoiceList.tsx
 │   ├── icons/               # Custom icons
 │   ├── ui/                  # shadcn/ui components + CurrencySelector
+│   ├── agents/scopes.ts     # Plain-language scope descriptions
+│   ├── sync/                # Cloud sync settings, header status, runtime (polling/focus/online)
+│   ├── AgentBadge.tsx       # "by <agent>" attribution
+│   ├── CopyButton.tsx
+│   ├── PageHeader.tsx
 │   ├── Footer.tsx
 │   ├── SettingsDrawer.tsx
 │   └── ThemeToggle.tsx
 ├── hooks/
 │   └── useInvoices.ts       # Invoice management hook
 ├── lib/
+│   ├── api/                 # Typed API client (errors, 401/429/offline handling)
+│   ├── sync/                # Sync engine, merge rules, workspace join/leave
 │   ├── currencies.ts        # Currency list
 │   ├── invoice-utils.ts     # Currency/date formatting
 │   ├── sanitize.ts          # Input sanitization
@@ -234,12 +266,16 @@ src/
 │   ├── Index.tsx            # Dashboard
 │   ├── CreateInvoice.tsx    # Create/edit invoice
 │   ├── ViewInvoice.tsx      # View saved invoice
+│   ├── Agents.tsx           # Connected agents, revoke, how to connect one
+│   ├── ApproveAgent.tsx     # Agent consent screen (/agents/approve?code=…)
 │   └── NotFound.tsx
 ├── stores/
 │   ├── useInvoiceStore.ts   # Invoices and drafts (Zustand)
-│   └── useSettingsStore.ts  # Default settings (Zustand)
+│   ├── useSettingsStore.ts  # Default settings (Zustand)
+│   └── useCloudStore.ts     # Cloud sync: workspace, token, cursor, queue (Zustand)
 ├── test/
-│   └── setup.ts             # Test configuration
+│   ├── setup.ts             # Test configuration
+│   └── fakeApi.ts           # In-memory fake of the API for jsdom tests
 └── types/
     └── invoice.ts           # TypeScript interfaces
 ```
