@@ -3,6 +3,9 @@ import { api, connectAgent, createWorkspace, sampleInvoice, startD1, TestClock }
 import { GITHUB_TOKEN, buildOperatorApp, completeSetup, fakeGithub, fakeWorkos, routeFetch, type Browser } from '../test/operator';
 import { runScheduledJobs } from '../scheduled';
 import { percentile, groupOf } from './telemetry';
+import { readdirSync } from 'node:fs';
+
+const LATEST_MIGRATION = readdirSync(new URL('../../migrations/', import.meta.url)).filter((f) => f.endsWith('.sql')).sort().at(-1);
 
 let d1: Awaited<ReturnType<typeof startD1>>;
 beforeAll(async () => {
@@ -271,7 +274,8 @@ describe('telemetry', () => {
     expect(t.totals.authFailures).toBeGreaterThanOrEqual(1);
     expect(t.groups.map((g: { group: string }) => g.group)).toEqual(expect.arrayContaining(['Sync', 'PDF rendering', 'MCP endpoint', 'Invoices']));
     expect(t.recentErrors.some((e: { status: number; metric: string }) => e.status === 401 && e.metric === 'rest|GET /invoices')).toBe(true);
-    expect(t.d1).toMatchObject({ ok: true, migration: '0004_operator.sql' });
+    // The probe reports the newest applied migration (the last file in migrations/).
+    expect(t.d1).toMatchObject({ ok: true, migration: LATEST_MIGRATION });
     expect(t.series).toHaveLength(60);
     // Rollups exist for both granularities.
     const g = await d1.db.prepare("SELECT DISTINCT granularity FROM telemetry_rollups ORDER BY granularity").all();

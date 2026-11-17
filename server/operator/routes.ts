@@ -23,6 +23,7 @@ import type {
   TelemetryResponse,
   WorkspacesResponse,
 } from '../../shared/operator';
+import { registerAccountOperatorRoutes } from '../accounts/operatorRoutes';
 import { parseScopes } from '../auth';
 import type { Repository } from '../db/repository';
 import type { AppDeps } from '../deps';
@@ -872,6 +873,9 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     settings.invalidate();
     return c.json<EncryptionStatusResponse>((await keystore.status()) as EncryptionStatusResponse);
   });
+
+  // User accounts (server/accounts): Users → Accounts.
+  registerAccountOperatorRoutes(full, deps, audit);
 
   app.route('/', full);
   return app;

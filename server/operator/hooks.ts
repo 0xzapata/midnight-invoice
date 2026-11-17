@@ -69,7 +69,7 @@ function restMetricName(c: Context): string {
   } catch {
     // keep "(unmatched)"
   }
-  const short = template.replace(/^\/api\/v1/, '').replace(/^\/api\/operator/, '') || '/';
+  const short = template.replace(/^\/api\/v1/, '').replace(/^\/api\/operator/, '').replace(/^\/api\/account/, '') || '/';
   const sync = c.req.method === 'GET' && (template === '/api/v1/invoices' || template === '/api/v1/clients') && c.req.query('include_deleted') === 'true';
   return `${c.req.method} ${short}${sync ? ' (sync)' : ''}`;
 }
@@ -78,7 +78,7 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
   return createMiddleware<HookEnv>(async (c, next) => {
     const started = Date.now();
     const path = c.req.path;
-    const service = path.startsWith('/api/operator') ? 'operator' : path === '/api/mcp' ? 'mcp' : 'rest';
+    const service = path.startsWith('/api/operator') ? 'operator' : path === '/api/mcp' ? 'mcp' : path.startsWith('/api/account') ? 'accounts' : 'rest';
     await deps.settings.refresh();
 
     let blocked: ApiError | null = null;

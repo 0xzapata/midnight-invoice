@@ -16,6 +16,7 @@ import { ApiError, errors } from './errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, runInBackground } from './http';
 import { createMcpEndpoint } from './mcp';
 import { installOperator } from './operator';
+import { installAccounts } from './accounts';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
 import { buildOpenApiDocument } from './openapi';
 import { parsePdfTheme, pdfFilename, renderInvoicePdf } from './pdf/render';
@@ -47,6 +48,8 @@ export function createApp(deps: AppDeps) {
 
   // Operator console: runtime settings + policy + telemetry hook for /api/*, and /api/operator routes.
   installOperator(app, deps, repo);
+  // Optional user accounts (server/accounts): /api/account routes + "account required" policy for new workspaces.
+  installAccounts(app, deps, repo);
 
   /** Bearer auth for workspace tokens and agent keys. */
   const auth = createMiddleware<AppEnv>(async (c, next) => {

@@ -62,7 +62,9 @@ export type ApiErrorCode =
   // Set by the site operator (operator console)
   | 'maintenance'
   | 'workspace_suspended'
-  | 'registration_closed';
+  | 'registration_closed'
+  // New workspaces require a signed-in account (operator setting, see user accounts)
+  | 'account_required';
 
 export interface ApiErrorBody {
   error: {
