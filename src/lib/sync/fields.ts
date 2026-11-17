@@ -26,6 +26,7 @@ export const CONTENT_FIELDS = [
   // One merge unit: status together with its dates (sentAt, paidAt), so a
   // merge never pairs one side's status with the other side's dates.
   'status',
+  'clientId',
 ] as const;
 
 export type ContentField = (typeof CONTENT_FIELDS)[number];
@@ -46,6 +47,8 @@ export interface InvoiceContent {
   notes: string;
   paymentDetails: string;
   currency: string;
+  /** "" = no saved client. */
+  clientId: string;
   status: InvoiceStatus;
   sentAt: string | null;
   paidAt: string | null;
@@ -68,6 +71,7 @@ export const FIELD_LABELS: Record<ContentField, string> = {
   notes: 'notes',
   paymentDetails: 'payment details',
   currency: 'currency',
+  clientId: 'saved client',
   status: 'status',
 };
 
@@ -89,6 +93,7 @@ export function contentOf(invoice: Partial<Invoice>): InvoiceContent {
     notes: invoice.notes ?? '',
     paymentDetails: invoice.paymentDetails ?? '',
     currency: invoice.currency ?? 'USD',
+    clientId: invoice.clientId ?? '',
     status: statusOf(invoice),
     sentAt: invoice.sentAt || null,
     paidAt: invoice.paidAt || null,
@@ -101,6 +106,8 @@ export function fieldEquals(field: ContentField, a: InvoiceContent, b: InvoiceCo
   if (field === 'status') {
     return statusOf(a) === statusOf(b) && (a.sentAt || null) === (b.sentAt || null) && (a.paidAt || null) === (b.paidAt || null);
   }
+  // Bases persisted before saved clients existed have no clientId: they mean "no client".
+  if (field === 'clientId') return (a.clientId || '') === (b.clientId || '');
   return a[field] === b[field];
 }
 
@@ -153,6 +160,7 @@ export function toInvoiceInput(invoice: Invoice): InvoiceInput {
   const c = contentOf(invoice);
   const input: InvoiceInput = { ...c, createdAt: invoice.createdAt };
   if (!c.invoiceName) delete input.invoiceName;
+  if (!c.clientId) delete input.clientId;
   return input;
 }
 

@@ -1,5 +1,7 @@
 import type { Invoice } from '@/types/invoice';
 import type { DefaultSettings } from '../../shared/settings';
+import type { Client } from '../../shared/types/client';
+import { isCollectionName, type CollectionName } from '@/lib/sync/collectionNames';
 import { localToday, normalizeStatusFields } from '../../shared/invoice-status';
 
 /**
@@ -119,20 +121,26 @@ export function migrateSettingsStore(
 /**
  * Current schema version for the cloud sync store (`cloud-sync-storage`).
  * Increment this when changing the persisted shape of useCloudStore.
+ *
+ * v2: one delta cursor per synced collection (`cursors`, was `cursor` for
+ * invoices); queue entries name their collection and entity (`collection`,
+ * `entityId`, `label`; were `invoiceId`, `invoiceNumber`).
  */
-export const CURRENT_CLOUD_VERSION = 1;
+export const CURRENT_CLOUD_VERSION = 2;
 
 /** A queued local change waiting to be sent to the server, oldest first. */
 export interface PendingOp {
     /** Unique id of this queue entry. */
     opId: string;
     type: 'upsert' | 'delete' | 'settings';
-    /** For upsert/delete. */
-    invoiceId?: string;
+    /** For upsert/delete: which synced collection. */
+    collection?: CollectionName;
+    /** For upsert/delete: the entity's id. */
+    entityId?: string;
     /** Delete only: the server revision the deleted copy had (undefined if never uploaded). */
     baseRevision?: number;
-    /** Delete only: for messages after the local copy is gone. */
-    invoiceNumber?: string;
+    /** Delete only: for messages after the local copy is gone (e.g. the invoice number). */
+    label?: string;
     /** Bumped whenever a newer local change is coalesced into this entry. */
     seq: number;
     attempts: number;
@@ -149,12 +157,15 @@ export interface CloudPersistedState {
     token: string | null;
     /** Set when the server rejected the token (workspace deleted elsewhere). Local data is kept. */
     disconnectedReason: 'token_rejected' | null;
-    /** `syncedAt` of the last complete pull, used as `updated_since`. */
-    cursor: string | null;
+    /** Per collection: `syncedAt` of the last complete pull, used as `updated_since`. */
+    cursors: Partial<Record<CollectionName, string>>;
     queue: PendingOp[];
-    /** Last content both this browser and the server agreed on, per invoice id (base for three-way merges). */
+    /**
+     * Last content both this browser and the server agreed on (base for
+     * three-way merges), keyed by `syncKey(collection, id)`.
+     */
     bases: Record<string, unknown>;
-    /** Invoices the server refused (e.g. validation), with the reason; they stay local-only until edited. */
+    /** Entities the server refused (e.g. validation), with the reason, keyed by `syncKey`; they stay local-only until edited. */
     syncErrors: Record<string, string>;
 }
 
@@ -162,7 +173,7 @@ export const EMPTY_CLOUD_STATE: CloudPersistedState = {
     workspace: null,
     token: null,
     disconnectedReason: null,
-    cursor: null,
+    cursors: {},
     queue: [],
     bases: {},
     syncErrors: {},
@@ -176,13 +187,19 @@ function sanitizeQueue(queue: unknown): PendingOp[] {
         if (!isRecord(raw)) return [];
         const type = raw.type;
         if (type !== 'upsert' && type !== 'delete' && type !== 'settings') return [];
-        if (type !== 'settings' && typeof raw.invoiceId !== 'string') return [];
+        // v1 entries are invoice entries with `invoiceId` / `invoiceNumber`.
+        const collection = raw.collection === undefined && typeof raw.invoiceId === 'string' ? 'invoices' : raw.collection;
+        const entityId = typeof raw.entityId === 'string' ? raw.entityId : typeof raw.invoiceId === 'string' ? raw.invoiceId : undefined;
+        const label = typeof raw.label === 'string' ? raw.label : typeof raw.invoiceNumber === 'string' ? raw.invoiceNumber : undefined;
+        // Entries without an id, or for collections this version does not know (written by a newer app), are dropped.
+        if (type !== 'settings' && (!isCollectionName(collection) || entityId === undefined)) return [];
         return [{
             opId: typeof raw.opId === 'string' ? raw.opId : crypto.randomUUID(),
             type,
-            invoiceId: typeof raw.invoiceId === 'string' ? raw.invoiceId : undefined,
+            collection: type === 'settings' ? undefined : (collection as CollectionName),
+            entityId: type === 'settings' ? undefined : entityId,
             baseRevision: typeof raw.baseRevision === 'number' ? raw.baseRevision : undefined,
-            invoiceNumber: typeof raw.invoiceNumber === 'string' ? raw.invoiceNumber : undefined,
+            label,
             seq: typeof raw.seq === 'number' ? raw.seq : 0,
             attempts: typeof raw.attempts === 'number' ? raw.attempts : 0,
             // Retry promptly after a reload.
@@ -191,11 +208,26 @@ function sanitizeQueue(queue: unknown): PendingOp[] {
     });
 }
 
+function sanitizeCursors(state: Record<string, unknown>): Partial<Record<CollectionName, string>> {
+    const cursors: Partial<Record<CollectionName, string>> = {};
+    if (isRecord(state.cursors)) {
+        for (const [name, value] of Object.entries(state.cursors)) {
+            if (isCollectionName(name) && typeof value === 'string') cursors[name] = value;
+        }
+    } else if (typeof state.cursor === 'string') {
+        // v1: the single cursor was the invoice feed's.
+        cursors.invoices = state.cursor;
+    }
+    return cursors;
+}
+
 /**
- * Migrates the cloud sync store. Version 0 (or anything malformed) is
+ * Migrates the cloud sync store. Any version (or anything malformed) is
  * normalised field by field so a corrupt entry never breaks app start: bad
- * queue entries are dropped, and the queue, cursor and merge bases are only
+ * queue entries are dropped, and the queue, cursors and merge bases are only
  * kept together with a token (they are meaningless without a workspace).
+ * Version 1 data (one invoice cursor, invoice-only queue entries) becomes
+ * version 2.
  */
 export function migrateCloudStore(persistedState: unknown, _version: number): CloudPersistedState {
     const state = isRecord(persistedState) ? persistedState : {};
@@ -208,11 +240,60 @@ export function migrateCloudStore(persistedState: unknown, _version: number): Cl
         workspace: ws,
         token,
         disconnectedReason: state.disconnectedReason === 'token_rejected' ? 'token_rejected' : null,
-        cursor: token && typeof state.cursor === 'string' ? state.cursor : null,
+        cursors: token ? sanitizeCursors(state) : {},
         queue: token ? sanitizeQueue(state.queue) : [],
         bases: token && isRecord(state.bases) ? state.bases : {},
         syncErrors: isRecord(state.syncErrors)
             ? Object.fromEntries(Object.entries(state.syncErrors).filter(([, v]) => typeof v === 'string')) as Record<string, string>
             : {},
     };
+}
+
+/**
+ * Current schema version for the client store (`client-storage`).
+ * Increment this when making breaking changes to the Client type.
+ */
+export const CURRENT_CLIENT_VERSION = 1;
+
+/** Client store persisted state shape. */
+export interface ClientPersistedState {
+    clients: Client[];
+}
+
+const optString = (v: unknown) => (typeof v === 'string' ? v : undefined);
+const optNumber = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * Migrates the client store. Every version is normalised entry by entry so a
+ * corrupt entry never breaks app start: entries without an id or name (and
+ * duplicate ids) are dropped, missing strings become "", malformed optional
+ * defaults become null. Sync metadata (revision, attribution) is kept.
+ */
+export function migrateClientStore(persistedState: unknown, _version: number): ClientPersistedState {
+    const state = isRecord(persistedState) ? persistedState : {};
+    const raw = Array.isArray(state.clients) ? state.clients : [];
+    const seen = new Set<string>();
+    const clients = raw.flatMap((c): Client[] => {
+        if (!isRecord(c) || typeof c.id !== 'string' || typeof c.name !== 'string' || seen.has(c.id)) return [];
+        seen.add(c.id);
+        const createdAt = optString(c.createdAt) ?? new Date(0).toISOString();
+        const client: Client = {
+            id: c.id,
+            name: c.name,
+            email: optString(c.email) ?? '',
+            address: optString(c.address) ?? '',
+            defaultCurrency: optString(c.defaultCurrency) ?? null,
+            defaultTaxRate: optNumber(c.defaultTaxRate),
+            paymentTermsDays: optNumber(c.paymentTermsDays),
+            notes: optString(c.notes) ?? '',
+            createdAt,
+            updatedAt: optString(c.updatedAt) ?? createdAt,
+            archivedAt: optString(c.archivedAt) ?? null,
+        };
+        if (typeof c.revision === 'number') client.revision = c.revision;
+        if (isRecord(c.createdBy)) client.createdBy = c.createdBy as unknown as Client['createdBy'];
+        if (isRecord(c.updatedBy)) client.updatedBy = c.updatedBy as unknown as Client['updatedBy'];
+        return [client];
+    });
+    return { clients };
 }

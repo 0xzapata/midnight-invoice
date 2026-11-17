@@ -22,6 +22,7 @@ import {
   type InvoiceInputParsed,
   type InvoicePatchParsed,
 } from '../schemas';
+import { prefillInvoiceInput, prefillInvoicePatch } from './invoiceClients';
 
 export interface ServiceContext {
   repo: Repository;
@@ -94,6 +95,7 @@ function finalize(data: InvoiceFormData & Partial<InvoiceStatusFields>, placehol
   assertUniqueLineItemIds(data);
   const stored: StoredInvoiceData = { ...data, version: CURRENT_INVOICE_VERSION };
   if (stored.invoiceName === undefined || stored.invoiceName === '') delete stored.invoiceName;
+  if (!stored.clientId) delete stored.clientId;
   return stored;
 }
 
@@ -111,7 +113,7 @@ function withDefaults(input: InvoiceInputParsed, settings: DefaultSettings, toda
     fromName: input.fromName ?? settings.fromName,
     fromAddress: input.fromAddress ?? settings.fromAddress,
     fromEmail: input.fromEmail ?? settings.fromEmail,
-    toName: input.toName,
+    toName: input.toName ?? '',
     toAddress: input.toAddress ?? '',
     toEmail: input.toEmail ?? '',
     lineItems: input.lineItems.map((li) => ({
@@ -124,6 +126,7 @@ function withDefaults(input: InvoiceInputParsed, settings: DefaultSettings, toda
     notes: input.notes ?? '',
     paymentDetails: input.paymentDetails ?? settings.paymentDetails,
     currency: input.currency ?? settings.currency,
+    ...(input.clientId ? { clientId: input.clientId } : {}),
   };
 }
 
@@ -147,16 +150,18 @@ export function listFiltersOf(q: {
   due_before?: string;
   due_after?: string;
   client?: string;
+  client_id?: string;
 }): Omit<InvoiceListFilters, 'today'> | undefined {
   const statuses = q.status?.filter((s) => s !== 'overdue');
   const overdue = q.status?.includes('overdue') ?? false;
-  if (!q.status?.length && !q.due_before && !q.due_after && !q.client) return undefined;
+  if (!q.status?.length && !q.due_before && !q.due_after && !q.client && !q.client_id) return undefined;
   return {
     statuses: statuses && statuses.length > 0 ? [...new Set(statuses)] : undefined,
     overdue,
     dueBefore: q.due_before,
     dueAfter: q.due_after,
     client: q.client,
+    clientId: q.client_id,
   };
 }
 
@@ -222,7 +227,7 @@ async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceDat
 /** POST /invoices: server-generated id; missing invoiceNumber is allocated atomically. */
 export async function createInvoice(ctx: ServiceContext, body: unknown): Promise<ApiInvoice> {
   requireScope(ctx.principal, 'invoices:write');
-  const input = parseOrThrow(invoiceInputSchema, body);
+  const input = await prefillInvoiceInput(ctx, parseOrThrow(invoiceInputSchema, body), today(ctx.deps));
   const settings = await loadSettings(ctx);
   const data = finalize(
     { ...withDefaults(input, settings, today(ctx.deps), ctx.deps.ids.uuid), ...statusForCreate(input, today(ctx.deps)) },
@@ -258,7 +263,9 @@ export async function putInvoice(
   if (existing && pre.ifNoneMatchAny) throw errors.preconditionFailed('Invoice already exists', { id, currentRevision: existing.revision });
   if (existing?.deleted_at) throw errors.gone('Invoice was deleted and cannot be recreated with the same id', { id, deletedAt: existing.deleted_at });
 
-  const completed = withDefaults(input, settings, today(ctx.deps), ctx.deps.ids.uuid);
+  const storedClientId = existing ? (JSON.parse(existing.data) as StoredInvoiceData).clientId : undefined;
+  const filled = await prefillInvoiceInput(ctx, input, today(ctx.deps), storedClientId);
+  const completed = withDefaults(filled, settings, today(ctx.deps), ctx.deps.ids.uuid);
 
   if (!existing) {
     if (pre.ifMatch !== undefined) throw errors.preconditionFailed('Invoice does not exist', { id });
@@ -319,7 +326,8 @@ export async function patchInvoice(
     }
     const current = JSON.parse(existing.data) as StoredInvoiceData;
     const merged: InvoiceFormData = { ...current, invoiceNumber: existing.invoice_number };
-    for (const [key, value] of Object.entries(patch)) {
+    const effective = await prefillInvoicePatch(ctx, patch, current.clientId);
+    for (const [key, value] of Object.entries(effective)) {
       if (value === undefined || key === 'id') continue;
       if (key === 'lineItems') {
         merged.lineItems = (value as NonNullable<InvoicePatchParsed['lineItems']>).map((li) => ({

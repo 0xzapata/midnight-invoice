@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InvoiceFormData } from '@/types/invoice';
 import { useInvoiceStore } from './useInvoiceStore';
 import { localToday } from '../../shared/invoice-status';
-import { setLocalInvoiceChangeListener } from '@/lib/sync/localChanges';
+import { setLocalChangeListener } from '@/lib/sync/localChanges';
 
 const form = (o: Partial<InvoiceFormData> = {}): InvoiceFormData => ({
   invoiceNumber: 'INV-0001',
@@ -30,7 +30,7 @@ describe('invoice status in the local store', () => {
   beforeEach(() => {
     useInvoiceStore.setState({ invoices: [], drafts: {} });
     changes.length = 0;
-    setLocalInvoiceChangeListener((c) => changes.push(c));
+    setLocalChangeListener((c) => changes.push(c));
   });
 
   it('saves new invoices as drafts, or as sent when asked', () => {
@@ -57,7 +57,7 @@ describe('invoice status in the local store', () => {
     expect(store().getInvoice('a')).toMatchObject({ status: 'paid', paidAt: '2026-11-16' });
     expect(store().setInvoiceStatus('a', 'reopen')).toMatchObject({ ok: true, fields: { status: 'sent', paidAt: null } });
     expect(store().setInvoiceStatus('a', 'void')).toMatchObject({ ok: true, fields: { status: 'void' } });
-    expect(changes).toEqual(Array(4).fill({ type: 'upsert', id: 'a' }));
+    expect(changes).toEqual(Array(4).fill({ collection: 'invoices', type: 'upsert', id: 'a' }));
 
     // No-op: nothing emitted.
     changes.length = 0;
@@ -68,7 +68,7 @@ describe('invoice status in the local store', () => {
 
   it('does not touch drafts (autosaved form data)', () => {
     const spy = vi.fn();
-    setLocalInvoiceChangeListener(spy);
+    setLocalChangeListener(spy);
     store().saveDraft('x', form());
     expect(store().loadDraft('x')).not.toHaveProperty('status');
     expect(spy).not.toHaveBeenCalled();

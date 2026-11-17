@@ -14,6 +14,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - ⚙️ Comprehensive settings management
 - 📋 Duplicate invoices
 - ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip (works offline)
+- 👥 Saved clients: a client list (`/clients`) with default currency, tax rate and payment terms; pick a client on an invoice to fill Bill To, "Save as client" from an invoice, one-click import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
 - ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
@@ -144,17 +145,23 @@ approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`).
 
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
-   `settings:read`) and shows you a code like `WDJB-MJHT`.
+   `settings:read`, `clients:read`, `clients:write`) and shows you a code like
+   `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
 3. The agent polls `POST /api/v1/agents/token` and receives its API key once.
    Every change it makes is attributed to it (`createdBy` / `updatedBy`), and
    you can revoke it at any time.
 
+With `clients:read` an agent can look up your saved clients and bill one by
+id ("invoice Globex for 10 hours": `list_clients` → `create_invoice` with
+`clientId`); the server fills the client's name, address, email and default
+terms. `clients:write` lets it add, edit, archive and delete clients.
+
 ### Connecting an agent (as a user)
 
 1. In the app, open **Settings → Cloud sync & agents** and turn on cloud sync.
-   Your invoices and default settings are then stored on the server (in an
+   Your invoices, saved clients and default settings are then stored on the server (in an
    anonymous workspace) so approved agents can work with them. The app keeps
    working offline; nothing leaves the browser until you turn this on.
 2. Open **Agents** (header) and copy the prompt under *Connect an agent* into
@@ -238,14 +245,17 @@ worker/
 server/                      # API (Hono), testable via createApp(deps)
 ├── app.ts                   # Routes
 ├── auth.ts                  # Bearer auth, scopes, principals
-├── db/repository.ts         # All SQL (D1), scoped by workspace
-├── services/                # Invoice and agent use-cases (shared by REST and MCP)
-├── mcp.ts                   # Remote MCP server (official SDK v2)
-├── openapi.ts               # OpenAPI 3.1 document
+├── db/repository.ts         # SQL (D1), scoped by workspace
+├── db/clientRepository.ts   # SQL for saved clients
+├── routes/clients.ts        # /api/v1/clients routes
+├── services/                # Invoice, client and agent use-cases (shared by REST and MCP)
+├── mcp.ts, mcpClients.ts    # Remote MCP server (official SDK v2) and its client tools
+├── openapi.ts               # OpenAPI 3.1 document (+ openapiClients.ts)
 └── pdf/                     # Server-side PDF + Vite plugin for react-pdf in workerd
 shared/                      # Types and helpers used by both the app and the API
 ├── api.ts                   # API contract types
 ├── types/invoice.ts         # Invoice types (re-exported from src/types)
+├── types/client.ts          # Saved-client types and helpers
 ├── settings.ts
 ├── user-code.ts             # Agent user-code normalisation (app + API)
 └── invoice-totals.ts
@@ -267,6 +277,7 @@ src/
 │   ├── icons/               # Custom icons
 │   ├── ui/                  # shadcn/ui components + CurrencySelector
 │   ├── agents/scopes.ts     # Plain-language scope descriptions
+│   ├── clients/             # Client form dialog, Bill To client picker, fill rules
 │   ├── sync/                # Cloud sync settings, header status, runtime (polling/focus/online)
 │   ├── AgentBadge.tsx       # "by <agent>" attribution
 │   ├── CopyButton.tsx
@@ -278,7 +289,7 @@ src/
 │   └── useInvoices.ts       # Invoice management hook
 ├── lib/
 │   ├── api/                 # Typed API client (errors, 401/429/offline handling)
-│   ├── sync/                # Sync engine, merge rules, workspace join/leave
+│   ├── sync/                # Generic sync engine, per-collection descriptors (collections/), merge rules, workspace join/leave
 │   ├── currencies.ts        # Currency list
 │   ├── invoice-utils.ts     # Currency/date formatting
 │   ├── sanitize.ts          # Input sanitization
@@ -289,13 +300,15 @@ src/
 │   ├── Index.tsx            # Dashboard
 │   ├── CreateInvoice.tsx    # Create/edit invoice
 │   ├── ViewInvoice.tsx      # View saved invoice
+│   ├── Clients.tsx          # Saved clients (/clients)
 │   ├── Agents.tsx           # Connected agents, revoke, how to connect one
 │   ├── ApproveAgent.tsx     # Agent consent screen (/agents/approve?code=…)
 │   └── NotFound.tsx
 ├── stores/
 │   ├── useInvoiceStore.ts   # Invoices and drafts (Zustand)
 │   ├── useSettingsStore.ts  # Default settings (Zustand)
-│   └── useCloudStore.ts     # Cloud sync: workspace, token, cursor, queue (Zustand)
+│   ├── useClientStore.ts    # Saved clients (Zustand)
+│   └── useCloudStore.ts     # Cloud sync: workspace, token, cursors, queue (Zustand)
 ├── test/
 │   ├── setup.ts             # Test configuration
 │   └── fakeApi.ts           # In-memory fake of the API for jsdom tests

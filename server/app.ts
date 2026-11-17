@@ -21,6 +21,7 @@ import { parsePdfTheme, pdfFilename, renderInvoicePdf } from './pdf/render';
 import { LIMITS, listInvoicesQuerySchema, settingsSchema, zodDetails } from './schemas';
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
+import { registerClientRoutes } from './routes/clients';
 
 export type AppEnv = { Variables: { principal: Principal } };
 
@@ -210,6 +211,9 @@ export function createApp(deps: AppDeps) {
       },
     });
   });
+
+  // --- Clients (server/routes/clients.ts) --------------------------------------
+  registerClientRoutes(v1, auth, svc);
 
   // --- Settings ---------------------------------------------------------------
   v1.get('/settings', auth, async (c) => c.json(await invoices.getSettings(svc(c))));

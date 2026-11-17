@@ -1,19 +1,18 @@
 /**
  * Joining and leaving a cloud workspace. Leaving never deletes local data:
- * invoices stay in this browser, only the link to the workspace (token,
- * cursor, queue, merge bases) and per-invoice revisions are forgotten.
+ * invoices and clients stay in this browser, only the link to the workspace
+ * (token, cursors, queue, merge bases) and per-entity revisions are forgotten.
  */
 import type { Workspace } from '../../../shared/api';
 import { useCloudStore } from '@/stores/useCloudStore';
-import { useInvoiceStore } from '@/stores/useInvoiceStore';
-import { withoutServerState } from './fields';
+import { orderedCollections } from './collections';
 
 export function joinWorkspace(workspace: Workspace, token: string): void {
   useCloudStore.setState({
     workspace,
     token,
     disconnectedReason: null,
-    cursor: null,
+    cursors: {},
     queue: [],
     bases: {},
     syncErrors: {},
@@ -33,7 +32,7 @@ export function leaveWorkspace(reason: 'token_rejected' | null = null): void {
     workspace: null,
     token: null,
     disconnectedReason: reason,
-    cursor: null,
+    cursors: {},
     queue: [],
     bases: {},
     syncErrors: {},
@@ -41,5 +40,5 @@ export function leaveWorkspace(reason: 'token_rejected' | null = null): void {
     lastError: null,
   });
   // Revisions belong to the old workspace; a future workspace gets fresh uploads.
-  useInvoiceStore.setState((state) => ({ invoices: state.invoices.map(withoutServerState) }));
+  for (const col of orderedCollections()) col.setAll(col.all().map((entity) => col.withoutServerState(entity)));
 }
