@@ -4,6 +4,12 @@
  * (maintenance mode, closed registration, suspended workspaces) to the public
  * API and MCP, and records telemetry. Policy checks use the in-memory snapshot
  * only (no extra D1 query per request); telemetry is flushed in the background.
+ *
+ * Bodies: REST bodies are never read here. For `POST /api/mcp` (telemetry on)
+ * the hook reads a clone of the JSON-RPC body (at most 64 KiB) to name the
+ * metric, and keeps nothing from it but a value from a fixed vocabulary: a
+ * known MCP method, or — for authenticated requests only — a tool name this
+ * server defines (`mcpMetricName`). Everything else is "other".
  */
 import { createMiddleware } from 'hono/factory';
 import { matchedRoutes, routePath } from 'hono/route';
@@ -13,6 +19,7 @@ import { sha256Hex } from '../crypto';
 import type { AppDeps } from '../deps';
 import { ApiError } from '../errors';
 import { runInBackground } from '../http';
+import { MCP_METHODS, MCP_TOOL_NAMES } from '../mcpToolNames';
 import type { TelemetryCollector } from './telemetry';
 import { isOAuthProtocolPath, oauthPolicyResponse } from '../oauth/policy';
 
@@ -44,7 +51,12 @@ export function setTelemetryDetail(c: Context, detail: { label?: string; errorCo
   });
 }
 
-async function mcpMetricName(c: Context): Promise<string> {
+/**
+ * What an MCP request asked for, peeked from a clone of the body (at most
+ * 64 KiB) before the route reads it. Raw values: `mcpMetricName` maps them
+ * onto fixed vocabularies after the request was answered.
+ */
+async function peekMcp(c: Context): Promise<{ method: string; tool: string | null } | 'request' | 'invalid'> {
   try {
     const declared = Number(c.req.header('content-length') ?? '0');
     if (declared > MCP_PEEK_LIMIT || !c.req.raw.body) return 'request';
@@ -69,12 +81,25 @@ async function mcpMetricName(c: Context): Promise<string> {
     }
     const body = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
     const msg = (Array.isArray(body) ? body[0] : body) as { method?: unknown; params?: { name?: unknown } } | undefined;
-    const method = typeof msg?.method === 'string' ? msg.method : 'request';
-    const name = method === 'tools/call' && typeof msg?.params?.name === 'string' ? `tool ${msg.params.name}` : method;
-    return /^[\w/.: -]{1,64}$/.test(name) ? name : 'other';
+    if (typeof msg?.method !== 'string') return 'request';
+    return { method: msg.method, tool: msg.method === 'tools/call' && typeof msg.params?.name === 'string' ? msg.params.name : null };
   } catch {
     return 'invalid';
   }
+}
+
+/**
+ * Metric name of an MCP request (security fix M3): only allow-listed values.
+ * Known JSON-RPC methods by name, anything else "other"; a tool name only
+ * for an authenticated request and only if this server defines that tool
+ * ("tool other" otherwise). An unauthenticated request never contributes
+ * more than a known method name.
+ */
+function mcpMetricName(peeked: Awaited<ReturnType<typeof peekMcp>>, authenticated: boolean): string {
+  if (typeof peeked === 'string') return peeked;
+  if (!MCP_METHODS.has(peeked.method)) return 'other';
+  if (peeked.method !== 'tools/call' || !authenticated) return peeked.method;
+  return peeked.tool && MCP_TOOL_NAMES.has(peeked.tool) ? `tool ${peeked.tool}` : 'tool other';
 }
 
 function restMetricName(c: Context): string {
@@ -119,7 +144,7 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
       }
     }
 
-    const mcpName = service === 'mcp' && c.req.method === 'POST' ? mcpMetricName(c) : null;
+    const mcpPeek = service === 'mcp' && c.req.method === 'POST' && deps.settings.get('telemetry.enabled') ? peekMcp(c) : null;
     if (blocked) {
       // OAuth protocol endpoints answer in OAuth's error shape (and /authorize with the app's error page).
       c.res = isOAuthProtocolPath(path) ? oauthPolicyResponse(c, blocked, deps) : blocked.toResponse();
@@ -135,7 +160,7 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
       // A failure the route answers with 2xx (an MCP tool error) is recorded with the status it has over REST.
       const status = detail?.status && c.res.status < 400 ? detail.status : c.res.status;
       const err = blocked ?? (c.error instanceof ApiError ? c.error : null);
-      const base = service === 'mcp' ? (mcpName ? await mcpName : c.req.method) : restMetricName(c);
+      const base = service === 'mcp' ? (mcpPeek ? mcpMetricName(await mcpPeek, !!c.get('principal')) : c.req.method) : restMetricName(c);
       const name = detail?.label ? `${base} (${detail.label})` : base;
       telemetry.record({
         metric: `${service}|${name}`,

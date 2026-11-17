@@ -194,7 +194,7 @@ export const SETTINGS = {
   'telemetry.enabled': setting.boolean({
     group: 'Telemetry',
     label: 'Collect request telemetry',
-    description: 'Per-route counts, errors and latency histograms in D1 rollups (no request bodies, tokens or client IPs).',
+    description: 'Per-route counts, errors and latency histograms in D1 rollups. No request bodies, tokens or client IPs are stored; MCP requests are labelled with an allow-listed method or tool name.',
     default: true,
   }),
   'telemetry.minuteRetentionHours': setting.integer({

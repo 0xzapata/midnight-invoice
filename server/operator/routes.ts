@@ -504,7 +504,9 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const groupMap = new Map<string, typeof rows>();
     for (const r of rows) {
       const g = groupOf(r.metric).group;
-      groupMap.set(g, [...(groupMap.get(g) ?? []), r]);
+      const list = groupMap.get(g);
+      if (list) list.push(r);
+      else groupMap.set(g, [r]); // linear (was a copy per row: quadratic in the number of metrics)
     }
     const groups = [...groupMap.entries()]
       .map(([group, rs]) => {

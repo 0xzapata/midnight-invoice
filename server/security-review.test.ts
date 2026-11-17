@@ -9,7 +9,9 @@ import type { Scope } from '../shared/api';
 import { createApp } from './app';
 import { defaultDeps, type AppDeps } from './deps';
 import { runRecurringGeneration } from './recurring/job';
-import { api, approveReview, connectAgent, createWorkspace, readPublicAsset, startD1, TestClock } from './test/helpers';
+import { api, approveReview, connectAgent, countingLimiter, createWorkspace, readPublicAsset, startD1, TestClock } from './test/helpers';
+import { telemetryOf } from './operator';
+import { createTelemetryCollector, MAX_ROLLUPS_PER_FLUSH } from './operator/telemetry';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
 beforeAll(async () => {
@@ -337,5 +339,51 @@ describe('M2: no anonymous email relay; caps count recipients', () => {
     expect(name).not.toMatch(/[\u202e\u200b"<>@]/);
     expect(name.startsWith('Pay Pal Security support paypal.example x')).toBe(true);
     expect(Array.from(name).length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe('M3: telemetry labels come from fixed vocabularies', () => {
+  const mcpPost = (app: ReturnType<typeof createApp>, body: unknown, token?: string, ip = '192.0.2.1') =>
+    app.request('http://app.test/api/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'cf-connecting-ip': ip, ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+  const metrics = async () => (await d1.db.prepare("SELECT DISTINCT metric FROM telemetry_rollups WHERE metric LIKE 'mcp|%'").all<{ metric: string }>()).results.map((r) => r.metric).sort();
+
+  it('never records request-chosen method or tool names, and names tools only for authenticated requests', async () => {
+    await d1.db.prepare('DELETE FROM telemetry_rollups').run();
+    const deps = defaultDeps({ db: d1.db, readAsset: readPublicAsset, logError: () => undefined, operator: { telemetryFlushDelayMs: 0 } });
+    const app = createApp(deps);
+    const client = api(app);
+    const { token } = await createWorkspace(client);
+    for (let i = 0; i < 3; i++) expect((await mcpPost(app, { jsonrpc: '2.0', id: 1, method: `attacker chosen label ${i} victim-name` })).status).toBe(401);
+    expect((await mcpPost(app, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'victim-name' } })).status).toBe(401);
+    await mcpPost(app, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_invoices', arguments: {} } }, token);
+    await mcpPost(app, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'made up tool', arguments: {} } }, token);
+    await telemetryOf(app)!.flush();
+    expect(await metrics()).toEqual(['mcp|other', 'mcp|tool list_invoices', 'mcp|tool other', 'mcp|tools/call']);
+  });
+
+  it('rate-limits unauthenticated MCP requests per client IP', async () => {
+    const poll = countingLimiter(2);
+    const deps = defaultDeps({ db: d1.db, readAsset: readPublicAsset, logError: () => undefined, rateLimiters: { create: countingLimiter(100), poll } });
+    const app = createApp(deps);
+    const ping = { jsonrpc: '2.0', id: 1, method: 'ping' };
+    expect((await mcpPost(app, ping)).status).toBe(401);
+    expect((await mcpPost(app, ping, 'mi_ws_not_a_real_token')).status).toBe(401);
+    expect((await mcpPost(app, ping)).status).toBe(429);
+    expect((await mcpPost(app, ping, undefined, '192.0.2.99')).status).toBe(401);
+    expect(poll.calls.every((k) => k.startsWith('mcp-unauth:'))).toBe(true);
+  });
+
+  it('caps the distinct metrics one flush writes', async () => {
+    const written: unknown[] = [];
+    const odb = { rollupStatement: (d: unknown) => (written.push(d), d), errorStatement: (e: unknown) => e, raw: { batch: async () => [] }, touchWorkspaceActivity: async () => undefined };
+    const collector = createTelemetryCollector(odb as never);
+    for (let i = 0; i < MAX_ROLLUPS_PER_FLUSH * 3; i++) collector.record({ metric: `rest|GET /x${i}`, status: 200, durationMs: 1, at: 0 });
+    await collector.flush();
+    expect(written.length).toBeLessThanOrEqual(MAX_ROLLUPS_PER_FLUSH + 2);
+    expect(written).toContainEqual(expect.objectContaining({ metric: 'rest|(other)' }));
   });
 });
