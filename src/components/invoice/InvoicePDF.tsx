@@ -1,21 +1,17 @@
 import { useMemo } from 'react';
-import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { format } from 'date-fns';
 import { InvoiceFormData } from '@/types/invoice';
 import { sanitizeInvoiceData } from '@/lib/sanitize';
+import { PDF_FONT_FAMILY, registerPdfFonts } from './pdfFonts';
 
-// Register fonts
-// Using local Noto Sans Mono font for widely supported currency symbols
-Font.register({
-  family: 'Noto Sans Mono',
-  src: '/fonts/NotoSansMono-Regular.ttf',
-});
+// Fonts are declared in ./pdfFonts.ts (shared with the server-side PDF renderer).
 
 // Create styles
 const styles = StyleSheet.create({
   page: {
     padding: 40,
-    fontFamily: 'Noto Sans Mono',
+    fontFamily: PDF_FONT_FAMILY,
     fontSize: 10,
     color: '#000000',
     backgroundColor: '#ffffff',
@@ -145,6 +141,10 @@ interface InvoicePDFProps {
 }
 
 export const InvoicePDF = ({ data }: InvoicePDFProps) => {
+  // Idempotent. In the browser this registers the fonts by URL on first render
+  // (before react-pdf loads fonts); the Worker registers data URLs earlier.
+  registerPdfFonts();
+
   // Sanitize all input data for safe rendering (consistent with InvoicePreview)
   const safeData = useMemo(() => sanitizeInvoiceData(data), [data]);
 

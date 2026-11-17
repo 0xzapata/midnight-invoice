@@ -1,20 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CURRENT_SETTINGS_VERSION, migrateSettingsStore } from '@/lib/storageMigrations';
+import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 
 /**
  * Default settings for invoice forms.
  * These values can be applied to new invoices via "Use Defaults" button.
+ * The type is shared with the API server (shared/settings.ts).
  */
-export interface DefaultSettings {
-    fromName: string;
-    fromEmail: string;
-    fromAddress: string;
-    paymentDetails: string;
-    notes: string;
-    taxRate: number;
-    currency: string;
-}
+export type { DefaultSettings };
 
 interface SettingsState {
     settings: DefaultSettings;
@@ -22,15 +16,7 @@ interface SettingsState {
     resetSettings: () => void;
 }
 
-const defaultSettings: DefaultSettings = {
-    fromName: '',
-    fromEmail: '',
-    fromAddress: '',
-    paymentDetails: '',
-    notes: '',
-    taxRate: 0,
-    currency: 'USD',
-};
+const defaultSettings: DefaultSettings = DEFAULT_SETTINGS;
 
 /**
  * Zustand store for user settings with localStorage persistence.

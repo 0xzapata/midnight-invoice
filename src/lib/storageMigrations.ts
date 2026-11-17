@@ -1,5 +1,5 @@
-import { Invoice } from '@/types/invoice';
-import { DefaultSettings } from '@/stores/useSettingsStore';
+import type { Invoice } from '@/types/invoice';
+import type { DefaultSettings } from '../../shared/settings';
 
 /**
  * Current schema version for invoices.

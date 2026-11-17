@@ -1,5 +1,8 @@
 import { format, parseISO } from 'date-fns';
 
+// Totals math is shared with the API server.
+export { calculateInvoiceTotals, roundMoney } from '../../shared/invoice-totals';
+
 /**
  * Formats a numeric amount as a currency string.
  *
