@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "midnight-invoice",
+  // Worker entry. The Cloudflare Vite plugin builds it together with the SPA.
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-11-16",
+  // nodejs_compat: @react-pdf/layout depends on `queue`, which imports Node's
+  // `events` (EventEmitter) and `util` (via `inherits`). Nothing else needs it.
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    // Unknown paths fall back to index.html so client-side routes (/invoice/:id) deep-link.
+    "not_found_handling": "single-page-application",
+    // The API must always reach the Worker, never the SPA fallback.
+    "run_worker_first": ["/api/*"],
+    // Lets the Worker read static assets (PDF fonts) without a public subrequest.
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "midnight-invoice",
+      // PLACEHOLDER: replace with the id printed by `wrangler d1 create midnight-invoice`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Workers Rate Limiting bindings (per Cloudflare location, approximate). namespace_id
+  // is any account-unique positive integer you choose.
+  "ratelimits": [
+    // Workspace creation and agent registration: 10 requests / 60 s per client IP and route.
+    { "name": "RATE_LIMIT_CREATE", "namespace_id": "4201", "simple": { "limit": 10, "period": 60 } },
+    // Token polling and user-code lookups: 30 requests / 60 s per client IP and route.
+    { "name": "RATE_LIMIT_POLL", "namespace_id": "4202", "simple": { "limit": 30, "period": 60 } }
+  ],
+  "vars": {
+    // Public base URL used in agent verification links. Empty = use the request origin.
+    "APP_URL": ""
+  },
+  "observability": { "enabled": true }
+}

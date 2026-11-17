@@ -1,0 +1,8 @@
+# Local overrides for the Worker's vars (wrangler.jsonc "vars"), used by
+# `bun run dev` / `vite preview` / `wrangler dev`. Copy to .dev.vars (git-ignored).
+# Never commit real secrets. In production set vars in wrangler.jsonc or the
+# Cloudflare dashboard.
+
+# Public base URL used in agent verification links
+# (verification_url / verification_url_complete). Empty = request origin.
+APP_URL="http://localhost:8080"

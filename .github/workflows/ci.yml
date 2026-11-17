@@ -32,11 +32,23 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Worker types are up to date
+        run: bunx wrangler types --strict-vars=false --check
+
       - name: Typecheck
         run: bun run typecheck
 
+      # web (jsdom), server (Hono + local D1 in workerd) and workerd
+      # (production build running in workerd) Vitest projects.
       - name: Test
         run: bun run test:run
 
       - name: Build
         run: bun run build
+
+      # Validates the deployable bundle (bindings, size) without credentials.
+      # Deploying is intentionally not done here; see README "Deploy".
+      - name: Deploy dry run
+        run: bunx wrangler deploy --dry-run
+        env:
+          WRANGLER_SEND_METRICS: "false"

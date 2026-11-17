@@ -1,8 +1,18 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
+import { cloudflare } from "@cloudflare/vite-plugin";
+import { reactPdfWorkerd } from "./server/pdf/vite-plugin-react-pdf-workerd.ts";
+
+/** Restricts plugins to the browser (client) environment. */
+function clientOnly(plugins: PluginOption): Plugin[] {
+  const flat: unknown[] = Array.isArray(plugins) ? (plugins as unknown[]).flat(5) : [plugins];
+  return flat
+    .filter((p): p is Plugin => !!p && typeof p === "object" && "name" in p)
+    .map((p) => ({ ...p, applyToEnvironment: (env) => env.name === "client" }));
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -16,7 +26,13 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    VitePWA({
+    // Runs worker/index.ts (API + static assets) in workerd for dev/preview and
+    // builds it next to the SPA. Config: wrangler.jsonc.
+    cloudflare(),
+    // Lets @react-pdf/renderer (server-side invoice PDFs) run inside the Worker.
+    reactPdfWorkerd(),
+    // The service worker belongs to the browser build only.
+    ...clientOnly(VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "robots.txt"],
       manifest: {
@@ -47,6 +63,8 @@ export default defineConfig({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 4000000,
+        // Never answer API calls (or llms.txt) with the cached SPA shell.
+        navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/llms\.txt$/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -78,7 +96,7 @@ export default defineConfig({
           },
         ],
       },
-    }),
+    })),
   ],
   resolve: {
     alias: {
