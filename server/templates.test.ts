@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { Scope } from '../shared/api';
+import type { ActivityEntry } from '../shared/activity';
 import { api, BASE, buildApp, connectAgent, createWorkspace, sampleInvoice, startD1, TestClock } from './test/helpers';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
@@ -438,5 +439,92 @@ describe('MCP template tools', () => {
     expect(parse(await mcp.callTool({ name: 'delete_template', arguments: { id: created.id } }))).toEqual({ deleted: true, id: created.id });
     expect(parse(await mcp.callTool({ name: 'create_invoice_from_template', arguments: { id: created.id } })).error.code).toBe('gone');
     await mcp.close();
+  });
+});
+
+describe('template activity', () => {
+  /** Activity entries of the workspace, oldest first, once `count` have been recorded. */
+  async function log(client: ReturnType<typeof api>, token: string, count: number): Promise<ActivityEntry[]> {
+    let list: ActivityEntry[] = [];
+    await vi.waitFor(
+      async () => {
+        list = (await client.get('/api/v1/activity?limit=200', token)).json.activity;
+        expect(list).toHaveLength(count);
+      },
+      { timeout: 3000, interval: 20 },
+    );
+    return [...list].reverse();
+  }
+  const via = (e: ActivityEntry) => `${e.source}${e.tool ? `:${e.tool}` : ''}`;
+  const brief = (e: ActivityEntry) => `${e.actor.type === 'agent' ? e.actor.agentName : e.actor.type} ${e.action} ${e.entity?.label ?? '-'} ${via(e)}`;
+
+  it('records created / updated / archived / unarchived / deleted over REST, only when something changed', async () => {
+    const { client, token } = await freshWorkspace();
+    const t = (await client.post('/api/v1/templates', RETAINER, token)).json.template;
+    await client.patch(`/api/v1/templates/${t.id}`, { name: 'Retainer 2027', paymentTermsDays: 30 }, token);
+    await client.patch(`/api/v1/templates/${t.id}`, { name: 'Retainer 2027' }, token); // no-op: not logged
+    await client.patch(`/api/v1/templates/${t.id}`, { archivedAt: '2026-03-05T12:00:00Z' }, token);
+    await client.patch(`/api/v1/templates/${t.id}`, { archivedAt: null }, token);
+    const current = (await client.get(`/api/v1/templates/${t.id}`, token)).json.template;
+    await client.put(`/api/v1/templates/${t.id}`, current, token); // identical PUT (sync): not logged
+    await client.del(`/api/v1/templates/${t.id}`, token);
+    await client.del(`/api/v1/templates/${t.id}`, token); // tombstone: not logged
+    const entries = await log(client, token, 5);
+    expect(entries.map(brief)).toEqual([
+      'user template.created Monthly retainer rest',
+      'user template.updated Retainer 2027 rest',
+      'user template.archived Retainer 2027 rest',
+      'user template.unarchived Retainer 2027 rest',
+      'user template.deleted Retainer 2027 rest',
+    ]);
+    expect(entries[1].changes).toEqual({ fields: ['name', 'paymentTermsDays'] });
+    expect(entries.every((e) => e.entity?.type === 'template' && e.entity.id === t.id)).toBe(true);
+  });
+
+  it('instantiate records one invoice.created naming the template (REST and MCP); sync PUTs name it too', async () => {
+    const { app, client, token } = await freshWorkspace();
+    await client.put('/api/v1/settings', SETTINGS, token);
+    const t = (await client.post('/api/v1/templates', RETAINER, token)).json.template;
+    const viaRest = (await client.post(`/api/v1/templates/${t.id}/instantiate`, { toName: 'Acme' }, token)).json.invoice;
+    // Renaming the template later does not rewrite the earlier snapshot.
+    await client.patch(`/api/v1/templates/${t.id}`, { name: 'Renamed' }, token);
+
+    const agent = await connectAgent(client, token, ['invoices:read', 'invoices:write', 'templates:read', 'templates:write'], undefined, 'Biller');
+    const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+      fetch: (input, init) => Promise.resolve(app.fetch(new Request(input, init))),
+      requestInit: { headers: { authorization: `Bearer ${agent.api_key}` } },
+    });
+    const mcp = new Client({ name: 'templates-activity', version: '1.0.0' });
+    await mcp.connect(transport);
+    await mcp.callTool({ name: 'create_invoice_from_template', arguments: { id: t.id, toName: 'Beta' } });
+    await mcp.callTool({ name: 'create_template', arguments: { name: 'Agent template' } });
+    await mcp.close();
+    // A browser-made invoice uploaded by sync, carrying templateId.
+    await client.put(`/api/v1/invoices/${uuid(500)}`, { ...sampleInvoice(), templateId: t.id }, token, { 'if-none-match': '*' });
+
+    const entries = await log(client, token, 9); // incl. settings.updated, agent.approved, agent.registered
+    const created = entries.filter((e) => e.action === 'invoice.created');
+    // Exactly one entry per instantiate (no separate "template used" entry).
+    expect(created).toHaveLength(3);
+    expect(created[0].entity?.label).toBe(viaRest.invoiceNumber);
+    expect(created.map((e) => e.changes)).toEqual([
+      { template: { id: t.id, label: 'Monthly retainer' } },
+      { template: { id: t.id, label: 'Renamed' } },
+      { template: { id: t.id, label: 'Renamed' } },
+    ]);
+    expect(created.map(via)).toEqual(['rest', 'mcp:create_invoice_from_template', 'rest']);
+    expect(created.map((e) => (e.actor.type === 'agent' ? e.actor.agentName : e.actor.type))).toEqual(['user', 'Biller', 'user']);
+    expect(entries.filter((e) => e.action === 'template.created').map(via)).toEqual(['rest', 'mcp:create_template']);
+  });
+
+  it('a browser bulk upload counts templates in its one summary entry', async () => {
+    const { client, token } = await freshWorkspace();
+    const header = { 'x-midnight-sync': `bulk-upload; batch=${uuid(900)}` };
+    await client.put(`/api/v1/clients/${uuid(1)}`, { name: 'Globex' }, token, header);
+    await client.put(`/api/v1/templates/${uuid(2)}`, { name: 'A' }, token, header);
+    await client.put(`/api/v1/templates/${uuid(3)}`, { name: 'B' }, token, header);
+    await client.put(`/api/v1/invoices/${uuid(4)}`, { ...sampleInvoice(), templateId: uuid(2) }, token, header);
+    const entries = await log(client, token, 1);
+    expect(entries[0]).toMatchObject({ action: 'sync.bulk_upload', changes: { counts: { clients: 1, templates: 2, invoices: 1 } } });
   });
 });

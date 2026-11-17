@@ -283,9 +283,13 @@ describe('activity log: contents never include bodies or secrets', () => {
     await mcp.callTool({ name: 'update_invoice', arguments: { id: inv.id, paymentDetails: `${SECRET_IBAN}?` } });
     await mcp.callTool({ name: 'get_invoice_pdf', arguments: { id: inv.id } });
     await mcp.close();
+    // Templates: line text and notes never reach the log (names are labels, like client names).
+    const t = (await client.post('/api/v1/templates', { name: 'Retainer', notes: SECRET_NOTE, paymentDetails: SECRET_IBAN, lineItems: [{ description: SECRET_LINE, quantity: 1, price: 987654 }] }, ws.token)).json.template;
+    await client.patch(`/api/v1/templates/${t.id}`, { notes: `${SECRET_NOTE}#`, lineItems: [{ description: `${SECRET_LINE}#`, quantity: 1, price: 987654 }] }, ws.token);
+    await client.post(`/api/v1/templates/${t.id}/instantiate`, { toName: 'Buyer' }, ws.token);
     await client.del(`/api/v1/agents/${agent.agent.id}`, ws.token);
     await client.get('/api/v1/invoices', agent.api_key);
-    await settle(wid, 12);
+    await settle(wid, 15);
 
     const all = JSON.stringify(await rows(wid));
     for (const secret of [SECRET_NOTE, SECRET_IBAN, SECRET_ADDR, SECRET_LINE, ws.token, agent.api_key, 'mi_ws_', 'mi_agent_', 'mi_dc_', '987654']) {
@@ -293,7 +297,7 @@ describe('activity log: contents never include bodies or secrets', () => {
     }
     for (const row of await rows(wid)) {
       const changes = row.changes ? (JSON.parse(row.changes) as Record<string, unknown>) : {};
-      expect(Object.keys(changes).every((k) => ['fields', 'status', 'scopes', 'counts', 'theme', 'registrationId'].includes(k))).toBe(true);
+      expect(Object.keys(changes).every((k) => ['fields', 'status', 'scopes', 'counts', 'theme', 'registrationId', 'template'].includes(k))).toBe(true);
       expect((row.changes ?? '').length).toBeLessThan(300);
     }
   });

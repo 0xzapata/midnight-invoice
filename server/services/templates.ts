@@ -33,6 +33,7 @@ import {
   type TemplatePatchParsed,
 } from '../templateSchemas';
 import { clientRepo } from './clients';
+import { activityWrite, activityWriteIf, labelOf, templateChangedInput, templateCreatedInput } from './activity';
 import { createInvoice, nextInvoiceNumber, parseIfMatch, parseOrThrow, today, type RevisionPrecondition, type ServiceContext } from './invoices';
 import type { StoredClientData } from '../db/clientRepository';
 
@@ -174,13 +175,14 @@ export async function createTemplate(ctx: ServiceContext, body: unknown): Promis
   requireScope(ctx.principal, 'templates:write');
   const input = parseOrThrow(templateInputSchema, body);
   await checkClientRef(ctx, input.clientId, undefined);
+  const id = ctx.deps.ids.uuid();
   const row = await templateRepo(ctx).insertTemplate({
     workspaceId: ctx.principal.workspaceId,
-    id: ctx.deps.ids.uuid(),
+    id,
     data: toStored(ctx, input),
     createdAt: null,
     actor: actorOf(ctx.principal),
-  });
+  }, activityWrite(ctx, templateCreatedInput(ctx, id, input.name)));
   if (!row) throw errors.internal();
   return toApiTemplate(row);
 }
@@ -219,7 +221,7 @@ export async function putTemplate(
       data: toStored(ctx, input),
       createdAt: canonicalTime(input.createdAt),
       actor: actorOf(ctx.principal),
-    });
+    }, activityWrite(ctx, templateCreatedInput(ctx, id, input.name)));
     if (row) return { template: toApiTemplate(row), created: true };
     if (attempt === 0) return putTemplate(ctx, rawId, body, pre, 1);
     throw errors.conflict('Concurrent write to the same template, retry');
@@ -227,13 +229,14 @@ export async function putTemplate(
   if (typeof pre.ifMatch === 'number' && pre.ifMatch !== existing.revision) {
     throw errors.preconditionFailed('Revision mismatch', { id, currentRevision: existing.revision });
   }
+  const data = toStored(ctx, input);
   const row = await repo.updateTemplate({
     workspaceId: ctx.principal.workspaceId,
     id,
-    data: toStored(ctx, input),
+    data,
     actor: actorOf(ctx.principal),
     expectedRevision: typeof pre.ifMatch === 'number' ? pre.ifMatch : undefined,
-  });
+  }, activityWriteIf(ctx, templateChangedInput(id, JSON.parse(existing.data) as StoredTemplateData, data)));
   if (!row) return raceOutcome(ctx, id);
   return { template: toApiTemplate(row), created: false };
 }
@@ -267,7 +270,7 @@ export async function patchTemplate(ctx: ServiceContext, rawId: string, body: un
       data: merged,
       actor: actorOf(ctx.principal),
       expectedRevision: existing.revision,
-    });
+    }, activityWriteIf(ctx, templateChangedInput(id, current, merged)));
     if (row) return toApiTemplate(row);
     if (typeof pre.ifMatch === 'number') return raceOutcome(ctx, id);
   }
@@ -284,7 +287,7 @@ export async function deleteTemplate(ctx: ServiceContext, rawId: string, pre: { 
     id,
     actor: actorOf(ctx.principal),
     expectedRevision: typeof pre.ifMatch === 'number' ? pre.ifMatch : undefined,
-  });
+  }, activityWrite(ctx, { action: 'template.deleted', entity: { type: 'template', id } }, { labelSql: labelOf.template(ctx.principal.workspaceId, id) }));
   if (row) return { deleted: true };
   const existing = await repo.getTemplate(ctx.principal.workspaceId, id);
   if (!existing) throw errors.notFound('Template not found');
@@ -370,7 +373,8 @@ export async function instantiateTemplate(ctx: ServiceContext, rawId: string, bo
   // Undefined keys fall through to the client defaults and the workspace settings.
   for (const [k, v] of Object.entries(input)) if (v === undefined) delete input[k];
 
-  const invoice = await createInvoice(ctx, input);
+  // One activity entry: the invoice's `invoice.created`, saying which template it came from.
+  const invoice = await createInvoice(ctx, input, { fromTemplate: { id: template.id, label: template.name } });
   return {
     invoice,
     template: { id: template.id, name: template.name, revision: template.revision },

@@ -171,7 +171,7 @@ export default function Activity() {
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-foreground">Activity</h2>
             <p className="text-sm text-muted-foreground">
-              What happened in your cloud workspace and who did it: invoices and clients created, changed or deleted, status
+              What happened in your cloud workspace and who did it: invoices, clients and templates created, changed or deleted, status
               changes, PDFs downloaded through the API, and agents approved or revoked.
             </p>
             {enabled && (

@@ -216,9 +216,28 @@ export async function nextInvoiceNumber(ctx: ServiceContext): Promise<string> {
 // Commands
 // ---------------------------------------------------------------------------
 
-async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceData, createdAt: string | null) {
+/** Which template a new invoice came from, for its `invoice.created` entry (label = template name at the time). */
+export type InvoiceOrigin = { fromTemplate?: { id: string; label: string | null } };
+
+async function templateOrigin(ctx: ServiceContext, data: StoredInvoiceData, origin: InvoiceOrigin): Promise<InvoiceOrigin['fromTemplate']> {
+  if (origin.fromTemplate) return origin.fromTemplate;
+  if (!data.templateId) return undefined;
+  // A browser-made invoice (sync PUT): name the template if this workspace has it (even deleted).
+  const row = await ctx.deps.db
+    .prepare('SELECT name FROM templates WHERE workspace_id = ? AND id = ?')
+    .bind(ctx.principal.workspaceId, data.templateId)
+    .first<{ name: string }>();
+  return row ? { id: data.templateId, label: row.name } : undefined;
+}
+
+async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceData, createdAt: string | null, origin: InvoiceOrigin = {}) {
   const allocate = data.invoiceNumber === '';
-  const activity = activityWrite(ctx, invoiceCreatedInput(ctx, id, data), { labelSql: labelOf.invoice(ctx.principal.workspaceId, id) });
+  const input = invoiceCreatedInput(ctx, id, data);
+  if (input.action === 'invoice.created') {
+    const fromTemplate = await templateOrigin(ctx, data, origin);
+    if (fromTemplate) input.changes = { ...input.changes, template: fromTemplate };
+  }
+  const activity = activityWrite(ctx, input, { labelSql: labelOf.invoice(ctx.principal.workspaceId, id) });
   return ctx.repo.insertInvoice({
     workspaceId: ctx.principal.workspaceId,
     id,
@@ -231,7 +250,7 @@ async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceDat
 }
 
 /** POST /invoices: server-generated id; missing invoiceNumber is allocated atomically. */
-export async function createInvoice(ctx: ServiceContext, body: unknown): Promise<ApiInvoice> {
+export async function createInvoice(ctx: ServiceContext, body: unknown, origin: InvoiceOrigin = {}): Promise<ApiInvoice> {
   requireScope(ctx.principal, 'invoices:write');
   const input = await prefillInvoiceInput(ctx, parseOrThrow(invoiceInputSchema, body), today(ctx.deps));
   const settings = await loadSettings(ctx);
@@ -239,7 +258,7 @@ export async function createInvoice(ctx: ServiceContext, body: unknown): Promise
     { ...withDefaults(input, settings, today(ctx.deps), ctx.deps.ids.uuid), ...statusForCreate(input, today(ctx.deps)) },
     input.invoiceNumber === undefined,
   );
-  const row = await insertNew(ctx, ctx.deps.ids.uuid(), data, null);
+  const row = await insertNew(ctx, ctx.deps.ids.uuid(), data, null, origin);
   if (!row) throw errors.internal();
   return toApiInvoice(row, today(ctx.deps));
 }

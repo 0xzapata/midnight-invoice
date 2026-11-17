@@ -5,6 +5,7 @@ import { Bot, Cog, User } from 'lucide-react';
 import type { ActivityEntry } from '../../../shared/activity';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { useClientStore } from '@/stores/useClientStore';
+import { useTemplateStore } from '@/stores/useTemplateStore';
 import { cn } from '@/lib/utils';
 import { describeEntry } from './describe';
 
@@ -45,15 +46,16 @@ function EntityTarget({ entry, label, isSelf }: { entry: ActivityEntry; label: s
   const entity = entry.entity;
   const invoiceExists = useInvoiceStore((s) => (entity?.type === 'invoice' ? s.invoices.some((i) => i.id === entity.id) : false));
   const clientExists = useClientStore((s) => (entity?.type === 'client' ? s.clients.some((c) => c.id === entity.id) : false));
+  const templateExists = useTemplateStore((s) => (entity?.type === 'template' ? s.templates.some((t) => t.id === entity.id) : false));
   const strong = 'font-medium text-foreground';
   if (!entity || isSelf) return <span className={strong}>{label}</span>;
-  const deletedHere = entry.action === 'invoice.deleted' || entry.action === 'client.deleted';
-  if (entity.type === 'invoice' || entity.type === 'client') {
-    const exists = entity.type === 'invoice' ? invoiceExists : clientExists;
+  const deletedHere = entry.action === 'invoice.deleted' || entry.action === 'client.deleted' || entry.action === 'template.deleted';
+  if (entity.type === 'invoice' || entity.type === 'client' || entity.type === 'template') {
+    const exists = entity.type === 'invoice' ? invoiceExists : entity.type === 'client' ? clientExists : templateExists;
     if (exists && !deletedHere) {
       return (
         <Link
-          to={entity.type === 'invoice' ? `/invoice/${entity.id}` : '/clients'}
+          to={entity.type === 'invoice' ? `/invoice/${entity.id}` : entity.type === 'client' ? '/clients' : '/templates'}
           className={cn(strong, 'underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring')}
         >
           {label}

@@ -4,6 +4,7 @@
  * workspace_id, D1's clock for all timestamps, single-statement atomic writes.
  */
 import type { Actor } from '../../shared/types/invoice';
+import { firstWith, type WriteAttachment } from './repository';
 
 const DB_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
 
@@ -86,49 +87,49 @@ export function createTemplateRepository(db: D1Database) {
     },
 
     /** Inserts a new template; null if the id already exists (live or tombstone). */
-    async insertTemplate(args: { workspaceId: string; id: string; data: StoredTemplateData; createdAt: string | null; actor: Actor }): Promise<TemplateRow | null> {
+    async insertTemplate(args: { workspaceId: string; id: string; data: StoredTemplateData; createdAt: string | null; actor: Actor }, also?: WriteAttachment): Promise<TemplateRow | null> {
       const actor = JSON.stringify(args.actor);
-      return db
+      const stmt = db
         .prepare(
           `INSERT INTO templates (${TEMPLATE_COLUMNS})
            VALUES (?1, ?2, ?3, ?4, 1, COALESCE(?5, ${DB_NOW}), ${DB_NOW}, NULL, ?6, ?6)
            ON CONFLICT (workspace_id, id) DO NOTHING
            RETURNING ${TEMPLATE_COLUMNS}`,
         )
-        .bind(args.id, args.workspaceId, args.data.name, JSON.stringify(args.data), args.createdAt, actor)
-        .first<TemplateRow>();
+        .bind(args.id, args.workspaceId, args.data.name, JSON.stringify(args.data), args.createdAt, actor);
+      return firstWith<TemplateRow>(db, stmt, also);
     },
 
     /** Replaces a live template's body; with `expectedRevision` only if it still matches. Null if nothing matched. */
-    async updateTemplate(args: { workspaceId: string; id: string; data: StoredTemplateData; actor: Actor; expectedRevision?: number }): Promise<TemplateRow | null> {
+    async updateTemplate(args: { workspaceId: string; id: string; data: StoredTemplateData; actor: Actor; expectedRevision?: number }, also?: WriteAttachment): Promise<TemplateRow | null> {
       const revisionClause = args.expectedRevision === undefined ? '' : ' AND revision = ?6';
       const params: unknown[] = [args.data.name, JSON.stringify(args.data), JSON.stringify(args.actor), args.workspaceId, args.id];
       if (args.expectedRevision !== undefined) params.push(args.expectedRevision);
-      return db
+      const stmt = db
         .prepare(
           `UPDATE templates
               SET name = ?1, data = ?2, updated_by = ?3, revision = revision + 1, updated_at = ${DB_NOW}
             WHERE workspace_id = ?4 AND id = ?5 AND deleted_at IS NULL${revisionClause}
         RETURNING ${TEMPLATE_COLUMNS}`,
         )
-        .bind(...params)
-        .first<TemplateRow>();
+        .bind(...params);
+      return firstWith<TemplateRow>(db, stmt, also);
     },
 
     /** Soft delete (tombstone). Null if nothing matched. */
-    async softDeleteTemplate(args: { workspaceId: string; id: string; actor: Actor; expectedRevision?: number }): Promise<TemplateRow | null> {
+    async softDeleteTemplate(args: { workspaceId: string; id: string; actor: Actor; expectedRevision?: number }, also?: WriteAttachment): Promise<TemplateRow | null> {
       const revisionClause = args.expectedRevision === undefined ? '' : ' AND revision = ?4';
       const params: unknown[] = [JSON.stringify(args.actor), args.workspaceId, args.id];
       if (args.expectedRevision !== undefined) params.push(args.expectedRevision);
-      return db
+      const stmt = db
         .prepare(
           `UPDATE templates
               SET deleted_at = ${DB_NOW}, updated_at = ${DB_NOW}, updated_by = ?1, revision = revision + 1
             WHERE workspace_id = ?2 AND id = ?3 AND deleted_at IS NULL${revisionClause}
         RETURNING ${TEMPLATE_COLUMNS}`,
         )
-        .bind(...params)
-        .first<TemplateRow>();
+        .bind(...params);
+      return firstWith<TemplateRow>(db, stmt, also);
     },
   };
 }
