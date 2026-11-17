@@ -174,6 +174,7 @@ export function groupOf(metric: string): { service: string; group: string; name:
   else if (path === '/invoices/summary' || /^\/invoices\/:id\/(mark-sent|mark-paid|void|reopen)$/.test(path)) group = 'Invoice status';
   else if (path.startsWith('/clients')) group = 'Clients';
   else if (path.startsWith('/templates')) group = 'Templates';
+  else if (path.startsWith('/recurring')) group = 'Recurring';
   else if (path === '/activity' || /^\/agents\/[^/]+\/activity$/.test(path)) group = 'Activity log';
   else if (path.startsWith('/agents/register') || path.startsWith('/agents/token') || path.startsWith('/agents/registrations')) group = 'Agent registration';
   else if (path.startsWith('/agents')) group = 'Agents';

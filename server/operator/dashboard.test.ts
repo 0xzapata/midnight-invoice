@@ -144,6 +144,17 @@ describe('users (workspaces and agents)', () => {
       ws.token,
     );
     if (template.status !== 201) throw new Error(`template create failed: ${template.status} ${template.text}`);
+    const schedule = await s.client.post(
+      '/api/v1/recurring',
+      { name: 'Hush Retainer Schedule', templateId: template.json.template.id, clientId: saved.json.client.id, frequency: 'monthly', startDate: '2026-12-01', overrides: { notes: 'RECURRING NOTE 88' } },
+      ws.token,
+    );
+    if (schedule.status !== 201) throw new Error(`schedule create failed: ${schedule.status} ${schedule.text}`);
+    // A generated invoice (system actor) is counted by creator, never named.
+    await s.client.put('/api/v1/settings', { fromName: 'Sender', fromEmail: '', fromAddress: '', paymentDetails: '', notes: '', taxRate: 0, currency: 'USD' }, ws.token);
+    const ran = await s.client.post(`/api/v1/recurring/${schedule.json.recurring.id}/run-now`, undefined, ws.token);
+    if (ran.status !== 201) throw new Error(`run-now failed: ${ran.status} ${ran.text}`);
+    await s.client.post(`/api/v1/recurring/${schedule.json.recurring.id}/pause`, undefined, ws.token);
     // Activity log entries name invoices, clients and agents; operators only ever see their count.
     await s.client.post(`/api/v1/invoices/${byAgent.id}/mark-sent`, undefined, agent.api_key);
     await s.client.patch(`/api/v1/clients/${saved.json.client.id}`, { notes: 'PRIVATE NOTE 43' }, ws.token);
@@ -159,11 +170,11 @@ describe('users (workspaces and agents)', () => {
       id: ws.workspace.id,
       createdAt: ws.workspace.createdAt,
       lastActivityAt: expect.any(Number),
-      invoiceCount: 2,
+      invoiceCount: 3,
       agentCount: 1,
       clientCount: 1,
       // approved + registered + 2 invoices created + mark-sent + client created + client updated
-      activityCount: 8, // incl. the template.created of populated()
+      activityCount: 12, // incl. the template.created, recurring.created, settings.updated, generated invoice.created and recurring.paused of populated()
       suspended: false,
       suspendedAt: null,
       suspensionReason: null,
@@ -173,7 +184,7 @@ describe('users (workspaces and agents)', () => {
     for (const path of ['/workspaces', '/agents', '/overview', '/telemetry?range=1h', '/telemetry?range=7d', '/audit', '/security']) {
       const r = await b.get(`/api/operator${path}`);
       expect(r.status).toBe(200);
-      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', 'Hidden Client', 'secret-ap@hidden.example', 'Confidential Road', 'Covert Template', 'Private retainer', 'TEMPLATE NOTE', 'Secret line', 'INV-0001', 'INV-0002', 'status_changed', ws.token]) {
+      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', 'Hidden Client', 'secret-ap@hidden.example', 'Confidential Road', 'Covert Template', 'Private retainer', 'TEMPLATE NOTE', 'Secret line', 'Hush Retainer', 'RECURRING NOTE', 'INV-0001', 'INV-0002', 'INV-0003', 'status_changed', 'recurring.created', 'recurring.paused', ws.token]) {
         expect(r.text.includes(leak), `${path} leaked ${leak}`).toBe(false);
       }
     }
@@ -227,10 +238,11 @@ describe('users (workspaces and agents)', () => {
     await telemetry.flush();
     const o = (await b.get('/api/operator/overview')).json;
     expect(o.workspaces).toMatchObject({ total: 1, recent: 1, active7d: 1, suspended: 0 });
-    expect(o.invoices).toMatchObject({ total: 2, recent: 2, byCreator: { user: { total: 1 }, agent: { total: 1 } } });
+    expect(o.invoices).toMatchObject({ total: 3, recent: 3, byCreator: { user: { total: 1 }, agent: { total: 1 }, system: { total: 1 } } });
     expect(o.agents).toMatchObject({ active: 1, revoked: 0 });
     expect(o.clients).toEqual({ total: 1, recent: 1 });
     expect(o.templates).toEqual({ total: 1, recent: 1 });
+    expect(o.recurring).toEqual({ total: 1, active: 0, paused: 1 });
     expect(o.api.last24h.requests).toBeGreaterThan(4);
     expect(o.requestsHourly).toHaveLength(24);
   });
@@ -252,6 +264,10 @@ describe('telemetry', () => {
     await client.get(`/api/v1/templates/${tpl.json.template.id}`, ws.token);
     await client.get('/api/v1/templates?include_deleted=true', ws.token);
     await client.post(`/api/v1/templates/${tpl.json.template.id}/instantiate`, { toName: 'Telemetry Buyer', fromName: 'S' }, ws.token);
+    const rec = await client.post('/api/v1/recurring', { name: 'Telemetry Schedule', templateId: tpl.json.template.id, frequency: 'monthly', startDate: '2026-12-01' }, ws.token);
+    await client.get(`/api/v1/recurring/${rec.json.recurring.id}/preview`, ws.token);
+    await client.post(`/api/v1/recurring/${rec.json.recurring.id}/pause`, undefined, ws.token);
+    await client.post('/api/mcp', { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_recurring', arguments: {} } }, ws.token);
     await client.post('/api/mcp', { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_templates', arguments: {} } }, ws.token);
     await client.post(`/api/v1/invoices/${id}/mark-sent`, undefined, ws.token);
     await client.get('/api/v1/invoices/summary', ws.token);
@@ -281,8 +297,15 @@ describe('telemetry', () => {
         'rest|GET /templates (sync)',
         'rest|POST /templates/:id/instantiate',
         'mcp|tool list_templates',
+        'rest|POST /recurring',
+        'rest|GET /recurring/:id/preview',
+        'rest|POST /recurring/:id/pause',
+        'mcp|tool list_recurring',
       ]),
     );
+    for (const leak of [rec.json.recurring.id, 'Telemetry Schedule']) expect(JSON.stringify(t)).not.toContain(leak);
+    expect(t.metrics.find((x: { metric: string }) => x.metric === 'rest|GET /recurring/:id/preview').group).toBe('Recurring');
+    expect(t.metrics.find((x: { metric: string }) => x.metric === 'rest|POST /recurring').group).toBe('Recurring');
     for (const leak of [tpl.json.template.id, 'Telemetry Template', 'Telemetry line', 'Telemetry Buyer']) expect(JSON.stringify(t)).not.toContain(leak);
     expect(JSON.stringify(t)).not.toContain(cl.json.client.id);
     expect(JSON.stringify(t)).not.toContain('Telemetry Co');
