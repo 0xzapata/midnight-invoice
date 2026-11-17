@@ -232,6 +232,30 @@ export const SETTINGS = {
     max: 1_000_000,
   }),
 
+  // --- Recurring invoices (server/recurring) ----------------------------------
+  'recurring.enabled': setting.boolean({
+    group: 'Recurring invoices',
+    label: 'Generate recurring invoices',
+    description: 'Off = the hourly recurring.generate job and "run now" generate nothing (schedules keep their next run date; missed periods follow the catch-up policy once it is on again).',
+    default: true,
+  }),
+  'recurring.maxSchedulesPerWorkspace': setting.integer({
+    group: 'Recurring invoices',
+    label: 'Max schedules per workspace',
+    description: 'Creating more recurring schedules than this (deleted ones do not count) is refused with 409 limit_reached.',
+    default: 100,
+    min: 1,
+    max: 10_000,
+  }),
+  'recurring.maxGeneratedPerRun': setting.integer({
+    group: 'Recurring invoices',
+    label: 'Max schedules processed per run',
+    description: 'Upper bound of due schedules one run of the hourly job handles (oldest due first); the rest continue in the next run.',
+    default: 200,
+    min: 1,
+    max: 5_000,
+  }),
+
   // --- Operator console ----------------------------------------------------
   'operator.idleTimeoutMinutes': setting.integer({
     group: 'Operator console',

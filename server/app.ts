@@ -25,6 +25,7 @@ import { registerClientRoutes } from './routes/clients';
 import { registerTemplateRoutes } from './routes/templates';
 import { mcpAuth, registerOAuthRoutes } from './oauth/routes';
 import { registerActivityRoutes } from './routes/activity';
+import { registerRecurringRoutes } from './recurring/routes';
 import { noteRejectedAgentKey, parseBulkUploadHeader, type ActivityRequest } from './services/activity';
 import { downloadInvoicePdf } from './services/invoicePdf';
 import { putSettings } from './services/settings';
@@ -247,6 +248,8 @@ export function createApp(deps: AppDeps) {
   registerTemplateRoutes(v1, auth, svc);
   // --- Activity log (server/routes/activity.ts) --------------------------------
   registerActivityRoutes(v1, auth, svc);
+  // --- Recurring invoices (server/recurring/routes.ts) -------------------------
+  registerRecurringRoutes(v1, auth, svc);
 
   // --- Settings ---------------------------------------------------------------
   v1.get('/settings', auth, async (c) => c.json(await invoices.getSettings(svc(c))));

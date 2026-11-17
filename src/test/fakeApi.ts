@@ -507,4 +507,4 @@ export function createFakeApi() {
 
 export type FakeApi = ReturnType<typeof createFakeApi>;
 
-export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read'];
+export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read', 'recurring:read', 'recurring:write'];
