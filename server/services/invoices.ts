@@ -6,11 +6,13 @@ import type { ApiInvoice, ListInvoicesResponse } from '../../shared/api';
 import type { Actor, InvoiceFormData } from '../../shared/types/invoice';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 import { calculateInvoiceTotals, formatInvoiceNumber, invoiceNumberValue } from '../../shared/invoice-totals';
+import { daysOverdue, isOverdue, normalizeStatusFields, utcToday, type InvoiceStatusFields } from '../../shared/invoice-status';
 import { CURRENT_INVOICE_VERSION } from '@/lib/storageMigrations';
 import { actorOf, requireScope, type Principal } from '../auth';
 import type { AppDeps } from '../deps';
-import type { InvoiceRow, Repository, StoredInvoiceData } from '../db/repository';
+import type { InvoiceListFilters, InvoiceRow, Repository, StoredInvoiceData } from '../db/repository';
 import { errors } from '../errors';
+import { statusForCreate, statusForPatch, statusForPut } from './statusFields';
 import {
   invoiceInputSchema,
   invoicePatchSchema,
@@ -20,6 +22,7 @@ import {
   type InvoiceInputParsed,
   type InvoicePatchParsed,
 } from '../schemas';
+import { prefillInvoiceInput, prefillInvoicePatch } from './invoiceClients';
 
 export interface ServiceContext {
   repo: Repository;
@@ -51,8 +54,9 @@ export function etagOf(invoice: Pick<ApiInvoice, 'revision'>): string {
   return `"${invoice.revision}"`;
 }
 
-export function toApiInvoice(row: InvoiceRow): ApiInvoice {
+export function toApiInvoice(row: InvoiceRow, todayDate: string = utcToday()): ApiInvoice {
   const data = JSON.parse(row.data) as StoredInvoiceData;
+  const status = normalizeStatusFields(data, todayDate);
   return {
     ...data,
     id: row.id,
@@ -64,10 +68,13 @@ export function toApiInvoice(row: InvoiceRow): ApiInvoice {
     createdBy: JSON.parse(row.created_by) as Actor,
     updatedBy: JSON.parse(row.updated_by) as Actor,
     ...calculateInvoiceTotals(data),
+    ...status,
+    isOverdue: isOverdue({ ...data, ...status }, todayDate),
+    daysOverdue: daysOverdue({ ...data, ...status }, todayDate),
   };
 }
 
-function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: import('zod').ZodError } }, body: unknown): T {
+export function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: import('zod').ZodError } }, body: unknown): T {
   const result = schema.safeParse(body);
   if (!result.success) throw errors.validation(zodDetails(result.error));
   return result.data;
@@ -81,13 +88,14 @@ function assertUniqueLineItemIds(data: InvoiceFormData) {
 }
 
 /** Final validation with the app's own form schema; returns the persisted shape. */
-function finalize(data: InvoiceFormData, placeholderNumber = false): StoredInvoiceData {
+function finalize(data: InvoiceFormData & Partial<InvoiceStatusFields>, placeholderNumber = false): StoredInvoiceData {
   const candidate = placeholderNumber ? { ...data, invoiceNumber: 'INV-0000' } : data;
   const result = storedInvoiceSchema.safeParse(candidate);
   if (!result.success) throw errors.validation(zodDetails(result.error));
   assertUniqueLineItemIds(data);
   const stored: StoredInvoiceData = { ...data, version: CURRENT_INVOICE_VERSION };
   if (stored.invoiceName === undefined || stored.invoiceName === '') delete stored.invoiceName;
+  if (!stored.clientId) delete stored.clientId;
   return stored;
 }
 
@@ -105,7 +113,7 @@ function withDefaults(input: InvoiceInputParsed, settings: DefaultSettings, toda
     fromName: input.fromName ?? settings.fromName,
     fromAddress: input.fromAddress ?? settings.fromAddress,
     fromEmail: input.fromEmail ?? settings.fromEmail,
-    toName: input.toName,
+    toName: input.toName ?? '',
     toAddress: input.toAddress ?? '',
     toEmail: input.toEmail ?? '',
     lineItems: input.lineItems.map((li) => ({
@@ -118,10 +126,11 @@ function withDefaults(input: InvoiceInputParsed, settings: DefaultSettings, toda
     notes: input.notes ?? '',
     paymentDetails: input.paymentDetails ?? settings.paymentDetails,
     currency: input.currency ?? settings.currency,
+    ...(input.clientId ? { clientId: input.clientId } : {}),
   };
 }
 
-function today(deps: AppDeps): string {
+export function today(deps: AppDeps): string {
   return deps.clock().toISOString().slice(0, 10);
 }
 
@@ -135,9 +144,30 @@ function rejectBodyIdMismatch(bodyId: string | undefined, id: string) {
 // Queries
 // ---------------------------------------------------------------------------
 
+/** Status / due-date / client filters from parsed list parameters (REST query or MCP args); undefined if none. */
+export function listFiltersOf(q: {
+  status?: string[];
+  due_before?: string;
+  due_after?: string;
+  client?: string;
+  client_id?: string;
+}): Omit<InvoiceListFilters, 'today'> | undefined {
+  const statuses = q.status?.filter((s) => s !== 'overdue');
+  const overdue = q.status?.includes('overdue') ?? false;
+  if (!q.status?.length && !q.due_before && !q.due_after && !q.client && !q.client_id) return undefined;
+  return {
+    statuses: statuses && statuses.length > 0 ? [...new Set(statuses)] : undefined,
+    overdue,
+    dueBefore: q.due_before,
+    dueAfter: q.due_after,
+    client: q.client,
+    clientId: q.client_id,
+  };
+}
+
 export async function listInvoices(
   ctx: ServiceContext,
-  opts: { updatedSince?: string; afterId?: string; includeDeleted?: boolean; limit?: number },
+  opts: { updatedSince?: string; afterId?: string; includeDeleted?: boolean; limit?: number; filters?: Omit<InvoiceListFilters, 'today'> },
 ): Promise<ListInvoicesResponse> {
   requireScope(ctx.principal, 'invoices:read');
   if (opts.afterId && !opts.updatedSince) throw errors.badRequest('after_id requires updated_since');
@@ -150,12 +180,13 @@ export async function listInvoices(
     afterId: opts.afterId,
     includeDeleted: opts.includeDeleted ?? false,
     limit: limit + 1,
+    filters: opts.filters ? { ...opts.filters, today: today(ctx.deps) } : undefined,
   });
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const last = page[page.length - 1];
   return {
-    invoices: page.map(toApiInvoice),
+    invoices: page.map((row) => toApiInvoice(row, today(ctx.deps))),
     syncedAt,
     hasMore,
     next: hasMore && last ? { updated_since: last.updated_at, after_id: last.id } : null,
@@ -168,7 +199,7 @@ export async function getInvoice(ctx: ServiceContext, rawId: string): Promise<Ap
   const row = await ctx.repo.getInvoice(ctx.principal.workspaceId, id);
   if (!row) throw errors.notFound('Invoice not found');
   if (row.deleted_at) throw errors.gone('Invoice was deleted', { id, deletedAt: row.deleted_at });
-  return toApiInvoice(row);
+  return toApiInvoice(row, today(ctx.deps));
 }
 
 export async function nextInvoiceNumber(ctx: ServiceContext): Promise<string> {
@@ -196,12 +227,15 @@ async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceDat
 /** POST /invoices: server-generated id; missing invoiceNumber is allocated atomically. */
 export async function createInvoice(ctx: ServiceContext, body: unknown): Promise<ApiInvoice> {
   requireScope(ctx.principal, 'invoices:write');
-  const input = parseOrThrow(invoiceInputSchema, body);
+  const input = await prefillInvoiceInput(ctx, parseOrThrow(invoiceInputSchema, body), today(ctx.deps));
   const settings = await loadSettings(ctx);
-  const data = finalize(withDefaults(input, settings, today(ctx.deps), ctx.deps.ids.uuid), input.invoiceNumber === undefined);
+  const data = finalize(
+    { ...withDefaults(input, settings, today(ctx.deps), ctx.deps.ids.uuid), ...statusForCreate(input, today(ctx.deps)) },
+    input.invoiceNumber === undefined,
+  );
   const row = await insertNew(ctx, ctx.deps.ids.uuid(), data, null);
   if (!row) throw errors.internal();
-  return toApiInvoice(row);
+  return toApiInvoice(row, today(ctx.deps));
 }
 
 /**
@@ -229,13 +263,15 @@ export async function putInvoice(
   if (existing && pre.ifNoneMatchAny) throw errors.preconditionFailed('Invoice already exists', { id, currentRevision: existing.revision });
   if (existing?.deleted_at) throw errors.gone('Invoice was deleted and cannot be recreated with the same id', { id, deletedAt: existing.deleted_at });
 
-  const completed = withDefaults(input, settings, today(ctx.deps), ctx.deps.ids.uuid);
+  const storedClientId = existing ? (JSON.parse(existing.data) as StoredInvoiceData).clientId : undefined;
+  const filled = await prefillInvoiceInput(ctx, input, today(ctx.deps), storedClientId);
+  const completed = withDefaults(filled, settings, today(ctx.deps), ctx.deps.ids.uuid);
 
   if (!existing) {
     if (pre.ifMatch !== undefined) throw errors.preconditionFailed('Invoice does not exist', { id });
-    const data = finalize(completed, input.invoiceNumber === undefined);
+    const data = finalize({ ...completed, ...statusForCreate(input, today(ctx.deps)) }, input.invoiceNumber === undefined);
     const row = await insertNew(ctx, id, data, input.createdAt ? new Date(input.createdAt).toISOString() : null);
-    if (row) return { invoice: toApiInvoice(row), created: true };
+    if (row) return { invoice: toApiInvoice(row, today(ctx.deps)), created: true };
     // Lost a race with a concurrent create of the same id: re-evaluate once as a replace.
     if (attempt === 0) return putInvoice(ctx, rawId, body, pre, 1);
     throw errors.conflict('Concurrent write to the same invoice, retry');
@@ -245,7 +281,7 @@ export async function putInvoice(
     throw errors.preconditionFailed('Revision mismatch', { id, currentRevision: existing.revision });
   }
   if (input.invoiceNumber === undefined) completed.invoiceNumber = existing.invoice_number;
-  const data = finalize(completed);
+  const data = finalize({ ...completed, ...statusForPut(input, JSON.parse(existing.data) as StoredInvoiceData, today(ctx.deps)) });
   const row = await ctx.repo.updateInvoice({
     workspaceId: ctx.principal.workspaceId,
     id,
@@ -255,10 +291,10 @@ export async function putInvoice(
     expectedRevision: typeof pre.ifMatch === 'number' ? pre.ifMatch : undefined,
   });
   if (!row) return raceOutcome(ctx, id);
-  return { invoice: toApiInvoice(row), created: false };
+  return { invoice: toApiInvoice(row, today(ctx.deps)), created: false };
 }
 
-async function raceOutcome(ctx: ServiceContext, id: string): Promise<never> {
+export async function raceOutcome(ctx: ServiceContext, id: string): Promise<never> {
   const now = await ctx.repo.getInvoice(ctx.principal.workspaceId, id);
   if (!now) throw errors.notFound('Invoice not found');
   if (now.deleted_at) throw errors.gone('Invoice was deleted', { id, deletedAt: now.deleted_at });
@@ -290,7 +326,8 @@ export async function patchInvoice(
     }
     const current = JSON.parse(existing.data) as StoredInvoiceData;
     const merged: InvoiceFormData = { ...current, invoiceNumber: existing.invoice_number };
-    for (const [key, value] of Object.entries(patch)) {
+    const effective = await prefillInvoicePatch(ctx, patch, current.clientId);
+    for (const [key, value] of Object.entries(effective)) {
       if (value === undefined || key === 'id') continue;
       if (key === 'lineItems') {
         merged.lineItems = (value as NonNullable<InvoicePatchParsed['lineItems']>).map((li) => ({
@@ -303,7 +340,7 @@ export async function patchInvoice(
         (merged as unknown as Record<string, unknown>)[key] = value;
       }
     }
-    const data = finalize(merged);
+    const data = finalize({ ...merged, ...statusForPatch(current, patch, today(ctx.deps)) });
     const row = await ctx.repo.updateInvoice({
       workspaceId: ctx.principal.workspaceId,
       id,
@@ -312,7 +349,7 @@ export async function patchInvoice(
       actor: actorOf(ctx.principal),
       expectedRevision: existing.revision,
     });
-    if (row) return toApiInvoice(row);
+    if (row) return toApiInvoice(row, today(ctx.deps));
     if (typeof pre.ifMatch === 'number') return raceOutcome(ctx, id);
   }
   throw errors.conflict('Invoice is being modified concurrently, retry');

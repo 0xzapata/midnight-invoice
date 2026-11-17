@@ -4,6 +4,8 @@
  * existing `@/types/invoice` imports keep working.
  */
 
+import type { InvoiceStatus } from '../invoice-status';
+
 export interface LineItem {
   id: string;
   description: string;
@@ -40,6 +42,15 @@ export interface Invoice {
   paymentDetails: string;
   currency: string;
   createdAt: string;
+  /** The saved client this invoice was billed to (to* fields are a snapshot; editing the client never changes them). */
+  clientId?: string;
+
+  // --- Status (shared/invoice-status.ts). Absent on invoices saved before statuses existed = draft. ---
+  status?: InvoiceStatus;
+  /** Date marked sent (YYYY-MM-DD). */
+  sentAt?: string | null;
+  /** Date paid (YYYY-MM-DD); set iff status is paid. */
+  paidAt?: string | null;
 
   // --- Optional fields set by the API server (absent on purely local invoices) ---
   /** ISO timestamp of the last server-side write. */
@@ -68,4 +79,6 @@ export interface InvoiceFormData {
   notes: string;
   paymentDetails: string;
   currency: string;
+  /** See Invoice.clientId. */
+  clientId?: string;
 }

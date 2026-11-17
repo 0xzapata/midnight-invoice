@@ -1,14 +1,14 @@
 # Midnight Invoice Agent API
 
 Midnight Invoice exposes a REST API (`/api/v1`) and a remote MCP server
-(`/api/mcp`) so that AI agents can work with a user's invoices **after the user
-approves them**. There are no accounts: the browser app owns an anonymous
+(`/api/mcp`) so that AI agents can work with a user's invoices and saved
+clients **after the user approves them**. There are no accounts: the browser app owns an anonymous
 *workspace*, and agents connect to a workspace with a device-authorization
 flow modelled on [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628).
 
 - Machine-readable contract: `GET /api/v1/openapi.json` (OpenAPI 3.1)
 - Short pointer for crawlers/agents: `/llms.txt`
-- Shared TypeScript types: [`shared/api.ts`](shared/api.ts), [`shared/types/invoice.ts`](shared/types/invoice.ts)
+- Shared TypeScript types: [`shared/api.ts`](shared/api.ts), [`shared/types/invoice.ts`](shared/types/invoice.ts), [`shared/types/client.ts`](shared/types/client.ts)
 
 Replace `https://invoices.example.com` below with the deployment's URL
 (`http://localhost:8080` under `bun run dev`).
@@ -29,9 +29,18 @@ only as SHA-256 hashes. Send them as `Authorization: Bearer <secret>`.
 | Scope | Allows |
 |---|---|
 | `invoices:read` | List/get invoices, next invoice number, PDF download |
-| `invoices:write` | Create (POST/PUT) and update (PUT/PATCH) invoices |
+| `invoices:write` | Create (POST/PUT) and update (PUT/PATCH) invoices, change their status |
 | `invoices:delete` | Delete invoices |
 | `settings:read` | Read the default sender settings |
+| `clients:read` | List/search/get saved clients; bill an invoice to a saved client (`clientId`) |
+| `clients:write` | Create, update, archive and delete saved clients |
+
+There is no separate `clients:delete`: deleting a client is a soft delete of
+address-book data that never touches invoices (they keep their own copy of the
+client's details), and `clients:write` can already blank every field of a
+client, so a separate scope would not protect anything. Scopes are never added
+to existing agents: an agent approved before clients existed keeps exactly the
+scopes it was granted and must register again to get client access.
 
 Settings writes, agent management and workspace deletion require the workspace
 token; no scope grants them.
@@ -116,10 +125,21 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 | GET | `/api/v1/invoices` | any | `invoices:read` | Sync feed, see below |
 | POST | `/api/v1/invoices` | any | `invoices:write` | → 201 `{invoice}` + `ETag`, `Location` |
 | GET | `/api/v1/invoices/next-number` | any | `invoices:read` | `{invoiceNumber:"INV-0007"}` |
+| GET | `/api/v1/invoices/summary` | any | `invoices:read` | Counts and totals per currency, see [Status](#invoice-status) |
+| POST | `/api/v1/invoices/:id/mark-sent` | any | `invoices:write` | Optional body `{sentAt}`; `If-Match` → `{invoice}` + `ETag` |
+| POST | `/api/v1/invoices/:id/mark-paid` | any | `invoices:write` | Optional body `{paidAt}`; `If-Match` → `{invoice}` + `ETag` |
+| POST | `/api/v1/invoices/:id/void` | any | `invoices:write` | `If-Match` → `{invoice}` + `ETag` |
+| POST | `/api/v1/invoices/:id/reopen` | any | `invoices:write` | `If-Match` → `{invoice}` + `ETag` |
 | GET | `/api/v1/invoices/:id` | any | `invoices:read` | `{invoice}` + `ETag`; 410 if deleted |
 | PUT | `/api/v1/invoices/:id` | any | `invoices:write` | Create-or-replace with client UUID → 201/200 |
 | PATCH | `/api/v1/invoices/:id` | any | `invoices:write` | Partial update → 200 |
 | DELETE | `/api/v1/invoices/:id` | any | `invoices:delete` | Soft delete → 204 |
+| GET | `/api/v1/clients` | any | `clients:read` | Search (`q`) and sync feed, see [Clients](#clients) |
+| POST | `/api/v1/clients` | any | `clients:write` | → 201 `{client}` + `ETag`, `Location` |
+| GET | `/api/v1/clients/:id` | any | `clients:read` | `{client}` + `ETag`; 410 if deleted |
+| PUT | `/api/v1/clients/:id` | any | `clients:write` | Create-or-replace with client UUID → 201/200 |
+| PATCH | `/api/v1/clients/:id` | any | `clients:write` | Partial update (e.g. `{"archivedAt": "…"}`) → 200 |
+| DELETE | `/api/v1/clients/:id` | any | `clients:write` | Soft delete → 204 (invoices unchanged) |
 | GET | `/api/v1/invoices/:id/pdf` | any | `invoices:read` | `application/pdf`, styled like the app's invoice preview; optional `?theme=light\|dark` (default `dark`, the app default; anything else → 400) |
 | GET | `/api/v1/settings` | any | `settings:read` | `{settings,updatedAt}` (defaults + `updatedAt:null` if never saved) |
 | PUT | `/api/v1/settings` | workspace token | | Body = settings object → `{settings,updatedAt}` |
@@ -130,7 +150,8 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 ### Invoices
 
 Request body for `POST` and `PUT` (`InvoiceInput`): the app's invoice fields,
-all optional except `toName` and `lineItems`:
+all optional except `lineItems` and `toName` (`toName` may be omitted when
+`clientId` names a saved client, see [Billing a saved client](#billing-a-saved-client)):
 
 ```json
 {
@@ -172,10 +193,141 @@ Response (`ApiInvoice`) = the app's `Invoice` plus server fields:
 }
 ```
 
+Invoices billed to a saved client also carry `"clientId": "<uuid>"` (absent
+otherwise).
+
 Totals: `subtotal = Σ quantity × price`, `taxAmount = subtotal × taxRate / 100`,
 `total = subtotal + taxAmount`, each rounded to 2 decimals.
 
+### Invoice status
+
+`ApiInvoice` also has `status` (`draft | sent | paid | void`), `sentAt` and
+`paidAt` (`YYYY-MM-DD` or `null`) and the derived, never stored, `isOverdue`
+and `daysOverdue`.
+
+- **Overdue** = status `sent` and `dueDate` strictly before today. The server
+  uses the **UTC** date (the app uses the user's local date, so around
+  midnight they can differ by a day). Due today is not overdue; no due date is
+  never overdue. `daysOverdue` = whole days since `dueDate`, 0 otherwise.
+- **Old invoices** (saved before statuses existed, locally or on the server)
+  have no stored status and read as `draft`: nothing says they were sent, and
+  calling them `sent` would report long-paid invoices as overdue.
+- **Dates**: `sentAt` is set when an invoice becomes `sent` (default today),
+  `paidAt` iff it is `paid` (default today); `draft` clears both; `void`
+  clears `paidAt` and keeps `sentAt`.
+- **Transitions** (one shared function, `shared/invoice-status.ts`, also used
+  by the app): draft → sent | void; sent → paid | void | draft; paid → sent
+  (undo payment) | void; void → draft | sent. Setting the current status again
+  is a no-op (same revision). Anything else is `409 invalid_status_transition`
+  with `details: {from, to|action, allowed}`.
+- **Endpoints**: `mark-sent` (drafts), `mark-paid` (sent invoices; optional
+  `paidAt`), `void` (anything not void), `reopen` (paid → sent; void → sent if
+  it had been sent, else draft). They honour `If-Match` like PATCH.
+- **Writes**: `POST`/`PUT`-create accept `status`, `sentAt`, `paidAt` (default
+  `draft`). `PATCH` with `status` enforces the transitions. `PUT` replace is a
+  full-state write used by sync and accepts any status (a series of offline
+  changes arrives as one PUT); an omitted `status` keeps the current one.
+- **Filters on `GET /invoices`** (combine with the sync parameters below):
+  `status=sent,overdue` (comma list, OR; `overdue` is virtual and `sent`
+  includes overdue invoices), `due_before=YYYY-MM-DD` / `due_after=…` (strict;
+  invoices without a due date never match), `client=` (case-insensitive
+  substring of `toName`), `client_id=<uuid>` (invoices billed to that saved client, exact `clientId`; `invoices:read` is enough).
+- **`GET /invoices/summary`** (`?oldest_overdue_limit=0..50`, default 5):
+
+```json
+{
+  "asOf": "2026-11-17",
+  "currencies": [
+    { "currency": "EUR",
+      "draft": { "count": 1, "total": 10 }, "outstanding": { "count": 1, "total": 100 },
+      "overdue": { "count": 1, "total": 220 }, "paidThisMonth": { "count": 1, "total": 300 },
+      "paidThisYear": { "count": 2, "total": 700 } }
+  ],
+  "oldestOverdue": [
+    { "id": "…", "invoiceNumber": "INV-0003", "toName": "Globex", "currency": "EUR", "total": 220, "dueDate": "2026-11-01", "daysOverdue": 16 }
+  ]
+}
+```
+
+  Amounts are grouped by currency and never summed across currencies;
+  `outstanding` = sent and not overdue; paid buckets use `paidAt`; void and
+  deleted invoices are excluded.
+### Billing a saved client
+
+`POST`, `PUT` and `PATCH /invoices` accept `clientId` (a saved client's id).
+The invoice still stores its own copy of the client's details: editing or
+deleting the client later never changes existing invoices.
+
+```bash
+# "Invoice Globex for 10 hours": find the client, then bill it by id.
+curl -s "$BASE/api/v1/clients?q=globex" -H "Authorization: Bearer $KEY"
+curl -s -X POST $BASE/api/v1/invoices -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
+  -d '{"clientId":"5c1e…","lineItems":[{"description":"Consulting","quantity":10,"price":120}]}'
+```
+
+Omitted fields are filled in this order (first that applies wins; a field
+sent as `""` counts as given):
+
+| Field | 1. Request | 2. Saved client | 3. Workspace settings | 4. Fallback |
+|---|---|---|---|---|
+| `toName`, `toAddress`, `toEmail` | value sent | client `name`, `address`, `email` | | `""` |
+| `currency` | value sent | `defaultCurrency` | `settings.currency` | `USD` |
+| `taxRate` | value sent | `defaultTaxRate` | `settings.taxRate` | `0` |
+| `dueDate` | value sent | `issueDate` + `paymentTermsDays` | | `""` |
+
+Sender fields and `paymentDetails` come from settings as before.
+
+Rules:
+- Setting or changing `clientId` requires `clients:read` (403
+  `insufficient_scope` otherwise) and a live client of the same workspace;
+  otherwise 400 `validation_failed` with `details: [{path: "clientId", …}]`
+  ("No client with this id exists in this workspace" / "This client was
+  deleted"). A client of another workspace is indistinguishable from an
+  unknown one.
+- An unchanged `clientId` (the invoice already had it) is never re-checked,
+  so old invoices stay editable after their client is deleted and agents
+  without `clients:read` can edit invoices that carry one.
+- `PUT` is a full replace: omitting `clientId` removes the reference.
+- `PATCH` with a *different* `clientId` refills the `to*` fields the patch
+  omits from the new client; it never changes currency, tax rate or due date
+  of an existing invoice. `PATCH {"clientId": null}` unlinks (details kept).
+
+### Clients
+
+A saved client (`ApiClientRecord`):
+
+```json
+{
+  "id": "5c1e…", "name": "Globex Corporation", "email": "ap@globex.example", "address": "1 Globex Way\nSpringfield",
+  "defaultCurrency": "EUR", "defaultTaxRate": null, "paymentTermsDays": 30, "notes": "", "archivedAt": null,
+  "createdAt": "…", "updatedAt": "…", "deletedAt": null, "revision": 2,
+  "createdBy": { "type": "user" }, "updatedBy": { "type": "agent", "agentId": "…", "agentName": "Claude Desktop" },
+  "invoiceCount": 3
+}
+```
+
+- Body of `POST`/`PUT` (`ClientInput`): only `name` is required; `email`,
+  `address`, `notes` default to `""`, `defaultCurrency`/`defaultTaxRate`/
+  `paymentTermsDays` to `null` (= no client default), `archivedAt` to `null`.
+  Limits: name 200, email 254 (valid address or `""`), address 1000, notes
+  5000, tax rate 0–100, payment terms 0–3650 whole days, currency from the
+  app's ISO 4217 list. Bodies ≤ 32 KiB. Unknown fields are ignored.
+- `notes` are private to the user and never printed on invoices.
+- **Archive** with `PATCH {"archivedAt": "<ISO time>"}` (`null` to undo):
+  archived clients stay listed (with `archivedAt` set) and usable, but the
+  app hides them from its client picker. **Delete** is a soft delete.
+- `invoiceCount` (live invoices referencing the client) is only included for
+  credentials that also have `invoices:read`, and never on tombstones.
+- `GET /clients?q=globex` matches a case-insensitive substring of name or
+  email. The list follows exactly the same feed contract as `GET /invoices`
+  below (`updated_since`, `after_id`, `include_deleted`, `limit`,
+  `{clients, syncedAt, hasMore, next}`), and clients have the same revision,
+  ETag, `If-Match`/`If-None-Match: *`, tombstone and `410` rules.
+
 ### Sync semantics
+
+These rules apply to every synced collection: invoices (`/invoices`) and
+saved clients (`/clients`). The examples use invoices.
 
 Designed so the browser can mirror its local invoices and pick up agents'
 changes.
@@ -252,7 +404,9 @@ Tools (only those your scopes allow are listed; others are rejected):
 
 | Tool | Scope | Annotations | Does |
 |---|---|---|---|
-| `list_invoices` | `invoices:read` | read-only | `{updated_since?, include_deleted?, limit?}` → same as `GET /invoices` |
+| `list_invoices` | `invoices:read` | read-only | `{updated_since?, include_deleted?, limit?, status?: ("draft"\|"sent"\|"paid"\|"void"\|"overdue")[], due_before?, due_after?, client?, client_id?}` → same as `GET /invoices` |
+| `get_invoice_summary` | `invoices:read` | read-only | `{oldest_overdue_limit?}` → same as `GET /invoices/summary` |
+| `set_invoice_status` | `invoices:write` | destructive, idempotent | `{id, status, paid_at?, sent_at?, expected_revision?}` → `{invoice, changed}`; same transition rules |
 | `get_invoice` | `invoices:read` | read-only | `{id}` |
 | `get_next_invoice_number` | `invoices:read` | read-only | `{}` |
 | `get_invoice_pdf` | `invoices:read` | read-only | `{id, theme?: "light"\|"dark"}` (default `dark`) → embedded `application/pdf` resource (base64) + download URL |
@@ -260,6 +414,16 @@ Tools (only those your scopes allow are listed; others are rejected):
 | `update_invoice` | `invoices:write` | destructive, idempotent | `{id, expected_revision?, …fields}` (PATCH semantics) |
 | `delete_invoice` | `invoices:delete` | destructive, idempotent | `{id}` |
 | `get_settings` | `settings:read` | read-only | `{}` |
+| `list_clients` | `clients:read` | read-only | `{query?, limit?}` → `{clients, hasMore}` (search by name/email) |
+| `get_client` | `clients:read` | read-only | `{id}` |
+| `create_client` | `clients:write` | not destructive | `ClientInput` |
+| `update_client` | `clients:write` | destructive, idempotent | `{id, expected_revision?, …fields}` (PATCH semantics) |
+| `delete_client` | `clients:write` | destructive, idempotent | `{id}` (soft delete; invoices unchanged) |
+
+`create_invoice` and `update_invoice` accept `clientId` (rules as in
+[Billing a saved client](#billing-a-saved-client)); their descriptions tell
+the model to look the client up with `list_clients` instead of inventing an
+address.
 
 Tool results carry the JSON as text and as `structuredContent`. Errors are
 tool results with `isError: true` and the REST error body as text.
@@ -273,8 +437,8 @@ tool results with `isError: true` and the REST error body as text.
 | 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
-| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion) |
-| 410 | `gone` (deleted invoice; expired registration) |
+| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition` |
+| 410 | `gone` (deleted invoice or client; expired registration) |
 | 412 | `precondition_failed` |
 | 413 | `payload_too_large` |
 | 415 | `unsupported_media_type` |

@@ -2,17 +2,28 @@
 
 > Invoice generator with an agent API. AI agents can connect to a user's
 > workspace (after the user approves them) and create, read, update and
-> delete invoices, read default sender settings and download PDFs.
+> delete invoices and saved clients, read default sender settings and
+> download PDFs. To invoice a saved client, look it up (GET
+> /api/v1/clients?q=… or MCP list_clients) and pass its id as `clientId`;
+> the server fills its name, address, email and default terms.
 
 ## Connect an agent (device flow, no browser login needed)
 
 1. POST /api/v1/agents/register with {"name", "description"?, "scopes": [...]}
-   Scopes: invoices:read, invoices:write, invoices:delete, settings:read
+   Scopes: invoices:read, invoices:write, invoices:delete, settings:read,
+   clients:read, clients:write
 2. Show the user `user_code` and `verification_url_complete`; they approve it in the app.
 3. Poll POST /api/v1/agents/token with {"device_code"} every `interval` seconds
    until it returns {"api_key"} (errors: authorization_pending, slow_down,
    access_denied, expired_token). The key is shown once.
 4. Send `Authorization: Bearer <api_key>` on every request.
+
+## What is unpaid?
+
+- GET /api/v1/invoices/summary: counts and totals per currency (draft, outstanding, overdue, paid this month/year)
+- GET /api/v1/invoices?status=overdue (also draft, sent, paid, void; comma list), due_before, due_after, client
+- POST /api/v1/invoices/:id/mark-sent | mark-paid | void | reopen (scope invoices:write)
+- MCP: list_invoices (same filters), get_invoice_summary, set_invoice_status
 
 ## Docs
 

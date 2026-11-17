@@ -15,6 +15,10 @@ import { InvoiceFormData } from '@/types/invoice';
 import { invoiceFormSchema } from '@/lib/validation';
 import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
 import { toast } from 'sonner';
+import { ClientLinkStatus, ClientPicker } from '@/components/clients/BillToClient';
+import { clientFillPatch } from '@/components/clients/clientFill';
+import { useClientStore } from '@/stores/useClientStore';
+import type { Client } from '../../../shared/types/client';
 
 interface InvoiceFormProps {
   initialData?: Partial<InvoiceFormData>;
@@ -92,9 +96,22 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
     if (settings.fromAddress) form.setFieldValue('fromAddress', settings.fromAddress);
     if (settings.paymentDetails) form.setFieldValue('paymentDetails', settings.paymentDetails);
     if (settings.notes) form.setFieldValue('notes', settings.notes);
-    if (settings.taxRate) form.setFieldValue('taxRate', settings.taxRate);
-    if (settings.currency) form.setFieldValue('currency', settings.currency);
+    // A linked client's own defaults take precedence over the general ones.
+    const client = useClientStore.getState().clients.find((c) => c.id === form.getFieldValue('clientId'));
+    if (settings.taxRate && client?.defaultTaxRate == null) form.setFieldValue('taxRate', settings.taxRate);
+    if (settings.currency && !client?.defaultCurrency) form.setFieldValue('currency', settings.currency);
     toast.success('Defaults applied');
+  };
+
+  /** Saved client picked (null = unlink): fills Bill To and the defaults the user has not changed. */
+  const pickClient = (client: Client | null) => {
+    if (!client) {
+      form.setFieldValue('clientId', undefined);
+      return;
+    }
+    const isDirty = (name: 'currency' | 'taxRate' | 'dueDate') => !!form.getFieldMeta(name)?.isDirty;
+    const patch = clientFillPatch(client, form.state.values, { currency: isDirty('currency'), taxRate: isDirty('taxRate'), dueDate: isDirty('dueDate') });
+    for (const [key, value] of Object.entries(patch) as [keyof InvoiceFormData, never][]) form.setFieldValue(key, value);
   };
 
   const addLineItem = () => {
@@ -299,7 +316,10 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
 
       {/* To */}
       <div className="space-y-4">
-        <h3 className="text-sm font-medium text-foreground">Bill To</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-foreground">Bill To</h3>
+          <ClientPicker values={formState} onPick={pickClient} />
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <form.Field name="toName">
             {(field) => {
@@ -372,6 +392,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
             </form.Field>
           </div>
         </div>
+        <ClientLinkStatus values={formState} onLink={(client) => form.setFieldValue('clientId', client.id)} />
       </div>
 
       {/* Line Items */}

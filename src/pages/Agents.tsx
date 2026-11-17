@@ -28,7 +28,7 @@ import { describeError } from '@/lib/api/errors';
 import { useCloudEnabled } from '@/stores/useCloudStore';
 import { cn } from '@/lib/utils';
 import { formatUserCode, normalizeUserCode } from '../../shared/user-code';
-import { API_BASE_PATH, MCP_PATH, type AgentSummary } from '../../shared/api';
+import { API_BASE_PATH, MCP_PATH, SCOPES, type AgentSummary } from '../../shared/api';
 
 const card = 'rounded-lg border border-border bg-card p-4 sm:p-5';
 
@@ -248,6 +248,25 @@ function Snippet({ label, value, wrap = false }: { label: string; value: string;
   );
 }
 
+/** Every permission an agent can ask for, in plain language (the same text as the approval screen). */
+function PermissionGlossary() {
+  return (
+    <details className="group text-sm">
+      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Permissions an agent can ask for</summary>
+      <dl className="mt-3 space-y-2">
+        {SCOPES.map((scope) => (
+          <div key={scope} className="grid gap-0.5 sm:grid-cols-[12rem_1fr] sm:gap-3">
+            <dt className="font-medium text-foreground">
+              {SCOPE_INFO[scope].title} <code className="font-code text-[11px] font-normal text-muted-foreground">{scope}</code>
+            </dt>
+            <dd className="text-muted-foreground">{SCOPE_INFO[scope].allows}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 /** How to point an agent at this app. */
 export function ConnectAgentHelp({ origin = window.location.origin }: { origin?: string }) {
   const baseUrl = `${origin}${API_BASE_PATH}`;
@@ -281,6 +300,7 @@ export function ConnectAgentHelp({ origin = window.location.origin }: { origin?:
         <Snippet label="MCP endpoint (Streamable HTTP)" value={mcpUrl} />
       </div>
       <Snippet label="MCP client configuration (after approval, use the agent’s API key)" value={mcpConfig} />
+      <PermissionGlossary />
       <p className="text-xs text-muted-foreground">
         Agents get their own API key with only the permissions you approve. Never give an agent your recovery key.
       </p>
@@ -299,8 +319,8 @@ export default function Agents() {
           <div>
             <h2 className="mb-2 text-2xl font-semibold text-foreground">Agents</h2>
             <p className="text-sm text-muted-foreground">
-              AI agents you approve can work with this workspace’s invoices, with only the permissions you give them. Their
-              changes are marked with their name.
+              AI agents you approve can work with this workspace’s invoices and saved clients, with only the permissions you
+              give them. Their changes are marked with their name.
             </p>
           </div>
 
