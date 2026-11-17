@@ -8,6 +8,9 @@
 import {
   API_BASE_PATH,
   type AgentRegistrationPreview,
+  type ClientInput,
+  type ClientResponse,
+  type ListClientsResponse,
   type ApiErrorBody,
   type ApproveAgentResponse,
   type CreateWorkspaceResponse,
@@ -149,6 +152,23 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
       request<InvoiceResponse>('PUT', `/invoices/${encode(id)}`, { body, headers: preconditionHeaders(pre) }),
     deleteInvoice: (id: string, pre?: WritePreconditions) =>
       request<void>('DELETE', `/invoices/${encode(id)}`, { headers: preconditionHeaders(pre) }),
+
+    // Clients
+    listClients: (p: ListInvoicesParams & { q?: string } = {}) =>
+      request<ListClientsResponse>('GET', '/clients', {
+        query: {
+          q: p.q,
+          updated_since: p.updatedSince,
+          after_id: p.afterId,
+          include_deleted: p.includeDeleted ? 'true' : undefined,
+          limit: p.limit,
+        },
+      }),
+    getClient: (id: string) => request<ClientResponse>('GET', `/clients/${encode(id)}`),
+    putClient: (id: string, body: ClientInput, pre?: WritePreconditions) =>
+      request<ClientResponse>('PUT', `/clients/${encode(id)}`, { body, headers: preconditionHeaders(pre) }),
+    deleteClient: (id: string, pre?: WritePreconditions) =>
+      request<void>('DELETE', `/clients/${encode(id)}`, { headers: preconditionHeaders(pre) }),
 
     // Settings
     getSettings: () => request<SettingsResponse>('GET', '/settings'),

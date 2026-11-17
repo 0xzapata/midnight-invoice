@@ -22,6 +22,7 @@ export const CONTENT_FIELDS = [
   'notes',
   'paymentDetails',
   'currency',
+  'clientId',
 ] as const;
 
 export type ContentField = (typeof CONTENT_FIELDS)[number];
@@ -42,6 +43,8 @@ export interface InvoiceContent {
   notes: string;
   paymentDetails: string;
   currency: string;
+  /** "" = no saved client. */
+  clientId: string;
 }
 
 /** Human labels for conflict messages. */
@@ -61,6 +64,7 @@ export const FIELD_LABELS: Record<ContentField, string> = {
   notes: 'notes',
   paymentDetails: 'payment details',
   currency: 'currency',
+  clientId: 'saved client',
 };
 
 /** Normalised content (missing optional strings become ""), so equality is structural. */
@@ -81,6 +85,7 @@ export function contentOf(invoice: Partial<Invoice>): InvoiceContent {
     notes: invoice.notes ?? '',
     paymentDetails: invoice.paymentDetails ?? '',
     currency: invoice.currency ?? 'USD',
+    clientId: invoice.clientId ?? '',
   };
 }
 
@@ -134,6 +139,7 @@ export function toInvoiceInput(invoice: Invoice): InvoiceInput {
   const c = contentOf(invoice);
   const input: InvoiceInput = { ...c, createdAt: invoice.createdAt };
   if (!c.invoiceName) delete input.invoiceName;
+  if (!c.clientId) delete input.clientId;
   return input;
 }
 
