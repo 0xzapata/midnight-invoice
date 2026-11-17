@@ -10,7 +10,7 @@
  */
 import { vi } from 'vitest';
 import type { Actor } from '@/types/invoice';
-import type { AgentSummary, ApiClientRecord, ApiInvoice, ClientInput, InvoiceInput, Scope } from '../../shared/api';
+import type { AgentSummary, ApiClientRecord, ApiInvoice, ClientInput, InvoiceEmail, InvoiceInput, Scope, SendInvoiceEmailRequest } from '../../shared/api';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 import { daysOverdue, isOverdue, normalizeStatusFields, utcToday } from '../../shared/invoice-status';
 
@@ -44,7 +44,10 @@ export function createFakeApi() {
     settings: { settings: { ...DEFAULT_SETTINGS } as DefaultSettings, updatedAt: null as string | null },
     agents: [] as AgentSummary[],
     workspace: { id: 'ws-1', createdAt: '2026-11-17T09:00:00.000Z' },
+    /** POST /invoices/:id/send behaviour (email configured on the "server"). */
+    email: { configured: true, fromAddress: 'invoices@mail.midnight.app', fromName: 'Midnight Invoice', pdfTheme: 'light' as 'light' | 'dark', cooldownMinutes: 10 },
   };
+  const emails = new Map<string, InvoiceEmail[]>();
   const requests: RecordedRequest[] = [];
   const handlers: Handler[] = [];
 
@@ -251,6 +254,43 @@ export function createFakeApi() {
         return new Response(null, { status: 204 });
       }
     }
+    const sendMatch = /^\/invoices\/([^/]+)\/(send|emails)$/.exec(path);
+    if (sendMatch) {
+      const [, id, action] = sendMatch;
+      const existing = invoices.get(id);
+      if (!existing) return apiError(404, 'not_found', 'Invoice not found');
+      if (existing.deletedAt) return apiError(410, 'gone', 'Invoice was deleted', { id });
+      if (action === 'emails' && method === 'GET') {
+        return json(200, { emails: structuredClone(emails.get(id) ?? []), delivery: { ...state.email, fromAddress: state.email.configured ? state.email.fromAddress : null } });
+      }
+      if (action === 'send' && method === 'POST') {
+        if (!state.email.configured) return apiError(503, 'email_not_configured', 'Email is not available: This server has no email provider API key yet.');
+        if (existing.status === 'void') return apiError(409, 'invalid_status_transition', 'Void invoices cannot be sent');
+        const req = (body ?? {}) as SendInvoiceEmailRequest;
+        const to = req.to ?? existing.toEmail;
+        const at = tick();
+        const statusChanged = existing.status === 'draft';
+        const invoice = statusChanged
+          ? { ...existing, status: 'sent' as const, sentAt: at.slice(0, 10), revision: existing.revision + 1, updatedAt: at }
+          : existing;
+        invoices.set(id, invoice);
+        const email: InvoiceEmail = {
+          id: `email-${(emails.get(id)?.length ?? 0) + 1}`,
+          invoiceId: id,
+          to,
+          cc: req.ccMe ? [state.settings.settings.fromEmail] : [],
+          subject: req.subject ?? `Invoice ${existing.invoiceNumber}`,
+          status: 'sent',
+          error: null,
+          sentBy: { type: 'user' },
+          statusChanged,
+          createdAt: at,
+          sentAt: at,
+        };
+        emails.set(id, [email, ...(emails.get(id) ?? [])]);
+        return json(200, { email, invoice: structuredClone(invoice), statusChanged, replayed: false });
+      }
+    }
     if (path === '/clients' && method === 'GET') {
       const { page, syncedAt, hasMore, next } = feed(clients.values(), query);
       return json(200, { clients: page, syncedAt, hasMore, next });
@@ -355,6 +395,8 @@ export function createFakeApi() {
     },
     getClient: (id: string) => clients.get(id),
     allClients: () => [...clients.values()],
+    /** Email history per invoice (newest first), e.g. to seed a failed send. */
+    emails,
   };
 
   return {
@@ -377,4 +419,4 @@ export function createFakeApi() {
 
 export type FakeApi = ReturnType<typeof createFakeApi>;
 
-export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write'];
+export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'invoices:send'];

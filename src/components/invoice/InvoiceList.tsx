@@ -28,6 +28,7 @@ function notSyncedSummary(invoice: Invoice, serverMessage: string): string {
 import { StatusBadge } from '@/components/invoice/status/StatusBadge';
 import { StatusActionsMenu } from '@/components/invoice/status/StatusActions';
 import { useToday } from '@/components/invoice/status/useInvoiceStatus';
+import { SendInvoiceEmailDialog } from '@/components/invoice/email/SendInvoiceEmailDialog';
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -39,6 +40,8 @@ interface InvoiceListProps {
 
 export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDelete }: InvoiceListProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null);
+  const [emailInvoiceId, setEmailInvoiceId] = useState<string | null>(null);
+  const emailInvoice = emailInvoiceId ? invoices.find((i) => i.id === emailInvoiceId) : undefined;
   const syncErrors = useCloudStore((state) => state.syncErrors);
   const today = useToday();
 
@@ -107,7 +110,7 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
                 {formatCurrency(withTax, invoice.currency)}
               </p>
             <div className="-mr-2 flex shrink-0 items-center justify-end gap-0.5 sm:col-start-3 sm:row-span-2 sm:row-start-1 sm:mr-0 sm:gap-1">
-              <StatusActionsMenu invoice={invoice} />
+              <StatusActionsMenu invoice={invoice} onSendEmail={() => setEmailInvoiceId(invoice.id)} />
               <Button
                 variant="ghost"
                 size="icon"
@@ -166,6 +169,9 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
           </div>
         );
       })}
+      {emailInvoice && (
+        <SendInvoiceEmailDialog invoice={emailInvoice} open onOpenChange={(open) => !open && setEmailInvoiceId(null)} />
+      )}
     </div>
   );
 }

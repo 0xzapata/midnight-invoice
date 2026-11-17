@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil, MoreHorizontal } from 'lucide-react';
+import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil, MoreHorizontal, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -21,6 +21,8 @@ import { InvoiceAttribution } from '@/components/AgentBadge';
 import { SyncIssueNotice } from '@/components/sync/SyncIssueNotice';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
+import { SendInvoiceEmailDialog } from '@/components/invoice/email/SendInvoiceEmailDialog';
+import { EmailHistory } from '@/components/invoice/email/EmailHistory';
 import { toast } from 'sonner';
 
 export default function ViewInvoice() {
@@ -29,6 +31,7 @@ export default function ViewInvoice() {
   const { getInvoice, deleteInvoice, invoices, saveDraft, getNextInvoiceNumber } = useInvoices();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
 
   // We need to wait for invoices to load
   const invoice = invoices.length > 0 ? getInvoice(id || '') : undefined;
@@ -187,6 +190,18 @@ export default function ViewInvoice() {
               <Printer className="w-4 h-4 mr-2" />
               Print
             </Button>
+            {/* Send by email stays visible at every width (icon-only below lg), like Download PDF. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEmailOpen(true)}
+              className="h-8 w-8 p-0 lg:h-9 lg:w-auto lg:px-3"
+              aria-label="Send by email"
+              title="Send by email"
+            >
+              <Mail className="w-4 h-4 lg:mr-2" aria-hidden="true" />
+              <span className="hidden lg:inline">Send by email</span>
+            </Button>
             {/* Below lg (where the labelled buttons no longer fit) the secondary actions move into a menu; Download PDF stays, icon-only. */}
             <Button size="sm" onClick={handleDownload} className="h-8 w-8 p-0 lg:h-9 lg:w-auto lg:px-3" aria-label="Download PDF">
               <Download className="w-4 h-4 lg:mr-2" aria-hidden="true" />
@@ -229,11 +244,13 @@ export default function ViewInvoice() {
       <main className="container py-8">
         <SyncIssueNotice invoice={invoice} />
         <InvoiceStatusBar invoice={invoice} />
+        <EmailHistory invoice={invoice} onRetry={() => setEmailOpen(true)} />
         <InvoiceAttribution invoice={invoice} />
         <div className="flex justify-center">
           <InvoicePreview data={invoice} />
         </div>
       </main>
+      {emailOpen && <SendInvoiceEmailDialog invoice={invoice} open={emailOpen} onOpenChange={setEmailOpen} />}
     </div>
   );
 }

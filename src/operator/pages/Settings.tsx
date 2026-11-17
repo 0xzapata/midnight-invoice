@@ -118,6 +118,16 @@ function SettingRow({ s, locked }: { s: SettingItem; locked: boolean }) {
   );
 }
 
+/** "Email: not configured" hint above the Email settings, computed from the list (no extra request). */
+function emailSetupStatus(byKey: Map<string, SettingItem>): { ready: boolean; text: string } {
+  if (byKey.get('email.enabled')?.value === false) return { ready: false, text: 'Email: turned off' };
+  const missing = [
+    !byKey.get('resend.apiKey')?.isSet && 'Resend API key',
+    !byKey.get('email.fromAddress')?.value && 'From address (on a domain verified with Resend)',
+  ].filter(Boolean);
+  return missing.length ? { ready: false, text: `Email: not configured — set the ${missing.join(' and the ')}` } : { ready: true, text: 'Email: configured' };
+}
+
 export function SettingsPage() {
   const q = useQuery({ queryKey: KEY, queryFn: operatorApi.settings });
   const save = useSave();
@@ -153,6 +163,14 @@ export function SettingsPage() {
       <div className="space-y-4">
         {groups.map((g) => (
           <Card key={g} title={g}>
+            {g === 'Email' && (
+              <p
+                role="status"
+                className={`mb-3 border px-3 py-2 text-xs ${emailSetupStatus(byKey).ready ? 'border-border text-muted-foreground' : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}
+              >
+                {emailSetupStatus(byKey).text}
+              </p>
+            )}
             {settings
               .filter((s) => s.group === g)
               .map((s) => (

@@ -197,7 +197,7 @@ function ScopeChoice({ scope, checked, onChange }: { scope: Scope; checked: bool
           <code className="font-code text-[11px] font-normal text-muted-foreground">{scope}</code>
           {info.sensitive && (
             <span className="border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-destructive">
-              Destructive
+              {info.sensitiveLabel ?? 'Destructive'}
             </span>
           )}
         </label>
