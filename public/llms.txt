@@ -11,7 +11,7 @@
 
 1. POST /api/v1/agents/register with {"name", "description"?, "scopes": [...]}
    Scopes: invoices:read, invoices:write, invoices:delete, settings:read,
-   clients:read, clients:write, invoices:send (email invoices; ask only if needed)
+   clients:read, clients:write, activity:read, invoices:send (email invoices; ask only if needed)
 2. Show the user `user_code` and `verification_url_complete`; they approve it in the app.
 3. Poll POST /api/v1/agents/token with {"device_code"} every `interval` seconds
    until it returns {"api_key"} (errors: authorization_pending, slow_down,
@@ -24,6 +24,12 @@
 - GET /api/v1/invoices?status=overdue (also draft, sent, paid, void; comma list), due_before, due_after, client
 - POST /api/v1/invoices/:id/mark-sent | mark-paid | void | reopen (scope invoices:write)
 - MCP: list_invoices (same filters), get_invoice_summary, set_invoice_status
+
+## What did I already do?
+
+- GET /api/v1/activity (scope activity:read): your own activity log entries, newest first
+  (filters action=invoice.,client. entity_id= since= until=; page with before=next.before)
+- MCP: get_my_activity
 
 ## Email an invoice to the client
 

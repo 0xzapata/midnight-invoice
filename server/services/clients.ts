@@ -17,6 +17,7 @@ import { createClientRepository, type ClientRepository, type ClientRow, type Sto
 import { errors } from '../errors';
 import { LIMITS, zodDetails } from '../schemas';
 import { parseIfMatch, type RevisionPrecondition, type ServiceContext } from './invoices';
+import { activityWrite, activityWriteIf, clientChangedInput, clientCreatedInput, labelOf } from './activity';
 
 export { parseIfMatch };
 
@@ -143,13 +144,14 @@ export async function getClient(ctx: ServiceContext, rawId: string): Promise<Api
 export async function createClient(ctx: ServiceContext, body: unknown): Promise<ApiClientRecord> {
   requireScope(ctx.principal, 'clients:write');
   const input = parseOrThrow(clientInputSchema, body);
+  const id = ctx.deps.ids.uuid();
   const row = await clientRepo(ctx).insertClient({
     workspaceId: ctx.principal.workspaceId,
-    id: ctx.deps.ids.uuid(),
+    id,
     data: toStored(input),
     createdAt: null,
     actor: actorOf(ctx.principal),
-  });
+  }, activityWrite(ctx, clientCreatedInput(ctx, id, input.name)));
   if (!row) throw errors.internal();
   return toApiClient(row, hasScope(ctx.principal, 'invoices:read') ? 0 : undefined);
 }
@@ -186,7 +188,7 @@ export async function putClient(
       data: toStored(input),
       createdAt: canonicalTime(input.createdAt),
       actor: actorOf(ctx.principal),
-    });
+    }, activityWrite(ctx, clientCreatedInput(ctx, id, input.name)));
     if (row) return { client: (await withCounts(ctx, [row]))[0], created: true };
     if (attempt === 0) return putClient(ctx, rawId, body, pre, 1);
     throw errors.conflict('Concurrent write to the same client, retry');
@@ -194,13 +196,14 @@ export async function putClient(
   if (typeof pre.ifMatch === 'number' && pre.ifMatch !== existing.revision) {
     throw errors.preconditionFailed('Revision mismatch', { id, currentRevision: existing.revision });
   }
+  const data = toStored(input);
   const row = await repo.updateClient({
     workspaceId: ctx.principal.workspaceId,
     id,
-    data: toStored(input),
+    data,
     actor: actorOf(ctx.principal),
     expectedRevision: typeof pre.ifMatch === 'number' ? pre.ifMatch : undefined,
-  });
+  }, activityWriteIf(ctx, clientChangedInput(id, JSON.parse(existing.data) as StoredClientData, data)));
   if (!row) return raceOutcome(ctx, id);
   return { client: (await withCounts(ctx, [row]))[0], created: false };
 }
@@ -231,7 +234,7 @@ export async function patchClient(ctx: ServiceContext, rawId: string, body: unkn
       data: merged,
       actor: actorOf(ctx.principal),
       expectedRevision: existing.revision,
-    });
+    }, activityWriteIf(ctx, clientChangedInput(id, current, merged)));
     if (row) return (await withCounts(ctx, [row]))[0];
     if (typeof pre.ifMatch === 'number') return raceOutcome(ctx, id);
   }
@@ -248,7 +251,7 @@ export async function deleteClient(ctx: ServiceContext, rawId: string, pre: { if
     id,
     actor: actorOf(ctx.principal),
     expectedRevision: typeof pre.ifMatch === 'number' ? pre.ifMatch : undefined,
-  });
+  }, activityWrite(ctx, { action: 'client.deleted', entity: { type: 'client', id } }, { labelSql: labelOf.client(ctx.principal.workspaceId, id) }));
   if (row) return { deleted: true };
   const existing = await repo.getClient(ctx.principal.workspaceId, id);
   if (!existing) throw errors.notFound('Client not found');

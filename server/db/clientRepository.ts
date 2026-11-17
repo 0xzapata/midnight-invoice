@@ -4,6 +4,7 @@
  * timestamps, single-statement atomic writes.
  */
 import type { Actor } from '../../shared/types/invoice';
+import { firstWith, type WriteAttachment } from './repository';
 
 const DB_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
 
@@ -103,49 +104,49 @@ export function createClientRepository(db: D1Database) {
     },
 
     /** Inserts a new client; null if the id already exists (live or tombstone). */
-    async insertClient(args: { workspaceId: string; id: string; data: StoredClientData; createdAt: string | null; actor: Actor }): Promise<ClientRow | null> {
+    async insertClient(args: { workspaceId: string; id: string; data: StoredClientData; createdAt: string | null; actor: Actor }, also?: WriteAttachment): Promise<ClientRow | null> {
       const actor = JSON.stringify(args.actor);
-      return db
+      const stmt = db
         .prepare(
           `INSERT INTO clients (${CLIENT_COLUMNS})
            VALUES (?1, ?2, ?3, ?4, ?5, 1, COALESCE(?6, ${DB_NOW}), ${DB_NOW}, NULL, ?7, ?7)
            ON CONFLICT (workspace_id, id) DO NOTHING
            RETURNING ${CLIENT_COLUMNS}`,
         )
-        .bind(args.id, args.workspaceId, args.data.name, args.data.email, JSON.stringify(args.data), args.createdAt, actor)
-        .first<ClientRow>();
+        .bind(args.id, args.workspaceId, args.data.name, args.data.email, JSON.stringify(args.data), args.createdAt, actor);
+      return firstWith<ClientRow>(db, stmt, also);
     },
 
     /** Replaces a live client's body; with `expectedRevision` only if it still matches. Null if nothing matched. */
-    async updateClient(args: { workspaceId: string; id: string; data: StoredClientData; actor: Actor; expectedRevision?: number }): Promise<ClientRow | null> {
+    async updateClient(args: { workspaceId: string; id: string; data: StoredClientData; actor: Actor; expectedRevision?: number }, also?: WriteAttachment): Promise<ClientRow | null> {
       const revisionClause = args.expectedRevision === undefined ? '' : ' AND revision = ?7';
       const params: unknown[] = [args.data.name, args.data.email, JSON.stringify(args.data), JSON.stringify(args.actor), args.workspaceId, args.id];
       if (args.expectedRevision !== undefined) params.push(args.expectedRevision);
-      return db
+      const stmt = db
         .prepare(
           `UPDATE clients
               SET name = ?1, email = ?2, data = ?3, updated_by = ?4, revision = revision + 1, updated_at = ${DB_NOW}
             WHERE workspace_id = ?5 AND id = ?6 AND deleted_at IS NULL${revisionClause}
         RETURNING ${CLIENT_COLUMNS}`,
         )
-        .bind(...params)
-        .first<ClientRow>();
+        .bind(...params);
+      return firstWith<ClientRow>(db, stmt, also);
     },
 
     /** Soft delete (tombstone). Null if nothing matched. */
-    async softDeleteClient(args: { workspaceId: string; id: string; actor: Actor; expectedRevision?: number }): Promise<ClientRow | null> {
+    async softDeleteClient(args: { workspaceId: string; id: string; actor: Actor; expectedRevision?: number }, also?: WriteAttachment): Promise<ClientRow | null> {
       const revisionClause = args.expectedRevision === undefined ? '' : ' AND revision = ?4';
       const params: unknown[] = [JSON.stringify(args.actor), args.workspaceId, args.id];
       if (args.expectedRevision !== undefined) params.push(args.expectedRevision);
-      return db
+      const stmt = db
         .prepare(
           `UPDATE clients
               SET deleted_at = ${DB_NOW}, updated_at = ${DB_NOW}, updated_by = ?1, revision = revision + 1
             WHERE workspace_id = ?2 AND id = ?3 AND deleted_at IS NULL${revisionClause}
         RETURNING ${CLIENT_COLUMNS}`,
         )
-        .bind(...params)
-        .first<ClientRow>();
+        .bind(...params);
+      return firstWith<ClientRow>(db, stmt, also);
     },
   };
 }

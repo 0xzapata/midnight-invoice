@@ -18,6 +18,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - 👥 Saved clients: a client list (`/clients`) with default currency, tax rate and payment terms; pick a client on an invoice to fill Bill To, "Save as client" from an invoice, one-click import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
+- 🕵️ Activity log (with cloud sync): a timeline (`/activity`) of what you and each AI agent did — invoices and clients created, edited, deleted, status changes, PDF downloads through the API, agents approved, denied and revoked — with filters, per-agent views and a History section on each invoice
 - ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
 - 🤖 AI agents: approve an agent from the app (scopes you can narrow), see what it created or edited, revoke it any time (REST + remote MCP)
 - 🧾 Server-side PDF rendering with the same PDF component as the app
@@ -286,8 +287,10 @@ Users never choose the From address: it is always the configured one, with
 the invoice sender's name as display name and their email as Reply-To.
 Agents need the `invoices:send` scope (never granted to existing agents) and
 can only email the invoice's client address when the user entered it
-themselves. Every attempt is logged per workspace (`email_messages`, no
-message bodies). Bounce/complaint webhooks are not handled yet; watch the
+themselves, and cannot send an invoice whose sender or payment details an
+agent changed until the user has reviewed (saved) it. Every attempt is logged
+per workspace (`email_messages`, no message bodies) and appears in the
+activity log (recipient masked). Bounce/complaint webhooks are not handled yet; watch the
 Resend dashboard. In development, point the Worker at a local fake with
 `RESEND_API_BASE_URL=http://127.0.0.1:<port>` in the environment of
 `bun run dev` (honoured only by the Vite dev server, compiled out of builds).
@@ -341,7 +344,7 @@ approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`).
 
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
-   `settings:read`, `clients:read`, `clients:write`, `invoices:send`) and shows you a code like
+   `settings:read`, `clients:read`, `clients:write`, `activity:read`, `invoices:send`) and shows you a code like
    `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
@@ -353,6 +356,8 @@ With `clients:read` an agent can look up your saved clients and bill one by
 id ("invoice Globex for 10 hours": `list_clients` → `create_invoice` with
 `clientId`); the server fills the client's name, address, email and default
 terms. `clients:write` lets it add, edit, archive and delete clients.
+`activity:read` lets an agent read its *own* entries of the activity log
+(`get_my_activity`), e.g. to check whether it already sent this month's invoice.
 `invoices:send` (marked as sensitive on the approval screen) lets it email an
 invoice to the client on file on your behalf; it cannot choose another
 recipient, only addresses you entered yourself are allowed, and it has its own
@@ -373,6 +378,15 @@ hourly and daily limits.
 4. Invoices the agent creates or edits appear in your dashboard within ~15
    seconds, marked *by &lt;agent&gt;* / *edited by &lt;agent&gt;*. Revoke it on
    the Agents page.
+5. See what each agent did on **Activity** (linked from the Agents page and
+   Settings → Cloud sync & agents): a day-by-day timeline ("Billing Assistant
+   marked INV-0007 as paid"), filterable by agent, kind of action and dates;
+   each agent row on the Agents page shows its latest actions, and each invoice
+   page has a *History* section. Activity is recorded by the server, so only
+   changes made while cloud sync is on are logged (and PDFs you download in
+   the browser are generated locally and not logged). Entries list which
+   fields changed, never their contents, and are kept for 365 days (at most
+   10,000 per workspace; operators can change both in the operator console).
 
 To use the same workspace in another browser or device, reveal the
 **recovery key** in Settings → Cloud sync & agents → *Link another browser or
@@ -448,6 +462,9 @@ server/                      # API (Hono), testable via createApp(deps)
 ├── db/repository.ts         # SQL (D1), scoped by workspace
 ├── db/clientRepository.ts   # SQL for saved clients
 ├── routes/clients.ts        # /api/v1/clients routes
+├── routes/activity.ts       # /api/v1/activity routes
+├── services/activity.ts     # Activity log: recordActivity / activityWrite, change summaries, reads
+├── db/activityRepository.ts # SQL for the activity log
 ├── services/                # Invoice, client and agent use-cases (shared by REST and MCP)
 ├── mcp.ts, mcpClients.ts    # Remote MCP server (official SDK v2) and its client tools
 ├── openapi.ts               # OpenAPI 3.1 document (+ openapiClients.ts)
@@ -458,6 +475,7 @@ shared/                      # Types and helpers used by both the app and the AP
 ├── api.ts                   # API contract types
 ├── types/invoice.ts         # Invoice types (re-exported from src/types)
 ├── types/client.ts          # Saved-client types and helpers
+├── activity.ts              # Activity log contract (action codes, entry shape)
 ├── settings.ts
 ├── user-code.ts             # Agent user-code normalisation (app + API)
 ├── operator.ts              # Operator console API types (private)
@@ -505,6 +523,7 @@ src/
 │   ├── CreateInvoice.tsx    # Create/edit invoice
 │   ├── ViewInvoice.tsx      # View saved invoice
 │   ├── Clients.tsx          # Saved clients (/clients)
+│   ├── Activity.tsx         # Activity log timeline (/activity)
 │   ├── Agents.tsx           # Connected agents, revoke, how to connect one
 │   ├── ApproveAgent.tsx     # Agent consent screen (/agents/approve?code=…)
 │   └── NotFound.tsx

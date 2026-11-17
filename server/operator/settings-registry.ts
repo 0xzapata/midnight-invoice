@@ -11,6 +11,7 @@
  * (sync, non-secret) or `await deps.settings.getSecret('area.name')`.
  */
 import { z } from 'zod';
+import { ACTIVITY_RETENTION } from '../../shared/activity';
 
 export type SettingType = 'string' | 'boolean' | 'integer' | 'url' | 'enum' | 'secret';
 
@@ -173,6 +174,24 @@ export const SETTINGS = {
     default: 90,
     min: 7,
     max: 400,
+  }),
+
+  // --- Activity log -------------------------------------------------------
+  'activity.retentionDays': setting.integer({
+    group: 'Activity log',
+    label: 'Retention (days)',
+    description: 'Workspace activity log entries older than this are deleted by the daily activity.retention job.',
+    default: ACTIVITY_RETENTION.days,
+    min: 7,
+    max: 3650,
+  }),
+  'activity.maxRowsPerWorkspace': setting.integer({
+    group: 'Activity log',
+    label: 'Max entries per workspace',
+    description: 'Only the newest this many activity log entries of each workspace are kept (pruned by the daily job).',
+    default: ACTIVITY_RETENTION.maxRows,
+    min: 100,
+    max: 1_000_000,
   }),
 
   // --- Operator console ----------------------------------------------------

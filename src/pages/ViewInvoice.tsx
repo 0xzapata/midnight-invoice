@@ -23,6 +23,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
 import { SendInvoiceEmailDialog } from '@/components/invoice/email/SendInvoiceEmailDialog';
 import { EmailHistory } from '@/components/invoice/email/EmailHistory';
+import { InvoiceHistory } from '@/components/activity/InvoiceHistory';
 import { toast } from 'sonner';
 
 export default function ViewInvoice() {
@@ -249,6 +250,7 @@ export default function ViewInvoice() {
         <div className="flex justify-center">
           <InvoicePreview data={invoice} />
         </div>
+        <InvoiceHistory invoiceId={invoice.id} />
       </main>
       {emailOpen && <SendInvoiceEmailDialog invoice={invoice} open={emailOpen} onOpenChange={setEmailOpen} />}
     </div>

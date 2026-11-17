@@ -6,11 +6,13 @@
  * If-None-Match, 410 for deleted invoices and settings. Clients
  * (`/clients`) follow the same contract, and an invoice write that sets a
  * `clientId` the fake does not have (live) is rejected with 400, like the
- * real server.
+ * real server. `GET /activity` and `GET /agents/:id/activity` serve
+ * `state.activity` (seed it with `server.addActivity`) with the real filters.
  */
 import { vi } from 'vitest';
 import type { Actor } from '@/types/invoice';
 import type { AgentSummary, ApiClientRecord, ApiInvoice, ClientInput, InvoiceEmail, InvoiceInput, Scope, SendInvoiceEmailRequest } from '../../shared/api';
+import type { ActivityEntry } from '../../shared/activity';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 import { daysOverdue, isOverdue, normalizeStatusFields, utcToday } from '../../shared/invoice-status';
 
@@ -43,6 +45,8 @@ export function createFakeApi() {
     pageSize: 1000,
     settings: { settings: { ...DEFAULT_SETTINGS } as DefaultSettings, updatedAt: null as string | null },
     agents: [] as AgentSummary[],
+    /** Activity log entries (any order; served newest first by id). */
+    activity: [] as ActivityEntry[],
     workspace: { id: 'ws-1', createdAt: '2026-11-17T09:00:00.000Z' },
     /** POST /invoices/:id/send behaviour (email configured on the "server"). */
     email: { configured: true, fromAddress: 'invoices@mail.midnight.app', fromName: 'Midnight Invoice', pdfTheme: 'light' as 'light' | 'dark', cooldownMinutes: 10 },
@@ -183,6 +187,27 @@ export function createFakeApi() {
       }
     }
     if (path === '/agents' && method === 'GET') return json(200, { agents: state.agents });
+    const agentActivity = /^\/agents\/([^/]+)\/activity$/.exec(path);
+    if ((path === '/activity' || agentActivity) && method === 'GET') {
+      const actor = query.get('actor');
+      const involving = agentActivity?.[1] ?? query.get('agent_id');
+      const prefixes = query.get('action')?.split(',').filter(Boolean) ?? [];
+      const limit = Number(query.get('limit') ?? 50);
+      const before = query.get('before');
+      const all = [...state.activity]
+        .sort((a, b) => b.id.localeCompare(a.id))
+        .filter((e) => !actor || (actor === 'user' ? e.actor.type === 'user' : actor === `agent:${e.actor.type === 'agent' ? e.actor.agentId : ''}`))
+        .filter((e) => !involving || (e.actor.type === 'agent' && e.actor.agentId === involving) || (e.entity?.type === 'agent' && e.entity.id === involving))
+        .filter((e) => prefixes.length === 0 || prefixes.some((p) => e.action.startsWith(p)))
+        .filter((e) => !query.get('entity_type') || e.entity?.type === query.get('entity_type'))
+        .filter((e) => !query.get('entity_id') || e.entity?.id === query.get('entity_id'))
+        .filter((e) => !query.get('since') || e.time >= query.get('since')!)
+        .filter((e) => !query.get('until') || e.time <= query.get('until')!)
+        .filter((e) => !before || e.id < before);
+      const page = all.slice(0, limit);
+      const hasMore = all.length > limit;
+      return json(200, { activity: structuredClone(page), hasMore, next: hasMore ? { before: page[page.length - 1].id } : null });
+    }
     const agentMatch = /^\/agents\/([^/]+)$/.exec(path);
     if (agentMatch && method === 'DELETE') {
       const agent = state.agents.find((a) => a.id === agentMatch[1]);
@@ -288,6 +313,20 @@ export function createFakeApi() {
           sentAt: at,
         };
         emails.set(id, [email, ...(emails.get(id) ?? [])]);
+        state.activity.push({
+          id: `act_${String(state.activity.length + 1).padStart(19, '0')}`,
+          time: at,
+          actor: { type: 'user' },
+          action: 'invoice.emailed',
+          entity: { type: 'invoice', id, label: existing.invoiceNumber },
+          changes: {
+            email: { to: `${to[0]}•••${to.slice(to.lastIndexOf('@'))}`, cc: email.cc.length, resend: !statusChanged },
+            ...(statusChanged ? { status: { from: 'draft' as const, to: 'sent' as const } } : {}),
+          },
+          source: 'rest',
+          tool: null,
+          requestId: null,
+        });
         return json(200, { email, invoice: structuredClone(invoice), statusChanged, replayed: false });
       }
     }
@@ -397,6 +436,22 @@ export function createFakeApi() {
     allClients: () => [...clients.values()],
     /** Email history per invoice (newest first), e.g. to seed a failed send. */
     emails,
+    /** Appends an activity entry (ids increase with each call, so later = newer). */
+    addActivity(entry: Partial<ActivityEntry> & Pick<ActivityEntry, 'action'>): ActivityEntry {
+      const full: ActivityEntry = {
+        id: `act_${String(state.activity.length + 1).padStart(19, '0')}`,
+        time: tick(),
+        actor: { type: 'user' },
+        entity: null,
+        changes: null,
+        source: 'rest',
+        tool: null,
+        requestId: null,
+        ...entry,
+      };
+      state.activity.push(full);
+      return full;
+    },
   };
 
   return {
@@ -419,4 +474,4 @@ export function createFakeApi() {
 
 export type FakeApi = ReturnType<typeof createFakeApi>;
 
-export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'invoices:send'];
+export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'activity:read', 'invoices:send'];

@@ -27,10 +27,14 @@ export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitiv
     title: 'Add, edit and delete clients',
     allows: 'Save new clients and change, archive or delete saved ones. Existing invoices never change: they keep their own copy of the client’s details.',
   },
+  'activity:read': {
+    title: 'See its own activity',
+    allows: 'Read the activity log entries this agent made itself (what it created, changed or downloaded), so it can check its earlier work. Never your own or other agents’ activity.',
+  },
   'invoices:send': {
     title: 'Email invoices to your clients',
     allows:
-      'Can email invoices to your clients on your behalf, with the PDF attached, using your name. Only to the client email you entered yourself; a draft is marked as sent. Emails cannot be unsent, so only allow this for an agent you trust.',
+      'Can email invoices to your clients on your behalf, with the PDF attached, using your name. Only to client emails you entered yourself, and not invoices whose payment or sender details an agent changed until you review them; a draft is marked as sent. Emails cannot be unsent, so only allow this for an agent you trust.',
     sensitive: true,
     sensitiveLabel: 'Sends email',
   },
@@ -43,5 +47,6 @@ export const SCOPE_SHORT: Record<Scope, string> = {
   'settings:read': 'Read defaults',
   'clients:read': 'View clients',
   'clients:write': 'Edit clients',
+  'activity:read': 'Own activity',
   'invoices:send': 'Email invoices',
 };

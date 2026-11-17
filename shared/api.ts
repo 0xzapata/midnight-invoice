@@ -6,6 +6,7 @@ import type { Actor, Invoice } from './types/invoice';
 import type { DefaultSettings } from './settings';
 import type { Client } from './types/client';
 import type { InvoiceStatus, InvoiceSummary } from './invoice-status';
+export type { ActivityAction, ActivityActor, ActivityChanges, ActivityEntry, ActivityEntityType, ActivitySource, ListActivityResponse } from './activity';
 
 export const API_BASE_PATH = '/api/v1';
 export const MCP_PATH = '/api/mcp';
@@ -18,6 +19,7 @@ export const SCOPES = [
   'settings:read',
   'clients:read',
   'clients:write',
+  'activity:read',
   'invoices:send',
 ] as const;
 export type Scope = (typeof SCOPES)[number];
@@ -29,6 +31,7 @@ export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   'settings:read': 'Read the default sender settings',
   'clients:read': 'List, search and read saved clients; bill invoices to a saved client (clientId)',
   'clients:write': 'Create, update, archive and delete saved clients (never changes existing invoices)',
+  'activity:read': "Read this agent's own entries in the workspace activity log (never other agents' or the user's)",
   'invoices:send': 'Email invoices (PDF attached) to the client on file; sending a draft marks it sent',
 };
 
@@ -76,6 +79,7 @@ export type ApiErrorCode =
   | 'email_not_configured'
   | 'email_send_failed'
   | 'recipient_not_allowed'
+  | 'invoice_needs_review'
   | 'idempotency_conflict';
 
 export interface ApiErrorBody {
