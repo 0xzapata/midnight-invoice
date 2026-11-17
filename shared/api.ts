@@ -7,12 +7,13 @@ import type { DefaultSettings } from './settings';
 import type { Client } from './types/client';
 import type { InvoiceTemplate } from './types/template';
 import type { InvoiceStatus, InvoiceSummary } from './invoice-status';
+export type { ActivityAction, ActivityActor, ActivityChanges, ActivityEntry, ActivityEntityType, ActivitySource, ListActivityResponse } from './activity';
 
 export const API_BASE_PATH = '/api/v1';
 export const MCP_PATH = '/api/mcp';
 
 /** Permissions an agent can be granted. A workspace token implicitly has all of them. */
-export const SCOPES = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write'] as const;
+export const SCOPES = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read'] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
@@ -24,6 +25,7 @@ export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   'clients:write': 'Create, update, archive and delete saved clients (never changes existing invoices)',
   'templates:read': 'List and read invoice templates; with invoices:write, create invoices from a template',
   'templates:write': 'Create, update, archive and delete invoice templates (never changes existing invoices)',
+  'activity:read': "Read this agent's own entries in the workspace activity log (never other agents' or the user's)",
 };
 
 /** Credential prefixes (all secrets are 256-bit random, base64url). */

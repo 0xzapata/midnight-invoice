@@ -144,6 +144,8 @@ export interface PendingOp {
     label?: string;
     /** Bumped whenever a newer local change is coalesced into this entry. */
     seq: number;
+    /** Upsert queued by a bulk upload (joining a workspace): its batch id, so the server logs one summary entry. */
+    bulkUpload?: string;
     attempts: number;
     /** Epoch ms before which the entry must not be retried (backoff / Retry-After). */
     notBefore: number;

@@ -20,6 +20,7 @@ import type { StoredInvoiceData } from '../db/repository';
 import { ApiError, errors } from '../errors';
 import { parseInvoiceId, raceOutcome, toApiInvoice, today, type RevisionPrecondition, type ServiceContext } from './invoices';
 import { invalidTransition } from './statusFields';
+import { activityWriteIf, invoiceChangedInput } from './activity';
 
 export type StatusChange = { action: StatusAction } | { status: InvoiceStatus };
 
@@ -71,6 +72,7 @@ export async function changeInvoiceStatus(
     if (!result.ok) throw invalidTransition(result);
     if (!result.changed) return { invoice: toApiInvoice(existing, todayDate), changed: false };
     const data: StoredInvoiceData = { ...current, ...result.fields };
+    const label = { invoiceNumber: existing.invoice_number };
     const row = await ctx.repo.updateInvoice({
       workspaceId: ctx.principal.workspaceId,
       id,
@@ -78,7 +80,7 @@ export async function changeInvoiceStatus(
       numberValue: invoiceNumberValue(existing.invoice_number),
       actor: actorOf(ctx.principal),
       expectedRevision: existing.revision,
-    });
+    }, activityWriteIf(ctx, invoiceChangedInput(id, { ...current, ...label }, { ...data, ...label })));
     if (row) return { invoice: toApiInvoice(row, todayDate), changed: true };
     if (typeof opts.ifMatch === 'number') return raceOutcome(ctx, id);
   }

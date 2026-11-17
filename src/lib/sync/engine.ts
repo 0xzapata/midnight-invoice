@@ -186,7 +186,7 @@ function newOp(partial: Pick<PendingOp, 'type'> & Partial<PendingOp>): PendingOp
 }
 
 /** Queues the upload of a local entity (created or edited). */
-export function enqueueUpsert(collection: CollectionName, id: string): void {
+export function enqueueUpsert(collection: CollectionName, id: string, opts: { bulkUpload?: string } = {}): void {
   if (!cloud().token) return;
   const key = syncKey(collection, id);
   useCloudStore.setState((state) => {
@@ -196,7 +196,7 @@ export function enqueueUpsert(collection: CollectionName, id: string): void {
       const current = queue[index];
       queue[index] = { ...current, type: 'upsert', baseRevision: undefined, seq: current.seq + 1, notBefore: 0 };
     } else {
-      queue.push(newOp({ type: 'upsert', collection, entityId: id }));
+      queue.push(newOp({ type: 'upsert', collection, entityId: id, ...(opts.bulkUpload ? { bulkUpload: opts.bulkUpload } : {}) }));
     }
     const syncErrors = { ...state.syncErrors };
     delete syncErrors[key];
@@ -260,9 +260,11 @@ export function enqueueSettings(): void {
  * invoices that reference them), each in its upload order (oldest first).
  */
 export function enqueueAllLocal(): void {
+  // One batch id for the whole upload: the server's activity log summarises it in one entry.
+  const bulkUpload = crypto.randomUUID();
   for (const col of orderedCollections()) {
     const entities = col.uploadOrder ? col.uploadOrder(col.all()) : col.all();
-    for (const entity of entities) enqueueUpsert(col.name, entity.id);
+    for (const entity of entities) enqueueUpsert(col.name, entity.id, { bulkUpload });
   }
 }
 
@@ -472,7 +474,8 @@ async function pushUpsert(col: SyncCollection, op: PendingOp, token: string): Pr
     const local = col.getLocal(id);
     if (!local) return;
     try {
-      const server = await col.put(local, local.revision !== undefined ? { ifMatch: local.revision } : { ifNoneMatch: true });
+      const pre = local.revision !== undefined ? { ifMatch: local.revision } : { ifNoneMatch: true };
+      const server = await col.put(local, { ...pre, bulkUpload: op.bulkUpload });
       assertSession(token);
       acceptWrite(col, op, seqAtStart, server);
       return;

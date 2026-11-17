@@ -35,6 +35,10 @@ export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitiv
     title: 'Add, edit and delete templates',
     allows: 'Save new invoice templates and change, archive or delete saved ones. Invoices already created from a template never change.',
   },
+  'activity:read': {
+    title: 'See its own activity',
+    allows: 'Read the activity log entries this agent made itself (what it created, changed or downloaded), so it can check its earlier work. Never your own or other agents’ activity.',
+  },
 };
 
 export const SCOPE_SHORT: Record<Scope, string> = {
@@ -46,4 +50,5 @@ export const SCOPE_SHORT: Record<Scope, string> = {
   'clients:write': 'Edit clients',
   'templates:read': 'View templates',
   'templates:write': 'Edit templates',
+  'activity:read': 'Own activity',
 };

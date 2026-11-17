@@ -28,13 +28,16 @@ import { hasScope, requireScope, type Principal } from './auth';
 import type { AppDeps } from './deps';
 import type { Repository } from './db/repository';
 import { ApiError } from './errors';
-import { renderInvoicePdf, pdfFilename } from './pdf/render';
+import { pdfFilename } from './pdf/render';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 import { invoiceInputSchema, invoicePatchSchema, isoDateTime, LIMITS } from './schemas';
 import * as invoices from './services/invoices';
 import { registerClientTools } from './mcpClients';
 import { registerTemplateTools } from './mcpTemplates';
 import { registerStatusTools, statusListFilters } from './mcpStatusTools';
+import { registerActivityTools } from './mcpActivity';
+import type { ActivityRequest } from './services/activity';
+import { downloadInvoicePdf } from './services/invoicePdf';
 
 export const MCP_SERVER_INFO = { name: 'midnight-invoice', version: '1.0.0' };
 
@@ -111,11 +114,13 @@ function toolError(error: unknown, deps: AppDeps): CallToolResult {
 interface McpRequestEnv {
   principal: Principal;
   baseUrl: string;
+  activity?: ActivityRequest;
 }
 
 function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpServer {
   const { principal, baseUrl } = env;
-  const ctx: invoices.ServiceContext = { repo, deps, principal };
+  // One server per request; `activity.tool` is set per tool call for the activity log.
+  const ctx: invoices.ServiceContext = { repo, deps, principal, activity: env.activity ? { ...env.activity, source: 'mcp' } : undefined };
   const server = new McpServer(MCP_SERVER_INFO, {
     instructions:
       'Midnight Invoice: create, read, update and delete invoices in the workspace that approved this agent. ' +
@@ -143,6 +148,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
       (async (args: z.infer<S>) => {
         try {
           requireScope(principal, scope);
+          if (ctx.activity) ctx.activity.tool = name;
           return await run(args);
         } catch (error) {
           return toolError(error, deps);
@@ -263,8 +269,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
       annotations: { readOnlyHint: true },
     },
     async ({ id, theme }) => {
-      const invoice = await invoices.getInvoice(ctx, id);
-      const bytes = await renderInvoicePdf(invoice, deps.readAsset, theme ?? DEFAULT_INVOICE_THEME);
+      const { invoice, bytes } = await downloadInvoicePdf(ctx, id, theme ?? DEFAULT_INVOICE_THEME);
       const url = `${baseUrl}${API_BASE_PATH}/invoices/${invoice.id}/pdf${theme ? `?theme=${theme}` : ''}`;
       let binary = '';
       for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -283,6 +288,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
   registerClientTools(tool, ctx);
   registerTemplateTools(tool, ctx);
   registerStatusTools(tool, ctx);
+  registerActivityTools(tool, ctx);
 
   return server;
 }
@@ -302,12 +308,12 @@ export function createMcpEndpoint(deps: AppDeps, repo: Repository) {
     onerror,
   });
 
-  return async (request: Request, principal: Principal, baseUrl: string): Promise<Response> => {
+  return async (request: Request, principal: Principal, baseUrl: string, activity?: ActivityRequest): Promise<Response> => {
     const authInfo: AuthInfo = {
       token: 'redacted',
       clientId: principal.type === 'agent' ? principal.agentId : `workspace:${principal.workspaceId}`,
       scopes: [...principal.scopes],
-      extra: { mcpEnv: { principal, baseUrl } satisfies McpRequestEnv },
+      extra: { mcpEnv: { principal, baseUrl, activity } satisfies McpRequestEnv },
     };
     if (!isJsonContentType(request.headers.get('content-type'))) {
       return Response.json(

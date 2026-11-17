@@ -23,11 +23,14 @@ import {
   type InvoicePatchParsed,
 } from '../schemas';
 import { prefillInvoiceInput, prefillInvoicePatch } from './invoiceClients';
+import { activityWrite, activityWriteIf, invoiceChangedInput, invoiceCreatedInput, labelOf, type ActivityRequest } from './activity';
 
 export interface ServiceContext {
   repo: Repository;
   deps: AppDeps;
   principal: Principal;
+  /** Request origin for the activity log (services/activity.ts). */
+  activity?: ActivityRequest;
 }
 
 /** Precondition from an `If-Match` header: a revision number or `*`. */
@@ -215,6 +218,7 @@ export async function nextInvoiceNumber(ctx: ServiceContext): Promise<string> {
 
 async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceData, createdAt: string | null) {
   const allocate = data.invoiceNumber === '';
+  const activity = activityWrite(ctx, invoiceCreatedInput(ctx, id, data), { labelSql: labelOf.invoice(ctx.principal.workspaceId, id) });
   return ctx.repo.insertInvoice({
     workspaceId: ctx.principal.workspaceId,
     id,
@@ -223,7 +227,7 @@ async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceDat
     allocateNumber: allocate,
     createdAt,
     actor: actorOf(ctx.principal),
-  });
+  }, activity);
 }
 
 /** POST /invoices: server-generated id; missing invoiceNumber is allocated atomically. */
@@ -283,7 +287,8 @@ export async function putInvoice(
     throw errors.preconditionFailed('Revision mismatch', { id, currentRevision: existing.revision });
   }
   if (input.invoiceNumber === undefined) completed.invoiceNumber = existing.invoice_number;
-  const data = finalize({ ...completed, ...statusForPut(input, JSON.parse(existing.data) as StoredInvoiceData, today(ctx.deps)) });
+  const before = { ...(JSON.parse(existing.data) as StoredInvoiceData), invoiceNumber: existing.invoice_number };
+  const data = finalize({ ...completed, ...statusForPut(input, before, today(ctx.deps)) });
   const row = await ctx.repo.updateInvoice({
     workspaceId: ctx.principal.workspaceId,
     id,
@@ -291,7 +296,7 @@ export async function putInvoice(
     numberValue: invoiceNumberValue(data.invoiceNumber),
     actor: actorOf(ctx.principal),
     expectedRevision: typeof pre.ifMatch === 'number' ? pre.ifMatch : undefined,
-  });
+  }, activityWriteIf(ctx, invoiceChangedInput(id, before, data)));
   if (!row) return raceOutcome(ctx, id);
   return { invoice: toApiInvoice(row, today(ctx.deps)), created: false };
 }
@@ -343,6 +348,7 @@ export async function patchInvoice(
       }
     }
     const data = finalize({ ...merged, ...statusForPatch(current, patch, today(ctx.deps)) });
+    const before = { ...current, invoiceNumber: existing.invoice_number };
     const row = await ctx.repo.updateInvoice({
       workspaceId: ctx.principal.workspaceId,
       id,
@@ -350,7 +356,7 @@ export async function patchInvoice(
       numberValue: invoiceNumberValue(data.invoiceNumber),
       actor: actorOf(ctx.principal),
       expectedRevision: existing.revision,
-    });
+    }, activityWriteIf(ctx, invoiceChangedInput(id, before, data)));
     if (row) return toApiInvoice(row, today(ctx.deps));
     if (typeof pre.ifMatch === 'number') return raceOutcome(ctx, id);
   }
@@ -370,7 +376,7 @@ export async function deleteInvoice(
     id,
     actor: actorOf(ctx.principal),
     expectedRevision: typeof pre.ifMatch === 'number' ? pre.ifMatch : undefined,
-  });
+  }, activityWrite(ctx, { action: 'invoice.deleted', entity: { type: 'invoice', id } }, { labelSql: labelOf.invoice(ctx.principal.workspaceId, id) }));
   if (row) return { deleted: true };
   const existing = await ctx.repo.getInvoice(ctx.principal.workspaceId, id);
   if (!existing) throw errors.notFound('Invoice not found');

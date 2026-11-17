@@ -16,10 +16,13 @@ import type { AppDeps } from '../deps';
 import type { RegistrationRow, Repository } from '../db/repository';
 import { ApiError, errors } from '../errors';
 import { approveAgentSchema, registerAgentSchema, tokenRequestSchema, zodDetails } from '../schemas';
+import { activityWrite, labelOf, type ActivityRequest } from './activity';
 
 interface Ctx {
   repo: Repository;
   deps: AppDeps;
+  /** Request origin for the activity log. */
+  activity?: ActivityRequest;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -111,13 +114,23 @@ export async function redeemDeviceCode(ctx: Ctx, body: unknown): Promise<AgentTo
   // Approved: exchange exactly once.
   const apiKey = ctx.deps.secrets.generate(TOKEN_PREFIX.agentKey);
   const agentId = ctx.deps.ids.uuid();
-  const agent = await ctx.repo.redeemRegistration({
-    deviceCodeHash: hash,
-    agentId,
-    keyHash: await sha256Hex(apiKey),
-    nowMs: now,
-    createdAt: new Date(now).toISOString(),
-  });
+  const agent = await ctx.repo.redeemRegistration(
+    {
+      deviceCodeHash: hash,
+      agentId,
+      keyHash: await sha256Hex(apiKey),
+      nowMs: now,
+      createdAt: new Date(now).toISOString(),
+    },
+    activityWrite(ctx, {
+      workspaceId: reg.workspace_id!,
+      actor: { type: 'agent', agentId, agentName: reg.name },
+      action: 'agent.registered',
+      entity: { type: 'agent', id: agentId, label: reg.name },
+      // registrationId links the user's agent.approved entry (made before the agent id existed) to this agent.
+      changes: { scopes: parseScopes(reg.approved_scopes), registrationId: reg.id },
+    }),
+  );
   if (!agent) {
     // Lost a race with a concurrent redemption (or it expired in between).
     const latest = await ctx.repo.findRegistrationByDeviceCodeHash(hash);
@@ -213,13 +226,23 @@ export async function decideRegistration(
       throw errors.invalidScope('Approved scopes must be a subset of the requested scopes', { requested, notRequested: extra });
     }
   }
-  const updated = await ctx.repo.decideRegistration({
-    userCode: reg.user_code,
-    workspaceId: principal.workspaceId,
-    decision,
-    scopes,
-    nowMs: ctx.deps.clock().getTime(),
-  });
+  const updated = await ctx.repo.decideRegistration(
+    {
+      userCode: reg.user_code,
+      workspaceId: principal.workspaceId,
+      decision,
+      scopes,
+      nowMs: ctx.deps.clock().getTime(),
+    },
+    activityWrite(
+      { ...ctx, principal },
+      {
+        action: decision === 'approved' ? 'agent.approved' : 'agent.denied',
+        entity: { type: 'agent_registration', id: reg.id, label: reg.name },
+        changes: scopes ? { scopes } : null,
+      },
+    ),
+  );
   if (!updated) {
     // Decided concurrently or expired between the read and the update.
     const latest = await ctx.repo.findRegistrationByUserCode(reg.user_code);
@@ -250,6 +273,20 @@ export async function listAgents(ctx: Ctx, principal: Principal): Promise<{ agen
 export async function revokeAgent(ctx: Ctx, principal: Principal, agentId: string): Promise<void> {
   requireUser(principal);
   if (agentId.length > 64) throw errors.notFound('Agent not found');
-  const result = await ctx.repo.revokeAgent(principal.workspaceId, agentId, ctx.deps.clock().toISOString());
+  const revokedAt = ctx.deps.clock().toISOString();
+  const result = await ctx.repo.revokeAgent(
+    principal.workspaceId,
+    agentId,
+    revokedAt,
+    // Only when this call set revoked_at (repeating a revoke is a no-op and is not logged).
+    activityWrite(
+      { ...ctx, principal },
+      { action: 'agent.revoked', entity: { type: 'agent', id: agentId }, dedupe: { key: `revoked:${agentId}`, mode: 'ignore' } },
+      {
+        labelSql: labelOf.agent(principal.workspaceId, agentId),
+        when: { sql: 'changes() > 0 AND EXISTS (SELECT 1 FROM agents WHERE workspace_id = ? AND id = ? AND revoked_at = ?)', params: [principal.workspaceId, agentId, revokedAt] },
+      },
+    ),
+  );
   if (result === 'not_found') throw errors.notFound('Agent not found');
 }
