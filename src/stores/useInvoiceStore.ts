@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Invoice, InvoiceFormData } from '@/types/invoice';
 import { CURRENT_INVOICE_VERSION, migrateInvoiceStore } from '@/lib/storageMigrations';
+import { emitLocalInvoiceChange } from '@/lib/sync/localChanges';
 
 // Creative session name generators
 const adjectives = ['Cosmic', 'Swift', 'Golden', 'Stellar', 'Bright', 'Noble', 'Grand', 'Prime', 'Royal', 'Epic'];
@@ -89,13 +90,31 @@ export const useInvoiceStore = create<InvoiceState>()(
             saveInvoice: (formData, id) => {
                 const invoiceName = formData.invoiceName || generateCreativeSessionName();
                 const invoiceId = id || crypto.randomUUID();
+                const existing = get().invoices.find((inv) => inv.id === invoiceId);
+
+                // Form data may carry server metadata copied from the loaded invoice;
+                // that bookkeeping belongs to the stored invoice, not to the form.
+                const {
+                    revision: _revision,
+                    updatedAt: _updatedAt,
+                    deletedAt: _deletedAt,
+                    createdBy: _createdBy,
+                    updatedBy: _updatedBy,
+                    ...fields
+                } = formData as InvoiceFormData & Partial<Invoice>;
 
                 const newInvoice: Invoice = {
-                    ...formData,
+                    ...fields,
                     version: CURRENT_INVOICE_VERSION,
                     invoiceName,
                     id: invoiceId,
-                    createdAt: new Date().toISOString(),
+                    createdAt: existing?.createdAt ?? new Date().toISOString(),
+                    // Cloud sync metadata (absent on purely local invoices): the last
+                    // known server revision is the base for the next upload.
+                    ...(existing?.revision !== undefined && { revision: existing.revision }),
+                    ...(existing?.updatedAt !== undefined && { updatedAt: existing.updatedAt }),
+                    ...(existing?.createdBy && { createdBy: existing.createdBy }),
+                    ...(existing?.updatedBy && { updatedBy: existing.updatedBy }),
                 };
 
                 set((state) => {
@@ -112,6 +131,7 @@ export const useInvoiceStore = create<InvoiceState>()(
                     return { invoices: updatedInvoices };
                 });
 
+                emitLocalInvoiceChange({ type: 'upsert', id: invoiceId });
                 return newInvoice;
             },
 
@@ -121,9 +141,11 @@ export const useInvoiceStore = create<InvoiceState>()(
              * @param id - The invoice ID to delete
              */
             deleteInvoice: (id) => {
+                const existing = get().invoices.find((inv) => inv.id === id);
                 set((state) => ({
                     invoices: state.invoices.filter((inv) => inv.id !== id),
                 }));
+                if (existing) emitLocalInvoiceChange({ type: 'delete', id, invoice: existing });
             },
 
             /**
