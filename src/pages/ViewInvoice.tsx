@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil } from 'lucide-react';
-import { pdf } from '@react-pdf/renderer';
+import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,9 +15,11 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
-import { InvoicePDF } from '@/components/invoice/InvoicePDF';
+import { exportInvoicePdf, unsupportedCharactersWarning } from '@/components/invoice/exportInvoicePdf';
 import { useInvoices } from '@/hooks/useInvoices';
 import { InvoiceAttribution } from '@/components/AgentBadge';
+import { SyncIssueNotice } from '@/components/sync/SyncIssueNotice';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
 import { toast } from 'sonner';
 
@@ -26,6 +28,7 @@ export default function ViewInvoice() {
   const navigate = useNavigate();
   const { getInvoice, deleteInvoice, invoices, saveDraft, getNextInvoiceNumber } = useInvoices();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // We need to wait for invoices to load
   const invoice = invoices.length > 0 ? getInvoice(id || '') : undefined;
@@ -38,7 +41,8 @@ export default function ViewInvoice() {
     if (!invoice) return;
 
     try {
-      const blob = await pdf(<InvoicePDF data={invoice} />).toBlob();
+      const { blob, unsupported } = await exportInvoicePdf(invoice);
+      const warning = unsupportedCharactersWarning(unsupported);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -48,7 +52,8 @@ export default function ViewInvoice() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      toast.success('PDF downloaded successfully');
+      if (warning) toast.warning(`PDF downloaded. ${warning}`, { duration: 10000 });
+      else toast.success('PDF downloaded successfully');
     } catch (error) {
       console.error('Failed to generate PDF:', error);
       toast.error('Failed to generate PDF');
@@ -109,27 +114,28 @@ export default function ViewInvoice() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="print:hidden sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60">
-        <div className="container flex h-14 items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="container flex h-14 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => navigate('/')}
-              className="h-8 w-8"
+              className="h-8 w-8 shrink-0"
+              aria-label="Back"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <h1 className="text-sm font-medium text-foreground font-mono">
+            <h1 className="truncate text-sm font-medium text-foreground font-mono">
               {invoice.invoiceNumber}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <AlertDialogTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-destructive hover:text-destructive"
+                  className="hidden lg:inline-flex text-destructive hover:text-destructive"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
                   Delete
@@ -158,6 +164,7 @@ export default function ViewInvoice() {
               variant="outline"
               size="sm"
               onClick={handleEdit}
+              className="hidden lg:inline-flex"
             >
               <Pencil className="w-4 h-4 mr-2" />
               Edit
@@ -166,6 +173,7 @@ export default function ViewInvoice() {
               variant="outline"
               size="sm"
               onClick={handleDuplicate}
+              className="hidden lg:inline-flex"
             >
               <Copy className="w-4 h-4 mr-2" />
               Duplicate
@@ -174,20 +182,52 @@ export default function ViewInvoice() {
               variant="outline"
               size="sm"
               onClick={handlePrint}
+              className="hidden lg:inline-flex"
             >
               <Printer className="w-4 h-4 mr-2" />
               Print
             </Button>
-            <Button size="sm" onClick={handleDownload}>
-              <Download className="w-4 h-4 mr-2" />
-              Download PDF
+            {/* Below lg (where the labelled buttons no longer fit) the secondary actions move into a menu; Download PDF stays, icon-only. */}
+            <Button size="sm" onClick={handleDownload} className="h-8 w-8 p-0 lg:h-9 lg:w-auto lg:px-3" aria-label="Download PDF">
+              <Download className="w-4 h-4 lg:mr-2" aria-hidden="true" />
+              <span className="hidden lg:inline">Download PDF</span>
             </Button>
+            <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 w-8 p-0 lg:hidden" aria-label="More actions">
+                  <MoreHorizontal className="w-4 h-4" aria-hidden="true" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-44 p-1" aria-label="More actions">
+                {[
+                  { label: 'Edit', icon: Pencil, onClick: handleEdit },
+                  { label: 'Duplicate', icon: Copy, onClick: handleDuplicate },
+                  { label: 'Print', icon: Printer, onClick: handlePrint },
+                  { label: 'Delete', icon: Trash2, onClick: () => setDeleteDialogOpen(true), destructive: true },
+                ].map(({ label, icon: Icon, onClick, destructive }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      onClick();
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent ${destructive ? 'text-destructive' : 'text-foreground'}`}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                    {label}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+            <ThemeToggle />
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="container py-8">
+        <SyncIssueNotice invoice={invoice} />
         <InvoiceStatusBar invoice={invoice} />
         <InvoiceAttribution invoice={invoice} />
         <div className="flex justify-center">

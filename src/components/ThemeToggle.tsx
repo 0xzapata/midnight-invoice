@@ -1,62 +1,41 @@
-import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { DEFAULT_THEME } from '@/lib/theme';
 
-type Theme = 'light' | 'dark';
-
+/** Switches between light and dark (state lives in AppThemeProvider). */
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    // Check localStorage first, default to 'dark'
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('theme') as Theme | null;
-      return stored || 'dark';
-    }
-    return 'dark';
-  });
+  const { resolvedTheme, setTheme } = useTheme();
+  const theme = resolvedTheme ?? DEFAULT_THEME;
+  const label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
 
-  useEffect(() => {
-    const root = document.documentElement;
-    
-    if (theme === 'dark') {
-      document.body.classList.add('dark');
-      root.classList.add('dark');
-    } else {
-      document.body.classList.remove('dark');
-      root.classList.remove('dark');
-    }
-    
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  };
-
+  // Own provider: the toggle also sits in page headers rendered outside App's provider (e.g. in tests).
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleTheme}
-          className="h-9 w-9"
-        >
-          {theme === 'dark' ? (
-            <Sun className="h-4 w-4" />
-          ) : (
-            <Moon className="h-4 w-4" />
-          )}
-          <span className="sr-only">Toggle theme</span>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      </TooltipContent>
-    </Tooltip>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="h-9 w-9 shrink-0"
+            aria-label={label}
+          >
+            {theme === 'dark' ? (
+              <Sun className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Moon className="h-4 w-4" aria-hidden="true" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

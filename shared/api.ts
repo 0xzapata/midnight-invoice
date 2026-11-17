@@ -58,7 +58,11 @@ export type ApiErrorCode =
   | 'expired_token'
   | 'invalid_grant'
   // Invoice status change not allowed from the current status (HTTP 409)
-  | 'invalid_status_transition';
+  | 'invalid_status_transition'
+  // Set by the site operator (operator console)
+  | 'maintenance'
+  | 'workspace_suspended'
+  | 'registration_closed';
 
 export interface ApiErrorBody {
   error: {

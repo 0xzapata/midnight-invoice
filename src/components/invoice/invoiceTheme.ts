@@ -12,7 +12,7 @@
 export const INVOICE_THEMES = ['light', 'dark'] as const;
 export type InvoiceTheme = (typeof INVOICE_THEMES)[number];
 
-/** The app ships dark (`<body class="dark">` in index.html), so the preview is dark by default. */
+/** The app ships dark (`<html class="dark">` in index.html, see src/lib/theme.ts), so the preview is dark by default. */
 export const DEFAULT_INVOICE_THEME: InvoiceTheme = 'dark';
 
 /** The CSS tokens the preview uses, as HSL triplets exactly as written in src/index.css. */

@@ -1,0 +1,11 @@
+{
+  "PDF_FALLBACK_FACES": [
+    { "family": "Noto Sans SC", "src": "/fonts/fallback/NotoSansSC-Regular.woff", "scripts": "Chinese (7,333 common simplified/shared Han characters), Japanese kana, CJK punctuation, full-width forms" },
+    { "family": "Noto Sans KR", "src": "/fonts/fallback/NotoSansKR-Regular.woff", "scripts": "Korean Hangul syllables" },
+    { "family": "Noto Sans Arabic", "src": "/fonts/fallback/NotoSansArabic-Regular.woff", "scripts": "Arabic (incl. Persian, Urdu letters)" },
+    { "family": "Noto Sans Hebrew", "src": "/fonts/fallback/NotoSansHebrew-Regular.woff", "scripts": "Hebrew" },
+    { "family": "Noto Sans Thai", "src": "/fonts/fallback/NotoSansThai-Regular.woff", "scripts": "Thai" },
+    { "family": "Noto Sans Devanagari", "src": "/fonts/fallback/NotoSansDevanagari-Regular.woff", "scripts": "Devanagari (Hindi, Marathi, Nepali)" },
+    { "family": "Noto Emoji", "src": "/fonts/fallback/NotoEmoji-Regular.woff", "scripts": "Emoji (monochrome)" }
+  ]
+}

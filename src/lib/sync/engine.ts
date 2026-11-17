@@ -71,7 +71,7 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let applyingRemoteSettings = false;
 let settingsPulledThisSession = false;
 /** Why the queue is stuck, until an entry is pushed successfully. */
-let queueBlocked: { status: 'offline' | 'error'; message: string } | null = null;
+let queueBlocked: { status: 'offline' | 'paused' | 'error'; message: string } | null = null;
 
 class SessionChanged extends Error {}
 
@@ -372,7 +372,16 @@ async function pullSettings(token: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const isPermanent = (e: unknown) =>
-  e instanceof ApiError && e.status !== 401 && e.status !== 410 && e.status !== 412 && !e.isTransient;
+  e instanceof ApiError && e.status !== 401 && e.status !== 410 && e.status !== 412 && !e.isTransient && !e.pause;
+
+/** Suspension / maintenance: how long to wait before trying again (the queue is untouched meanwhile). */
+export const SUSPENDED_RETRY_MS = 5 * 60_000;
+const MAINTENANCE_RETRY_MS = 60_000;
+function pauseDelay(e: ApiError): number {
+  if (e.pause === 'maintenance') return Math.max(1_000, e.retryAfterMs ?? MAINTENANCE_RETRY_MS);
+  return SUSPENDED_RETRY_MS;
+}
+const pauseOf = (e: unknown) => (e instanceof ApiError ? e.pause : null);
 
 /** After a successful write: adopt the server's copy unless the user edited it meanwhile. */
 function acceptWrite(col: SyncCollection, op: PendingOp, seqAtStart: number, server: ServerEntity): void {
@@ -568,6 +577,16 @@ async function flushQueue(token: string): Promise<void> {
       queueBlocked = null;
     } catch (e) {
       if (e instanceof SessionChanged || isApiError(e, 401)) throw e;
+      if (pauseOf(e)) {
+        // Paused by the operator: keep the entry as it is (no attempt counted) and retry later.
+        const delay = pauseDelay(e as ApiError);
+        useCloudStore.setState((state) => ({
+          queue: state.queue.map((q) => (q.opId === op.opId ? { ...q, notBefore: Date.now() + delay } : q)),
+        }));
+        queueBlocked = { status: 'paused', message: describeError(e) };
+        scheduleRetry(delay);
+        return;
+      }
       const attempts = op.attempts + 1;
       const delay = backoffDelay(attempts, e);
       useCloudStore.setState((state) => ({
@@ -605,6 +624,11 @@ async function runCycle(pullSettingsToo: boolean): Promise<void> {
   } catch (e) {
     if (e instanceof SessionChanged) return;
     if (isApiError(e, 401)) return; // leaveWorkspace() already updated the status
+    if (pauseOf(e)) {
+      if (cloud().token === token) cloud().setRuntime({ status: 'paused', lastError: describeError(e) });
+      scheduleRetry(pauseDelay(e as ApiError));
+      return;
+    }
     const offline = e instanceof NetworkError;
     if (cloud().token === token) cloud().setRuntime({ status: offline ? 'offline' : 'error', lastError: describeError(e) });
     if (!offline) scheduleRetry(backoffDelay(1, e));

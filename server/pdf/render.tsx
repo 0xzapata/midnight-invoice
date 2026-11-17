@@ -9,6 +9,13 @@
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { PDF_FONT_FILES, arePdfFontsRegistered, registerPdfFonts } from '@/components/invoice/pdfFonts';
+import {
+  PDF_FALLBACK_COVERAGE_PATH,
+  type PdfFallbackCoverage,
+  type PdfFallbackFonts,
+  invoicePdfText,
+  preparePdfFallbackFonts,
+} from '@/components/invoice/pdfFallbackFonts';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES, type InvoiceTheme, isInvoiceTheme } from '@/components/invoice/invoiceTheme';
 import { errors } from '../errors';
 import type { InvoiceFormData } from '../../shared/types/invoice';
@@ -51,6 +58,28 @@ export function ensurePdfFonts(readAsset: AssetReader): Promise<void> {
   return fontsReady;
 }
 
+let coverage: Promise<PdfFallbackCoverage> | null = null;
+
+/**
+ * Registers the fallback faces (CJK, Arabic, emoji…) this invoice needs, read
+ * from static assets as data URLs, once per isolate. Text that Noto Sans Mono
+ * covers reads nothing at all.
+ */
+export function ensurePdfFallbackFonts(data: InvoiceFormData, readAsset: AssetReader): Promise<PdfFallbackFonts> {
+  return preparePdfFallbackFonts(invoicePdfText(data), {
+    loadCoverage: () => {
+      coverage ??= readAsset(PDF_FALLBACK_COVERAGE_PATH)
+        .then((buffer) => JSON.parse(new TextDecoder().decode(buffer)) as PdfFallbackCoverage)
+        .catch((error) => {
+          coverage = null;
+          throw error;
+        });
+      return coverage;
+    },
+    resolveSrc: async (face) => `data:${mimeFor(face.src)};base64,${toBase64(await readAsset(face.src))}`,
+  });
+}
+
 /**
  * Parses the optional `theme` of the PDF endpoint / MCP tool. Missing means the
  * preview's default look (dark); anything but `light`/`dark` is a 400.
@@ -70,8 +99,9 @@ export async function renderInvoicePdf(
   theme: InvoiceTheme = DEFAULT_INVOICE_THEME,
 ): Promise<Uint8Array> {
   await ensurePdfFonts(readAsset);
+  const fallback = await ensurePdfFallbackFonts(data, readAsset);
   // Always pass the theme: there is no on-screen preview to follow on the server.
-  const blob = await pdf(<InvoicePDF data={data} theme={theme} />).toBlob();
+  const blob = await pdf(<InvoicePDF data={data} theme={theme} fallbackFamilies={fallback.families} />).toBlob();
   return new Uint8Array(await blob.arrayBuffer());
 }
 

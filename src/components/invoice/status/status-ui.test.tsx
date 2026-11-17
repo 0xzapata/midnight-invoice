@@ -252,7 +252,14 @@ describe('create / edit invoice save flow', () => {
   }
 
   it('saves a new invoice as a draft by default, or as sent with "Save & mark sent"', async () => {
-    useInvoiceStore.setState({ _hasHydrated: true, drafts: {}, invoices: [] });
+    // Saving validates like the API, so start from a filled-in (unsaved) draft.
+    const draft = (id: string) => {
+      const { id: _id, createdAt: _c, version: _v, status: _s, sentAt: _sa, paidAt: _p, ...form } = invoice({ id });
+      return form;
+    };
+    const f1 = '00000000-0000-4000-8000-0000000000f1';
+    const f2 = '00000000-0000-4000-8000-0000000000f2';
+    useInvoiceStore.setState({ _hasHydrated: true, drafts: { [f1]: draft(f1), [f2]: draft(f2) }, invoices: [] });
     const user = userEvent.setup();
     const first = renderCreate('00000000-0000-4000-8000-0000000000f1');
     await user.click(screen.getByRole('button', { name: 'Save Invoice' }));
@@ -262,6 +269,15 @@ describe('create / edit invoice save flow', () => {
     renderCreate('00000000-0000-4000-8000-0000000000f2');
     await user.click(screen.getByRole('button', { name: 'Save & mark sent' }));
     expect(useInvoiceStore.getState().invoices[0]).toMatchObject({ id: '00000000-0000-4000-8000-0000000000f2', status: 'sent', sentAt: TODAY });
+  });
+
+  it('neither saves nor marks sent when the invoice is invalid', async () => {
+    useInvoiceStore.setState({ _hasHydrated: true, drafts: {}, invoices: [] });
+    const user = userEvent.setup();
+    renderCreate('00000000-0000-4000-8000-0000000000f3');
+    await user.click(screen.getByRole('button', { name: 'Save & mark sent' }));
+    expect(await screen.findByText('Your name/company is required')).toBeInTheDocument();
+    expect(useInvoiceStore.getState().invoices).toEqual([]);
   });
 
   it('keeps the status of a sent invoice when it is edited and offers no "mark sent"', async () => {

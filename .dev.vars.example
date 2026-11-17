@@ -6,3 +6,18 @@
 # Public base URL used in agent verification links
 # (verification_url / verification_url_complete). Empty = request origin.
 APP_URL="http://localhost:8080"
+
+# Operator console (/operator). The only deployment secret it needs; unset =
+# console disabled (503). In production: `npx wrangler secret put INITIAL_PASSWORD`
+# with a long random value (openssl rand -base64 32). It unlocks the first-run
+# wizard once and stays set afterwards as the root of the encryption at rest
+# (default mode). Never reuse a real password here.
+INITIAL_PASSWORD="local-dev-initial-password-change-me-0123456789"
+
+# Optional hardened encryption mode: the master key (recovery key, mi_mk_...)
+# shown by the wizard. Leave unset unless you enable hardened mode.
+# ENCRYPTION_KEY=""
+
+# WORKOS_API_BASE_URL is set automatically by `bun run dev:operator`
+# (`workos dev` starts the local WorkOS emulator). It is honoured only under
+# the Vite dev server and compiled out of every build.
