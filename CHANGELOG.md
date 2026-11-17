@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file.
 - `public/llms.txt` pointing agents to the API.
 - `typecheck` script and a GitHub Actions CI workflow (lint, typecheck, tests, build, `wrangler deploy --dry-run`).
 - Vitest projects: `web` (jsdom), `server` (API against local D1 in workerd), `workerd` (production build in workerd).
+- **Deploy workflow** (`.github/workflows/deploy.yml`): on push to `main` (after the CI checks) and on manual dispatch, applies remote D1 migrations and deploys with `cloudflare/wrangler-action`; skipped until the repository variable `CLOUDFLARE_DEPLOY` is `true`; needs the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (setup in the README).
 
 ### Changed
 - Saving an existing invoice keeps its original `createdAt` and its sync metadata.

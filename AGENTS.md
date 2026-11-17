@@ -93,6 +93,7 @@ bun run test:coverage
 ```bash
 bun run lint && bun run typecheck && bun run test:run && bun run build
 ```
+`.github/workflows/deploy.yml` repeats these checks, applies remote D1 migrations and deploys on push to `main` / manual dispatch, only when the repository variable `CLOUDFLARE_DEPLOY` is `true` (secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Keep its steps in line with `ci.yml`; validate with `actionlint`.
 
 ### PDF Generation
 PDF generation is handled by `src/components/invoice/InvoicePDF.tsx` using `@react-pdf/renderer`.

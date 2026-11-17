@@ -47,7 +47,7 @@ jobs:
         run: bun run build
 
       # Validates the deployable bundle (bindings, size) without credentials.
-      # Deploying is intentionally not done here; see README "Deploy".
+      # Deploying is a separate, opt-in workflow: deploy.yml (README "Continuous deployment").
       - name: Deploy dry run
         run: bunx wrangler deploy --dry-run
         env:
