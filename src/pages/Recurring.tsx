@@ -194,10 +194,13 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Create the {formatRunDate(schedule.nextRunDate)} invoice now?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {schedule.autoAction === 'send_email' ? 'Create and email' : 'Create'} the {formatRunDate(schedule.nextRunDate)} invoice now?
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  The invoice for the next date is created right away (dated {formatRunDate(schedule.nextRunDate)}) and the schedule moves on to the following date. Doing this twice never
-                  creates two invoices for the same date.
+                  The invoice for the next date is created right away (dated {formatRunDate(schedule.nextRunDate)})
+                  {schedule.autoAction === 'send_email' ? ' and emailed to the client now' : schedule.autoAction === 'mark_sent' ? ' and marked as sent' : ''}, and the schedule moves on to the
+                  following date. Doing this twice never creates two invoices for the same date.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -216,7 +219,7 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
                     })()
                   }
                 >
-                  Create invoice
+                  {schedule.autoAction === 'send_email' ? 'Create and email' : 'Create invoice'}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
