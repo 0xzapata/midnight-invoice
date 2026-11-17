@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { Download, Save, ArrowLeft, Copy, Settings } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
-import { InvoiceForm } from '@/components/invoice/InvoiceForm';
+import { InvoiceForm, type InvoiceFormHandle } from '@/components/invoice/InvoiceForm';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
 import { InvoicePDF } from '@/components/invoice/InvoicePDF';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
@@ -91,7 +91,17 @@ export default function CreateInvoice() {
 
   const isEditing = !!getInvoice(invoiceId);
 
-  const handleSave = () => {
+  // Saving runs the same rules the API enforces (drafts stay unvalidated), so a
+  // saved invoice can always be uploaded by cloud sync.
+  const formRef = useRef<InvoiceFormHandle>(null);
+  const validateForSave = async () => {
+    if (!formRef.current || (await formRef.current.validate())) return true;
+    toast.error('Fix the highlighted fields to save this invoice');
+    return false;
+  };
+
+  const handleSave = async () => {
+    if (!(await validateForSave())) return;
     saveInvoice(formData, invoiceId);
     clearDraft(invoiceId);
     toast.success('Invoice saved successfully');
@@ -99,6 +109,8 @@ export default function CreateInvoice() {
   };
 
   const handleDownload = async () => {
+    // Downloading also saves the invoice.
+    if (!(await validateForSave())) return;
     try {
       const blob = await pdf(<InvoicePDF data={formData} />).toBlob();
       const url = URL.createObjectURL(blob);
@@ -197,6 +209,7 @@ export default function CreateInvoice() {
               <div className="bg-card border border-border p-6">
                 <InvoiceForm 
                   key={invoiceId}
+                  ref={formRef}
                   invoiceNumber={formData.invoiceNumber} 
                   onFormChange={handleFormChange}
                   initialData={initialData}

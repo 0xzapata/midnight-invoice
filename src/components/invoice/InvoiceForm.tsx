@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { useForm, useStore, type StandardSchemaV1 } from '@tanstack/react-form';
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
+import { revalidateLogic, useForm, useStore, type StandardSchemaV1 } from '@tanstack/react-form';
 import { Plus, Trash2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,14 +16,26 @@ import { invoiceFormSchema } from '@/lib/validation';
 import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
 import { toast } from 'sonner';
 
+/** Imperative handle for the page's save buttons. */
+export interface InvoiceFormHandle {
+  /**
+   * Validates every field with `invoiceFormSchema` (the rules the API enforces),
+   * shows the errors and focuses the first invalid field. Resolves to `true`
+   * when the invoice can be saved. Never changes the values.
+   */
+  validate: () => Promise<boolean>;
+}
+
 interface InvoiceFormProps {
   initialData?: Partial<InvoiceFormData>;
   onFormChange: (data: InvoiceFormData) => void;
   invoiceNumber: string;
+  ref?: Ref<InvoiceFormHandle>;
 }
 
-export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: InvoiceFormProps) {
+export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: InvoiceFormProps) {
   const prevDataRef = useRef<string>('');
+  const containerRef = useRef<HTMLDivElement>(null);
   
   // Default values must be referentially stable: TanStack Form re-applies
   // changed defaultValues on every render, and building a fresh object here
@@ -49,15 +61,34 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
 
   const form = useForm({
     defaultValues,
+    // Validate on blur; once a save was attempted, re-validate on every change
+    // so fixed fields clear their error straight away.
+    validationLogic: revalidateLogic({ mode: 'blur', modeAfterSubmission: 'change' }),
     validators: {
       // The schema's input type marks defaulted fields optional, while the form
       // always holds every field, so narrow it to the form's value type.
-      onBlur: invoiceFormSchema as StandardSchemaV1<InvoiceFormData>,
+      onDynamic: invoiceFormSchema as StandardSchemaV1<InvoiceFormData>,
     },
     onSubmit: async () => {
       // Form is controlled, no submit handler needed
     },
   });
+
+  useImperativeHandle(ref, () => ({
+    validate: async () => {
+      // Touches every field and runs the schema; values are left as they are.
+      await form.handleSubmit();
+      if (form.state.isValid) return true;
+      // Wait for the error state to render, then go to the first invalid field.
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const first = containerRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+      if (first) {
+        first.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        first.focus({ preventScroll: true });
+      }
+      return false;
+    },
+  }), [form]);
 
   // Watch for form changes and notify parent
   const formState = useStore(form.store, (state) => state.values);
@@ -113,7 +144,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
   };
 
   return (
-    <div className="space-y-6">
+    <div ref={containerRef} className="space-y-6">
       {/* Invoice Name */}
       <form.Field name="invoiceName">
         {(field) => (
@@ -400,15 +431,23 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
                         <span className="text-[10px] text-muted-foreground">Description</span>
                       )}
                       <form.Field name={`lineItems[${index}].description`}>
-                        {(subField) => (
-                          <Input
-                            placeholder="Item description"
-                            value={subField.state.value as string}
-                            onBlur={subField.handleBlur}
-                            onChange={(e) => subField.handleChange(e.target.value)}
-                            className="bg-secondary border-border text-sm"
-                          />
-                        )}
+                        {(subField) => {
+                          const isInvalid = subField.state.meta.isTouched && !subField.state.meta.isValid;
+                          return (
+                            <Field data-invalid={isInvalid} className="gap-1">
+                              <Input
+                                placeholder="Item description"
+                                aria-label={`Line item ${index + 1} description`}
+                                value={subField.state.value as string}
+                                onBlur={subField.handleBlur}
+                                onChange={(e) => subField.handleChange(e.target.value)}
+                                className="bg-secondary border-border text-sm"
+                                aria-invalid={isInvalid}
+                              />
+                              {isInvalid && <FieldError errors={subField.state.meta.errors as Array<{ message?: string }>} />}
+                            </Field>
+                          );
+                        }}
                       </form.Field>
                     </div>
                     <div className="col-span-2 space-y-1">
@@ -420,6 +459,8 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
                           <Input
                             type="number"
                             min="1"
+                            aria-label={`Line item ${index + 1} quantity`}
+                            aria-invalid={subField.state.meta.isTouched && !subField.state.meta.isValid}
                             value={subField.state.value as number}
                             onBlur={subField.handleBlur}
                             onChange={(e) => subField.handleChange(Number(e.target.value))}
@@ -438,6 +479,8 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber }: Invoic
                             type="number"
                             min="0"
                             step="0.01"
+                            aria-label={`Line item ${index + 1} price`}
+                            aria-invalid={subField.state.meta.isTouched && !subField.state.meta.isValid}
                             value={subField.state.value as number}
                             onBlur={subField.handleBlur}
                             onChange={(e) => subField.handleChange(Number(e.target.value))}

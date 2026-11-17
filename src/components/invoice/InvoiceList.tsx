@@ -17,6 +17,13 @@ import {
 import { formatCurrency } from '@/lib/invoice-utils';
 import { AgentBadge } from '@/components/AgentBadge';
 import { useCloudStore } from '@/stores/useCloudStore';
+import { invoiceIssues } from '@/lib/validation';
+
+/** The fields the API rejects (or the server's message), for the "Not synced" badge. */
+function notSyncedSummary(invoice: Invoice, serverMessage: string): string {
+  const issues = invoiceIssues(invoice).map((issue) => issue.message);
+  return `Not synced: ${issues.length > 0 ? issues.join('; ') : serverMessage}`;
+}
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -70,12 +77,15 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
                   </p>
                   <AgentBadge invoice={invoice} />
                   {syncErrors[invoice.id] && (
-                    <span
-                      className="border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-amber-600 dark:text-amber-400"
-                      title={`Not synced: ${syncErrors[invoice.id]}`}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onLoadSession(invoice); }}
+                      className="border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-amber-600 hover:bg-amber-500/20 hover:underline dark:text-amber-400"
+                      title={notSyncedSummary(invoice, syncErrors[invoice.id])}
+                      aria-label={`${notSyncedSummary(invoice, syncErrors[invoice.id])}. Edit to fix`}
                     >
                       Not synced
-                    </span>
+                    </button>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">

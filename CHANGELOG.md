@@ -36,6 +36,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **PDF matches the invoice preview**: exported and API PDFs now use the preview's colours (dark by default, light when the app is in light mode; shared tokens in `src/components/invoice/invoiceTheme.ts`), its Noto Sans Mono faces at real Medium/SemiBold weights (embedded; no stray Helvetica), its sizes, spacing, dividers, column grid and line wrapping. `GET /api/v1/invoices/:id/pdf` and the MCP `get_invoice_pdf` tool accept an optional `theme` (`light`|`dark`).
 - Text containing `&`, quotes or apostrophes no longer shows HTML entities (e.g. "Me &amp; Co") in the PDF or the preview.
+- **Saving validates**: "Save Invoice" (and "Download PDF", which also saves) now checks the same rules the API enforces (`invoiceFormSchema`): field errors are shown, the first invalid field is focused, nothing typed is lost, and fixed fields clear their error as you type. Drafts are still auto-saved unvalidated. Invoices already stored invalid say exactly what to fix (the dashboard's "Not synced" badge names the fields and opens the editor, a notice with an "Edit to fix" link on the invoice page).
 
 ### Removed
 - Vercel configuration (`vercel.json`, `VERCEL` check in the `prepare` script).
