@@ -42,7 +42,6 @@ export default function ViewInvoice() {
     try {
       const { blob, unsupported } = await exportInvoicePdf(invoice);
       const warning = unsupportedCharactersWarning(unsupported);
-      if (warning) toast.warning(warning);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -52,7 +51,8 @@ export default function ViewInvoice() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      toast.success('PDF downloaded successfully');
+      if (warning) toast.warning(`PDF downloaded. ${warning}`, { duration: 10000 });
+      else toast.success('PDF downloaded successfully');
     } catch (error) {
       console.error('Failed to generate PDF:', error);
       toast.error('Failed to generate PDF');

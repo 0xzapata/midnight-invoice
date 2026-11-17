@@ -118,7 +118,6 @@ export default function CreateInvoice() {
     try {
       const { blob, unsupported } = await exportInvoicePdf(formData);
       const warning = unsupportedCharactersWarning(unsupported);
-      if (warning) toast.warning(warning);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -131,7 +130,8 @@ export default function CreateInvoice() {
       // Save invoice to session history after successful PDF generation
       saveInvoice(formData, invoiceId);
       clearDraft(invoiceId);
-      toast.success('PDF downloaded and invoice saved');
+      if (warning) toast.warning(`PDF downloaded and invoice saved. ${warning}`, { duration: 10000 });
+      else toast.success('PDF downloaded and invoice saved');
       navigate('/', { viewTransition: true });
     } catch (error) {
       console.error('Failed to generate PDF:', error);
