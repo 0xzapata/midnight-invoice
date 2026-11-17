@@ -1,4 +1,5 @@
 import { SCOPES, TOKEN_PREFIX, type Scope } from '../shared/api';
+import { OAUTH_TOKEN_PREFIX } from '../shared/oauth';
 import type { Actor } from '../shared/types/invoice';
 import { sha256Hex } from './crypto';
 import { errors } from './errors';
@@ -15,6 +16,8 @@ export type Principal =
       agentCreatedAt: string;
       lastUsedAt: string | null;
       scopes: readonly Scope[];
+      /** How the agent authenticated: an OAuth access token (MCP only) or, when absent, its API key. */
+      credential?: 'oauth';
     };
 
 export function parseScopes(json: string | null): Scope[] {
@@ -56,6 +59,10 @@ export async function authenticate(repo: Repository, authorization: string | und
       lastUsedAt: agent.last_used_at,
       scopes: parseScopes(agent.scopes),
     };
+  }
+  if (token.startsWith(OAUTH_TOKEN_PREFIX.access)) {
+    // OAuth access tokens are audience-bound to the MCP endpoint (see server/oauth/routes.ts).
+    throw errors.unauthorized('OAuth access tokens are only valid at /api/mcp; use an agent API key for the REST API');
   }
   throw errors.unauthorized();
 }

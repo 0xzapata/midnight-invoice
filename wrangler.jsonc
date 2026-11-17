@@ -10,8 +10,17 @@
   "assets": {
     // Unknown paths fall back to index.html so client-side routes (/invoice/:id) deep-link.
     "not_found_handling": "single-page-application",
-    // The API must always reach the Worker, never the SPA fallback.
-    "run_worker_first": ["/api/*"],
+    // The API must always reach the Worker, never the SPA fallback. So must the
+    // OAuth discovery documents for the MCP endpoint (RFC 9728 / RFC 8414); the
+    // OAuth endpoints themselves live under /api/oauth/*.
+    "run_worker_first": [
+      "/api/*",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/*",
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/*",
+      "/.well-known/openid-configuration"
+    ],
     // Lets the Worker read static assets (PDF fonts) without a public subrequest.
     "binding": "ASSETS"
   },

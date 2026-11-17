@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fill } from '@/test/userInput';
 import { MemoryRouter } from 'react-router';
 import { InvoiceForm } from '@/components/invoice/InvoiceForm';
 import type { InvoiceFormData } from '@/types/invoice';
@@ -46,7 +47,7 @@ async function pick(user: ReturnType<typeof userEvent.setup>, name: string) {
 
 describe('client picker in the invoice form', () => {
   it('fills Bill To and the client’s defaults on a fresh form', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const c = useClientStore.getState().saveClient(GLOBEX);
     render(<Harness initialData={{ issueDate: '2026-11-01' }} />);
     await pick(user, 'Globex');
@@ -56,7 +57,7 @@ describe('client picker in the invoice form', () => {
   });
 
   it('never clobbers tax rate or due date the user already typed', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     useClientStore.getState().saveClient(GLOBEX);
     render(<Harness initialData={{ issueDate: '2026-11-01' }} />);
     await user.clear(screen.getByLabelText('Tax Rate (%)'));
@@ -68,7 +69,7 @@ describe('client picker in the invoice form', () => {
   });
 
   it('hides archived clients and can unlink', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const c = useClientStore.getState().saveClient(GLOBEX);
     const old = useClientStore.getState().saveClient({ name: 'Gloria Old', email: '', address: '' });
     useClientStore.getState().setArchived(old.id, true);
@@ -84,11 +85,11 @@ describe('client picker in the invoice form', () => {
   });
 
   it('“Save as client” saves new Bill To details and links them', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness />);
     expect(screen.queryByRole('button', { name: 'Save as client' })).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText('Client Name / Company'), 'Hooli');
-    await user.type(screen.getByLabelText('Client Email'), 'ap@hooli.example');
+    await fill(user, screen.getByLabelText('Client Name / Company'), 'Hooli');
+    await fill(user, screen.getByLabelText('Client Email'), 'ap@hooli.example');
     await user.click(screen.getByRole('button', { name: 'Save as client' }));
     const saved = useClientStore.getState().clients[0];
     expect(saved).toMatchObject({ name: 'Hooli', email: 'ap@hooli.example' });
@@ -97,22 +98,22 @@ describe('client picker in the invoice form', () => {
   });
 
   it('“Update client” writes edited Bill To details back to the linked client, keeping its defaults', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const c = useClientStore.getState().saveClient(GLOBEX);
     render(<Harness initialData={{ clientId: c.id, toName: 'Globex', toEmail: 'ap@globex.example', toAddress: '1 Globex Way' }} />);
     await user.clear(screen.getByLabelText('Client Email'));
-    await user.type(screen.getByLabelText('Client Email'), 'new@globex.example');
+    await fill(user, screen.getByLabelText('Client Email'), 'new@globex.example');
     await user.click(await screen.findByRole('button', { name: 'Update client' }));
     expect(useClientStore.getState().getClient(c.id)).toMatchObject({ email: 'new@globex.example', defaultCurrency: 'EUR', paymentTermsDays: 30 });
     expect(screen.getByText('Billed to your saved client “Globex”')).toBeInTheDocument();
   });
 
   it('offers to link a saved client with the same name and email', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const c = useClientStore.getState().saveClient(GLOBEX);
     render(<Harness />);
-    await user.type(screen.getByLabelText('Client Name / Company'), 'GLOBEX ');
-    await user.type(screen.getByLabelText('Client Email'), 'ap@globex.example');
+    await fill(user, screen.getByLabelText('Client Name / Company'), 'GLOBEX ');
+    await fill(user, screen.getByLabelText('Client Email'), 'ap@globex.example');
     await user.click(await screen.findByRole('button', { name: 'Link client' }));
     await waitFor(() => expect(latest.clientId).toBe(c.id));
   });

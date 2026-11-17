@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fill } from '@/test/userInput';
 import { InvoiceForm } from './InvoiceForm';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 
@@ -68,7 +69,7 @@ describe('InvoiceForm', () => {
   });
 
   it('allows adding line items', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <InvoiceForm
         invoiceNumber="INV-0001"
@@ -85,7 +86,7 @@ describe('InvoiceForm', () => {
   });
 
   it('calls onFormChange when inputs change', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <InvoiceForm
         invoiceNumber="INV-0001"
@@ -94,7 +95,7 @@ describe('InvoiceForm', () => {
     );
 
     const nameInput = screen.getByPlaceholderText('Your name or company');
-    await user.type(nameInput, 'Test Company');
+    await fill(user, nameInput, 'Test Company');
 
     await waitFor(() => {
       expect(mockOnFormChange).toHaveBeenCalled();
@@ -209,7 +210,7 @@ describe('InvoiceForm', () => {
   });
 
   it('allows removing line items when more than one exists', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <InvoiceForm
         invoiceNumber="INV-0001"
@@ -256,7 +257,7 @@ describe('InvoiceForm', () => {
        return selector({ settings: mockSettings });
     });
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <InvoiceForm
         invoiceNumber="INV-0001"
@@ -289,10 +290,11 @@ describe('InvoiceForm', () => {
       );
     }
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Parent />);
 
     const input = screen.getByPlaceholderText('e.g. Project Alpha Invoice');
+    // Real typing: one change (and parent re-render) per character is what this test is about.
     await user.type(input, 'Loop check');
 
     expect(screen.getByDisplayValue('Loop check')).toBeInTheDocument();

@@ -1,4 +1,14 @@
 # Cloudflare static-assets headers (https://developers.cloudflare.com/workers/static-assets/headers/).
+# When several rules match a path, their headers are combined.
+
+# Pages are never framed: the agent pages ask for consent (approve an agent,
+# authorize an MCP client), so another site must not overlay them and trick a
+# click (clickjacking). Applied to every asset (incl. /operator) so that the
+# service worker's precached index.html carries the same headers.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+
 # The private operator console must never be indexed.
 /operator
   X-Robots-Tag: noindex, nofollow

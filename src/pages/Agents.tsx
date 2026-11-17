@@ -81,11 +81,20 @@ function AgentRow({ agent }: { agent: AgentSummary }) {
             >
               {revoked ? 'Revoked' : 'Active'}
             </span>
+            {agent.connection === 'oauth' && (
+              <span
+                title="Connected from an MCP client with OAuth"
+                className="border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+              >
+                OAuth
+              </span>
+            )}
           </div>
           {agent.description && <p className="line-clamp-2 break-words text-sm text-muted-foreground">{agent.description}</p>}
           <ScopeChips agent={agent} />
           <p className="text-xs text-muted-foreground">
-            Connected {format(parseISO(agent.createdAt), 'MMM d, yyyy')} · Last used{' '}
+            Connected {format(parseISO(agent.createdAt), 'MMM d, yyyy')}
+            {agent.connection === 'oauth' ? ' via OAuth' : ''} · Last used{' '}
             {agent.lastUsedAt ? formatDistanceToNow(parseISO(agent.lastUsedAt), { addSuffix: true }) : 'never'}
             {revoked && ` · Revoked ${format(parseISO(agent.revokedAt!), 'MMM d, yyyy')}`}
           </p>
@@ -290,21 +299,29 @@ export function ConnectAgentHelp({ origin = window.location.origin }: { origin?:
   );
 
   return (
-    <div className={cn(card, 'space-y-5')}>
-      <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-        <li>Paste the prompt below into your AI agent (Claude, ChatGPT, a script…).</li>
-        <li>It registers and shows you a code and a link to this app.</li>
-        <li>Open the link (or type the code above), check the permissions and approve.</li>
-      </ol>
-      <Snippet label="Prompt for your agent" value={prompt} wrap />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Snippet label="API base URL" value={baseUrl} />
-        <Snippet label="MCP endpoint (Streamable HTTP)" value={mcpUrl} />
+    <div className={cn(card, 'space-y-6')}>
+      <div className="space-y-3">
+        <h4 className="text-sm font-medium text-foreground">Simplest: paste this URL into your MCP client</h4>
+        <Snippet label="MCP server URL (Streamable HTTP, sign-in with OAuth)" value={mcpUrl} />
+        <p className="text-sm text-muted-foreground">
+          MCP clients that support signing in (OAuth) open this app in your browser. Check the permissions, approve, and the
+          client connects. There is no key to copy.
+        </p>
       </div>
-      <Snippet label="MCP client configuration (after approval, use the agent’s API key)" value={mcpConfig} />
+      <div className="space-y-3 border-t border-border pt-5">
+        <h4 className="text-sm font-medium text-foreground">Or let an agent register itself</h4>
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+          <li>Paste the prompt below into your AI agent (Claude, ChatGPT, a script…).</li>
+          <li>It registers and shows you a code and a link to this app.</li>
+          <li>Open the link (or type the code above), check the permissions and approve.</li>
+        </ol>
+        <Snippet label="Prompt for your agent" value={prompt} wrap />
+        <Snippet label="API base URL" value={baseUrl} />
+        <Snippet label="MCP client configuration with the agent’s API key (for clients without OAuth)" value={mcpConfig} />
+      </div>
       <PermissionGlossary />
       <p className="text-xs text-muted-foreground">
-        Agents get their own API key with only the permissions you approve. Never give an agent your recovery key.
+        Agents get their own credentials with only the permissions you approve. Never give an agent your recovery key.
       </p>
     </div>
   );

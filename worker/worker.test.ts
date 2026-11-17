@@ -6,7 +6,15 @@
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestHarness, type TestHarness } from 'wrangler';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import {
+  Client,
+  StreamableHTTPClientTransport,
+  UnauthorizedError,
+  type OAuthClientProvider,
+  type OAuthDiscoveryState,
+  type StoredOAuthClientInformation,
+  type StoredOAuthTokens,
+} from '@modelcontextprotocol/client';
 import { extractPdfText, pdfBaseFonts } from '../server/test/pdf-text';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -121,5 +129,61 @@ describe('agent flow, REST, MCP and PDF in workerd', () => {
     const cjkText = extractPdfText(cjkPdf).replace(/\n/g, '');
     for (const s of ['株式会社テスト', '网站设计', '🚀']) expect(cjkText).toContain(s);
     expect(pdfBaseFonts(cjkPdf).map((f) => f.replace(/^[A-Z]{6}\+/, ''))).toEqual(expect.arrayContaining([expect.stringMatching(/^NotoSansSC/), expect.stringMatching(/^NotoEmoji/)]));
+  });
+});
+
+describe('OAuth for MCP in workerd', () => {
+  it('routes the discovery documents to the Worker and protects the consent page from framing', async () => {
+    for (const p of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/api/mcp', '/.well-known/oauth-authorization-server']) {
+      const res = await fetch(`${base}${p}`, { headers: { accept: 'text/html' } });
+      expect(res.status, p).toBe(200);
+      expect(res.headers.get('content-type'), p).toMatch(/application\/json/);
+    }
+    const oidc = await fetch(`${base}/.well-known/openid-configuration`, { headers: { accept: 'text/html' } });
+    expect(oidc.status).toBe(404);
+    expect(oidc.headers.get('content-type')).toMatch(/application\/json/);
+    for (const p of ['/agents/authorize?request=x', '/agents', '/agents/approve', '/', '/index.html']) {
+      const page = await fetch(`${base}${p}`, { headers: { accept: 'text/html' } });
+      expect(page.status, p).toBe(200);
+      expect(await page.text()).toContain('<div id="root">');
+      expect(page.headers.get('x-frame-options'), p).toBe('DENY');
+      expect(page.headers.get('content-security-policy'), p).toBe("frame-ancestors 'none'");
+    }
+    const challenge = await fetch(`${base}/api/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(challenge.status).toBe(401);
+    expect(challenge.headers.get('www-authenticate')).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource/api/mcp"`);
+  });
+
+  it('connects the official MCP client SDK with OAuth over real HTTP', async () => {
+    const ws = (await json(await post('/api/v1/workspaces', undefined))).body.token as string;
+    const redirect = 'http://127.0.0.1:43117/callback';
+    const store: { info?: StoredOAuthClientInformation; tokens?: StoredOAuthTokens; verifier?: string; discovery?: OAuthDiscoveryState; url?: URL } = {};
+    const provider: OAuthClientProvider = {
+      redirectUrl: redirect,
+      clientMetadata: { client_name: 'workerd e2e', redirect_uris: [redirect], grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: 'none' },
+      clientInformation: () => store.info,
+      saveClientInformation: (i) => void (store.info = i),
+      tokens: () => store.tokens,
+      saveTokens: (t) => void (store.tokens = t),
+      redirectToAuthorization: (u) => void (store.url = u),
+      saveCodeVerifier: (v) => void (store.verifier = v),
+      codeVerifier: () => store.verifier!,
+      saveDiscoveryState: (d) => void (store.discovery = d),
+      discoveryState: () => store.discovery,
+    };
+    const first = new StreamableHTTPClientTransport(new URL(`${base}/api/mcp`), { authProvider: provider });
+    await expect(new Client({ name: 'e2e', version: '1.0.0' }).connect(first)).rejects.toBeInstanceOf(UnauthorizedError);
+    const landing = await fetch(store.url!, { redirect: 'manual' });
+    expect(landing.status).toBe(302);
+    const consent = new URL(landing.headers.get('location')!);
+    expect(consent.pathname).toBe('/agents/authorize');
+    const decision = await json(await post(`/api/v1/oauth/requests/${consent.searchParams.get('request')}/approve`, { scopes: ['invoices:read'] }, ws));
+    expect(decision.status).toBe(200);
+    await first.finishAuth(new URL(decision.body.redirectTo).searchParams);
+    const mcp = new Client({ name: 'e2e', version: '1.0.0' });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(`${base}/api/mcp`), { authProvider: provider }));
+    expect((await mcp.listTools()).tools.map((t) => t.name)).toContain('list_invoices');
+    expect((await mcp.listTools()).tools.map((t) => t.name)).not.toContain('create_invoice');
+    await mcp.close();
   });
 });

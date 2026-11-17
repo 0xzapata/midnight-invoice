@@ -180,6 +180,7 @@ export function groupOf(metric: string): { service: string; group: string; name:
   else if (path.startsWith('/workspace')) group = 'Workspaces';
   else if (path.startsWith('/settings')) group = 'Settings';
   else if (path === '/health' || path === '/openapi.json') group = 'Meta';
+  else if (path.startsWith('/api/oauth/') || path.startsWith('/oauth/')) group = 'OAuth';
   return { service, group, name };
 }
 
