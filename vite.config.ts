@@ -73,6 +73,19 @@ export default defineConfig({
             handler: "NetworkOnly",
           },
           {
+            // Invoice fonts (Noto Sans Mono and the on-demand PDF fallback
+            // faces in /fonts/fallback/) are not precached: the fallbacks are
+            // large and only some invoices need them. Keep the ones used once
+            // so PDF export keeps working offline.
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith("/fonts/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "invoice-fonts",
+              expiration: { maxEntries: 30 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: "CacheFirst",
             options: {

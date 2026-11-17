@@ -70,16 +70,17 @@ function parseCMap(s: string): Map<string, string> {
     for (const [, src, dst] of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) cmap.set(src.toLowerCase(), hexToString(dst));
   }
   for (const block of s.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
-    for (const line of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*(\[[^\]]*\]|<[0-9a-fA-F]+>)/g)) {
+    for (const line of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*(\[[^\]]*\]|<[0-9a-fA-F\s]+>)/g)) {
       const [, lo, hi, dst] = line;
       const width = lo.length;
       const from = parseInt(lo, 16);
       const to = parseInt(hi, 16);
-      const targets = dst.startsWith('[') ? [...dst.matchAll(/<([0-9a-fA-F]+)>/g)].map((x) => x[1]) : null;
+      // pdfkit writes astral targets with a space between the UTF-16 halves (<d83d de80>).
+      const targets = dst.startsWith('[') ? [...dst.matchAll(/<([0-9a-fA-F\s]+)>/g)].map((x) => x[1].replace(/\s+/g, '')) : null;
       for (let c = from; c <= to; c++) {
         const key = c.toString(16).padStart(width, '0');
         if (targets) cmap.set(key, hexToString(targets[c - from] ?? ''));
-        else cmap.set(key, String.fromCodePoint(parseInt(dst.slice(1, -1), 16) + (c - from)));
+        else cmap.set(key, String.fromCodePoint(parseInt(dst.slice(1, -1).replace(/\s+/g, ''), 16) + (c - from)));
       }
     }
   }

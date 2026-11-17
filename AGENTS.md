@@ -63,7 +63,7 @@ Routes are defined in `src/App.tsx`.
 - `shared/`: code and types used by both the browser app and the Worker (keep it free of browser- or Node-only APIs).
 
 ### Components
-- `src/components/invoice/`: Core business logic components (Form, Preview, PDF). PDF fonts are declared only in `pdfFonts.ts` (files in `public/fonts/`); the Worker loads the same files through the assets binding.
+- `src/components/invoice/`: Core business logic components (Form, Preview, PDF). PDF fonts are declared only in `pdfFonts.ts` (files in `public/fonts/`); the Worker loads the same files through the assets binding. Characters Noto Sans Mono lacks (CJK, Hangul, Arabic, Hebrew, Thai, Devanagari, emoji) use the WOFF faces in `public/fonts/fallback/`, registered on demand by `pdfFallbackFonts.ts` only when the invoice text needs them (preview: same faces via `unicode-range` in `src/index.css`); after changing a font run `node scripts/pdf-font-coverage.mjs` (`server/pdf-fonts.test.ts` fails on drift). Keep `wrapMonospace.ts` widths in line with those faces.
 - `src/components/ui/`: Reusable UI components from shadcn/ui.
 - `src/components/Footer.tsx`: Global footer with attribution.
 - `src/components/sync/`, `src/components/AgentBadge.tsx`, `src/components/PageHeader.tsx`: cloud sync settings and header status, agent attribution, header for secondary pages.

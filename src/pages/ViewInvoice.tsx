@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil } from 'lucide-react';
-import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -15,7 +14,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
-import { InvoicePDF } from '@/components/invoice/InvoicePDF';
+import { exportInvoicePdf, unsupportedCharactersWarning } from '@/components/invoice/exportInvoicePdf';
 import { useInvoices } from '@/hooks/useInvoices';
 import { InvoiceAttribution } from '@/components/AgentBadge';
 import { SyncIssueNotice } from '@/components/sync/SyncIssueNotice';
@@ -38,7 +37,9 @@ export default function ViewInvoice() {
     if (!invoice) return;
 
     try {
-      const blob = await pdf(<InvoicePDF data={invoice} />).toBlob();
+      const { blob, unsupported } = await exportInvoicePdf(invoice);
+      const warning = unsupportedCharactersWarning(unsupported);
+      if (warning) toast.warning(warning);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

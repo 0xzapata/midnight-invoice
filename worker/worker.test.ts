@@ -7,7 +7,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestHarness, type TestHarness } from 'wrangler';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { extractPdfText } from '../server/test/pdf-text';
+import { extractPdfText, pdfBaseFonts } from '../server/test/pdf-text';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 let server: TestHarness;
@@ -105,5 +105,12 @@ describe('agent flow, REST, MCP and PDF in workerd', () => {
     expect(new TextDecoder().decode(bytes.subarray(0, 5))).toBe('%PDF-');
     const text = extractPdfText(bytes);
     for (const s of ['INV-0001', 'Initech', 'TPS reports', '€298.50']) expect(text).toContain(s);
+
+    // Characters outside Noto Sans Mono get fallback faces read from static assets.
+    const cjk = await json(await post('/api/v1/invoices', { toName: '株式会社テスト', fromName: 'Midnight', lineItems: [{ description: '网站设计 🚀', quantity: 1, price: 1 }] }, key));
+    const cjkPdf = new Uint8Array(await (await fetch(`${base}/api/v1/invoices/${cjk.body.invoice.id}/pdf`, { headers: { authorization: `Bearer ${key}` } })).arrayBuffer());
+    const cjkText = extractPdfText(cjkPdf).replace(/\n/g, '');
+    for (const s of ['株式会社テスト', '网站设计', '🚀']) expect(cjkText).toContain(s);
+    expect(pdfBaseFonts(cjkPdf).map((f) => f.replace(/^[A-Z]{6}\+/, ''))).toEqual(expect.arrayContaining([expect.stringMatching(/^NotoSansSC/), expect.stringMatching(/^NotoEmoji/)]));
   });
 });

@@ -1,11 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { Download, Save, ArrowLeft, Copy, Settings } from 'lucide-react';
-import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
 import { InvoiceForm, type InvoiceFormHandle } from '@/components/invoice/InvoiceForm';
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
-import { InvoicePDF } from '@/components/invoice/InvoicePDF';
+import { exportInvoicePdf, unsupportedCharactersWarning } from '@/components/invoice/exportInvoicePdf';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { useInvoices } from '@/hooks/useInvoices';
 import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
@@ -116,7 +115,9 @@ export default function CreateInvoice() {
     // Downloading also saves the invoice.
     if (!(await validateForSave())) return;
     try {
-      const blob = await pdf(<InvoicePDF data={formData} />).toBlob();
+      const { blob, unsupported } = await exportInvoicePdf(formData);
+      const warning = unsupportedCharactersWarning(unsupported);
+      if (warning) toast.warning(warning);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

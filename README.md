@@ -8,7 +8,8 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 
 - 📝 Create and edit professional invoices
 - 💾 Auto-save drafts to localStorage
-- 📄 Export to PDF that looks exactly like the on-screen preview (same fonts, light/dark colours and layout)
+- 📄 Export to PDF that looks exactly like the on-screen preview (same fonts, light/dark colours and layout), with clean page breaks on long invoices
+- 🌐 Non-Latin text in PDFs: Chinese, Japanese, Korean, Arabic, Hebrew, Thai, Hindi (Devanagari) and emoji, with fonts downloaded only for invoices that use them
 - 🌙 Dark mode design
 - 💱 Multi-currency support (All currencies)
 - ⚙️ Comprehensive settings management

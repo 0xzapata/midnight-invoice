@@ -103,9 +103,15 @@ interface InvoicePDFProps {
    * rendered outside a browser.
    */
   theme?: InvoiceTheme;
+  /**
+   * Registered fallback font families for characters Noto Sans Mono lacks
+   * (from `preparePdfFallbackFonts`, see ./pdfFallbackFonts.ts). Empty for
+   * text Noto Sans Mono covers.
+   */
+  fallbackFamilies?: string[];
 }
 
-export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
+export const InvoicePDF = ({ data, theme, fallbackFamilies = [] }: InvoicePDFProps) => {
   // Idempotent. In the browser this registers the fonts by URL on first render
   // (before react-pdf loads fonts); the Worker registers data URLs earlier.
   registerPdfFonts();
@@ -172,7 +178,15 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
 
   return (
     <Document title={safeData.invoiceNumber || 'Invoice'}>
-      <Page size="A4" style={[styles.page, { backgroundColor: palette.background, color: palette.text }]}>
+      <Page
+        size="A4"
+        style={[
+          styles.page,
+          { backgroundColor: palette.background, color: palette.text },
+          // react-pdf picks, per character, the first family that has a glyph for it.
+          fallbackFamilies.length > 0 ? { fontFamily: [PDF_FONT_FAMILY, ...fallbackFamilies] } : {},
+        ]}
+      >
         {/* Header */}
         <View style={styles.header} wrap={false} minPresenceAhead={-SECTION_GAP}>
           <View>
