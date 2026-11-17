@@ -155,3 +155,74 @@ describe('L2: only a user write of that field (or the explicit review) confirms 
     expect(log).toEqual([expect.objectContaining({ actor: { type: 'user' }, entity: expect.objectContaining({ id: inv.id }), changes: { fields: ['paymentDetails'] } })]);
   });
 });
+
+describe('M1: automatic emails send what the user approved', () => {
+  async function emailing(s: Awaited<ReturnType<typeof setup>>) {
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'Retainer', quantity: 1, price: 1000 }] }, s.token)).json.template;
+    const sched = await s.client.post('/api/v1/recurring', { name: 'R', templateId: t.id, frequency: 'monthly', startDate: '2026-12-02', timezone: 'UTC', autoAction: 'send_email' }, s.token);
+    expect(sched.status).toBe(201);
+    const run = async (iso = '2026-12-02T10:00:00.000Z') => {
+      s.clock.now = new Date(iso);
+      await runRecurringGeneration(s.deps, s.clock.now.getTime());
+    };
+    const state = async () => (await s.client.get(`/api/v1/recurring/${sched.json.recurring.id}`, s.token)).json.recurring;
+    const invoice = async () => (await s.client.get(`/api/v1/invoices?recurring_id=${sched.json.recurring.id}`, s.token)).json.invoices[0];
+    return { t, id: sched.json.recurring.id as string, run, state, invoice };
+  }
+
+  it('holds the email when an agent with only templates:write changed the template’s notes or prices; the user re-approves', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    const writer = await connectAgent(s.client, s.token, ['templates:read', 'templates:write']);
+    const p = await s.client.patch(`/api/v1/templates/${e.t.id}`, { notes: 'NOTICE: our bank changed, pay to IBAN ATTACKER 666', lineItems: [{ description: 'Retainer', quantity: 1, price: 25000 }] }, writer.api_key);
+    expect(p.status).toBe(200);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(0);
+    expect(await e.invoice()).toMatchObject({ status: 'draft', notes: 'NOTICE: our bank changed, pay to IBAN ATTACKER 666' });
+    const held = (await e.state()).lastError;
+    expect(held).toMatchObject({ code: 'email_needs_review', sendPending: true });
+    expect(held.message).toMatch(/^Needs your review: Since you approved automatic emailing, the template was changed by an agent \(Test Agent\)\..*re-approve/);
+    const failed = (await s.client.get('/api/v1/activity?action=recurring.run_failed', s.token)).json.activity;
+    expect(failed[0]).toMatchObject({ changes: { reason: 'email_needs_review' } });
+    // Retries stay held.
+    await e.run('2026-12-02T12:00:00.000Z');
+    expect(s.resend.calls).toHaveLength(0);
+    // Only the user can re-approve; doing so sends the held email at once.
+    expect((await s.client.post(`/api/v1/recurring/${e.id}/approve-email`, undefined, s.key)).status).toBe(403);
+    const ok = await s.client.post(`/api/v1/recurring/${e.id}/approve-email`, undefined, s.token);
+    expect(ok.json).toMatchObject({ emailed: true, recurring: { lastError: null } });
+    expect(s.resend.calls).toHaveLength(1);
+    expect((await e.invoice()).status).toBe('sent');
+    expect((await s.client.get('/api/v1/activity?action=recurring.email_approved', s.token)).json.activity).toHaveLength(1);
+  });
+
+  it('the user editing their own template needs no re-approval', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    expect((await s.client.patch(`/api/v1/templates/${e.t.id}`, { notes: 'Thank you!', lineItems: [{ description: 'Retainer', quantity: 1, price: 1200 }] }, s.token)).status).toBe(200);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(1);
+    expect((await e.invoice()).status).toBe('sent');
+  });
+
+  it('an agent edit followed by a user edit still needs the explicit re-approval', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    await s.client.patch(`/api/v1/templates/${e.t.id}`, { notes: 'Pay to IBAN ATTACKER' }, s.key);
+    await s.client.patch(`/api/v1/templates/${e.t.id}`, { name: 'Renamed' }, s.token);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(0);
+    expect((await e.state()).lastError.code).toBe('email_needs_review');
+  });
+
+  it('holds it when an agent points the client at another (already confirmed) address', async () => {
+    const s = await setup();
+    const e = await emailing(s);
+    // An address the user confirmed elsewhere, so the recipient rule alone would not stop it.
+    await s.client.post('/api/v1/clients', { name: 'Other', email: 'ap@other-client.io' }, s.token);
+    await s.client.patch(`/api/v1/clients/${s.globex.id}`, { email: 'ap@other-client.io' }, s.key);
+    await e.run();
+    expect(s.resend.calls).toHaveLength(0);
+    expect((await e.state()).lastError.message).toMatch(/client’s email address was changed by an agent/);
+  });
+});

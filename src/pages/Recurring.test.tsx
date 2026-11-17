@@ -263,6 +263,12 @@ describe('Recurring page', () => {
     expect(alert).toHaveTextContent('Needs your review: created, but not emailed');
     expect(within(alert).getByRole('link', { name: 'Open the invoice' })).toHaveAttribute('href', '/invoice/inv-9');
     expect(alert).toHaveTextContent('The email is tried again after');
+    // Security fix M1: one click re-approves automatic emailing (and sends the held email).
+    const user = userEvent.setup({ delay: null });
+    expect(within(alert).getByRole('link', { name: 'Review the template “Monthly retainer”' })).toHaveAttribute('href', '/templates');
+    await user.click(within(alert).getByRole('button', { name: 'Looks right — re-approve and send' }));
+    await waitFor(() => expect(fake.requests.some((r) => r.method === 'POST' && /\/recurring\/[^/]+\/approve-email$/.test(r.path))).toBe(true));
+    await waitFor(() => expect(within(screen.getByTestId('recurring-row')).queryByRole('alert')).not.toBeInTheDocument());
   });
 
   it('"Make recurring" from a template opens the dialog prefilled', async () => {

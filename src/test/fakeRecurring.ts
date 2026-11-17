@@ -115,6 +115,11 @@ export function installFakeRecurring(fake: FakeApi, opts: { today?: string; emai
       schedules.set(existing.id, updated);
       return fake.json(201, { period, generated: true, invoice, recurring: updated });
     }
+    if (action === 'approve-email' && method === 'POST') {
+      const updated = withSummary({ ...existing, lastError: null });
+      schedules.set(existing.id, updated);
+      return fake.json(200, { recurring: updated, emailed: true });
+    }
     if (action === 'preview' && method === 'GET') {
       return fake.json(200, { recurring: existing, upcoming: existing.nextRunDate ? [existing.nextRunDate] : [], nextInvoice: null, placeholders: { unknown: [], unresolved: [] }, warnings: [], problem: null });
     }

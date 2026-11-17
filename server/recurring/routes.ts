@@ -65,6 +65,11 @@ export function registerRecurringRoutes(v1: Hono<AppEnv>, auth: MiddlewareHandle
     }
     return c.json(result, result.generated ? 201 : 200);
   });
+  v1.post('/recurring/:id/approve-email', auth, async (c) => {
+    const result = await recurring.approveRecurringEmail(svc(c), c.req.param('id'));
+    withEtag(c, result.recurring);
+    return c.json(result);
+  });
   v1.get('/recurring/:id/preview', auth, async (c) => {
     const parsed = previewQuerySchema.safeParse(c.req.query());
     if (!parsed.success) throw errors.validation(zodDetails(parsed.error), 'Invalid query parameters');

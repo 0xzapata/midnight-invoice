@@ -246,6 +246,9 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
     case 'recurring.deleted':
       parts = ['deleted the recurring invoice ', { target: true }];
       break;
+    case 'recurring.email_approved':
+      parts = ['re-approved automatic emailing for the recurring invoice ', { target: true }];
+      break;
     case 'recurring.run_failed': {
       parts = ['could not create an invoice for the recurring invoice ', { target: true }];
       details.push(`Because ${RECURRING_FAILURES[c.reason ?? ''] ?? (c.reason ? c.reason.replace(/_/g, ' ') : 'of an error')}`);

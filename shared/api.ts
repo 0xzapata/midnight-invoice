@@ -663,3 +663,10 @@ export interface RunRecurringNowResponse {
   invoice: ApiInvoice | null;
   recurring: RecurringSchedule;
 }
+
+/** POST /api/v1/recurring/:id/approve-email (workspace token only) → 200 */
+export interface ApproveRecurringEmailResponse {
+  recurring: RecurringSchedule;
+  /** True when an email held for review went out right away. */
+  emailed: boolean;
+}

@@ -63,7 +63,12 @@ export async function listReviews(ctx: ServiceContext): Promise<ListReviewsRespo
  * details and confirms its toEmail ("Looks right — approve"). If-Match names
  * the revision the user looked at; a newer revision → 412, nothing approved.
  */
-export async function reviewInvoice(ctx: ServiceContext, rawId: string, pre: { ifMatch?: RevisionPrecondition }): Promise<ReviewInvoiceResponse> {
+export async function reviewInvoice(
+  ctx: ServiceContext,
+  rawId: string,
+  pre: { ifMatch?: RevisionPrecondition },
+  opts: { recipient?: boolean } = {},
+): Promise<ReviewInvoiceResponse> {
   requireUser(ctx.principal);
   const ws = ctx.principal.workspaceId;
   const id = parseInvoiceId(rawId);
@@ -78,7 +83,7 @@ export async function reviewInvoice(ctx: ServiceContext, rawId: string, pre: { i
   const settings = (await ctx.repo.getSettings(ws))?.settings ?? null;
   const fields: ReviewField[] = await unreviewedSenderFields(emails, ws, invoice, settings);
   const to = invoice.toEmail.trim();
-  const confirmTo = !!to && !(await emails.isUserEnteredAddress(ws, normalizeEmail(to)));
+  const confirmTo = opts.recipient !== false && !!to && !(await emails.isUserEnteredAddress(ws, normalizeEmail(to)));
   if (confirmTo) fields.push('toEmail');
   const { statements, guard } = emails.reviewInvoiceStatements({
     workspaceId: ws,

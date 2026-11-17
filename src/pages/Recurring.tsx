@@ -60,7 +60,8 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
   const resume = useRecurringMutation((id: string) => recurringApi.resume(id));
   const remove = useRecurringMutation((id: string) => recurringApi.remove(id));
   const runNow = useRecurringMutation((args: { id: string; period: string }) => recurringApi.runNow(args.id, args.period), { pullInvoices: true });
-  const busy = pause.isPending || resume.isPending || remove.isPending || runNow.isPending;
+  const approveEmail = useRecurringMutation((id: string) => recurringApi.approveEmail(id), { pullInvoices: true });
+  const busy = pause.isPending || resume.isPending || remove.isPending || runNow.isPending || approveEmail.isPending;
   const agentName = schedule.createdBy?.type === 'agent' ? schedule.createdBy.agentName || 'an agent' : null;
   const err = schedule.lastError;
   const nextLabel = schedule.nextRunDate ? formatRunDate(schedule.nextRunDate) : null;
@@ -168,6 +169,28 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
               )}
             </p>
             <p className="break-words text-muted-foreground">{err.message}</p>
+            {err.code === 'email_needs_review' && err.sendPending && (
+              <div className="flex flex-wrap items-center gap-2 pt-1.5">
+                {template && (
+                  <Link to="/templates" className="text-xs text-primary underline-offset-4 hover:underline">
+                    Review the template “{template.name}”
+                  </Link>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() =>
+                    void act(`Re-approved automatic emailing for “${schedule.name}”`, 'Could not re-approve', async () => {
+                      const res = await approveEmail.mutateAsync(schedule.id);
+                      if (!res.emailed && res.recurring.lastError) throw new Error(res.recurring.lastError.message);
+                    })
+                  }
+                >
+                  Looks right — re-approve and send
+                </Button>
+              </div>
+            )}
             {err.sendPending && err.nextAttemptAt && (
               <p className="text-xs text-muted-foreground">
                 The email is tried again after {new Date(err.nextAttemptAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} (attempt {err.attempts + 1}).

@@ -225,20 +225,24 @@ describe('send_email: held for the user', () => {
     expect(inv).toMatchObject({ status: 'draft', paymentDetails: 'IBAN ATTACKER 666' });
     const state = await get(s.client, s.token, id);
     expect(state.lastError).toMatchObject({ code: 'email_needs_review', sendPending: true, invoiceId: inv.id });
-    expect(state.lastError!.message).toMatch(/^Needs your review: .*paymentDetails.*not entered or approved by you/);
+    // Security fix M1: the hold names what changed since the user approved automatic emailing.
+    expect(state.lastError!.message).toMatch(/^Needs your review: Since you approved automatic emailing, the template was changed by an agent/);
     expect((await activity(s.client, s.token, 'recurring.run_failed'))[0]).toMatchObject({ actor: { type: 'system' }, changes: { reason: 'email_needs_review' } });
 
-    // Saving the template unchanged approves nothing any more (security fix L2: a full-document save
+    // Saving the template unchanged approves nothing any more (security fixes L2/M1: a full-document save
     // carries the agent's values)…
     const t = (await s.client.get(`/api/v1/templates/${s.template.id}`, s.token)).json.template;
     expect((await s.client.put(`/api/v1/templates/${t.id}`, t, s.token)).status).toBe(200);
     s.at('2026-12-01T01:31:00.000Z');
     await s.run();
     expect(s.resend.calls).toHaveLength(0);
-    // …the user's explicit approval of the generated invoice does: the held email goes out on the next try.
+    // …approving the invoice alone is not enough either (the template change is not approved)…
     expect((await approveReview(s.client, s.token, 'invoices', inv.id)).json.approved).toEqual(['paymentDetails']);
     s.at('2026-12-01T03:32:00.000Z');
     await s.run();
+    expect(s.resend.calls).toHaveLength(0);
+    // …the user's re-approval of the schedule is: the held email goes out right away.
+    expect((await s.client.post(`/api/v1/recurring/${id}/approve-email`, undefined, s.token)).json.emailed).toBe(true);
     expect(s.resend.calls).toHaveLength(1);
     expect((await invoicesOf(s.client, s.token, id))[0].status).toBe('sent');
   });
@@ -253,6 +257,11 @@ describe('send_email: held for the user', () => {
     expect(s.resend.calls).toHaveLength(0);
     const [inv] = await invoicesOf(s.client, s.token, id);
     expect(inv).toMatchObject({ status: 'draft', toEmail: 'payments@evil-payee.io' });
+    // Held first because the client changed since the user approved automatic emailing (security fix M1)…
+    expect((await get(s.client, s.token, id)).lastError).toMatchObject({ code: 'email_needs_review', sendPending: true });
+    // …and re-approving the schedule never confirms the agent's address: the recipient rule still holds it.
+    expect((await s.client.post(`/api/v1/recurring/${id}/approve-email`, undefined, s.token)).json.emailed).toBe(false);
+    expect(s.resend.calls).toHaveLength(0);
     expect((await get(s.client, s.token, id)).lastError).toMatchObject({ code: 'email_address_not_confirmed', sendPending: true });
   });
 });

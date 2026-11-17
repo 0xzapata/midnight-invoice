@@ -65,6 +65,8 @@ export const ACTIVITY_ACTIONS = [
   'recurring.ended',
   'recurring.deleted',
   'recurring.run_failed',
+  // The user re-approved automatic emailing after an agent changed the template, client or invoice (security fix M1)
+  'recurring.email_approved',
 ] as const;
 
 export type KnownActivityAction = (typeof ACTIVITY_ACTIONS)[number];
