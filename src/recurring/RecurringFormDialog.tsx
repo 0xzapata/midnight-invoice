@@ -447,8 +447,8 @@ function RecurringForm({ schedule, prefill, email, onCancel, onSave }: Omit<Prop
 
 function Radio({ name, checked, onChange, children }: { name: string; checked: boolean; onChange: () => void; children: ReactNode }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="h-4 w-4 accent-primary" />
+    <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+      <input type="radio" name={name} checked={checked} onChange={onChange} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
       <span>{children}</span>
     </label>
   );
