@@ -52,7 +52,11 @@ export type ApiErrorCode =
   | 'slow_down'
   | 'access_denied'
   | 'expired_token'
-  | 'invalid_grant';
+  | 'invalid_grant'
+  // Set by the site operator (operator console)
+  | 'maintenance'
+  | 'workspace_suspended'
+  | 'registration_closed';
 
 export interface ApiErrorBody {
   error: {
