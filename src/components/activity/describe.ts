@@ -147,11 +147,53 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       targetLabel = null;
       break;
     }
+    case 'account.workspace_created':
+      parts = ['created this cloud workspace with your account'];
+      targetLabel = null;
+      break;
+    case 'account.workspace_claimed':
+      parts = ['added this workspace to your account'];
+      targetLabel = null;
+      break;
+    case 'account.device_signed_in':
+      parts = ['signed in on ', { target: true }];
+      break;
+    case 'account.device_revoked':
+      parts = ['signed out ', { target: true }];
+      break;
+    case 'account.signed_out_other_devices':
+    case 'account.signed_out_everywhere': {
+      const n = c.counts?.devices;
+      parts = [entry.action === 'account.signed_out_everywhere' ? 'signed out everywhere' : 'signed out all other devices'];
+      targetLabel = null;
+      if (n !== undefined) details.push(`${plural(n, 'device')} signed out`);
+      break;
+    }
+    case 'account.recovery_key_created':
+      parts = ['created a recovery key'];
+      targetLabel = null;
+      break;
+    case 'account.recovery_key_rotated':
+      parts = ['replaced the recovery key (the old one no longer works)'];
+      targetLabel = null;
+      break;
+    case 'account.recovery_key_disabled':
+      parts = ['turned off the recovery key'];
+      targetLabel = null;
+      break;
+    case 'account.deleted':
+      parts = ['deleted your account; this workspace was kept with a new recovery key'];
+      targetLabel = null;
+      break;
+    case 'account.disabled':
+      parts = ['disabled your account on behalf of the site operator; its devices were signed out'];
+      targetLabel = null;
+      break;
     default:
       parts = entry.entity ? [`${entry.action} on `, { target: true }] : [entry.action];
   }
   if (parts.some((p) => typeof p !== 'string') && !targetLabel) {
-    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : 'an item';
+    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'device' ? 'a device' : 'an item';
   }
   if (c.theme && entry.action === 'invoice.pdf_downloaded') details.push(`${c.theme === 'light' ? 'Light' : 'Dark'} theme`);
   return { actor, parts, targetLabel, details };

@@ -37,6 +37,7 @@ import { createOperatorDb } from '../operator/db';
 import { OperatorError } from '../operator/errors';
 import type { TelemetryCollector } from '../operator/telemetry';
 import { createWorkosClient, pkcePair } from '../operator/workos';
+import { accountActivityContext, accountEntry, accountWriteStatements, recordAccountActivity } from './activity';
 import { DISABLED_TOKEN_HASH_PREFIX, type AccountsDb, type OwnedWorkspaceRow } from './db';
 import {
   USER_OAUTH_COOKIE,
@@ -158,7 +159,9 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
   // ---------------------------------------------------------------------------
   app.use('*', async (c, next) => {
     c.header('x-robots-tag', 'noindex, nofollow');
-    if (c.req.path === '/api/account/config') return next();
+    // /config is public; /sign-out and /device-status work with a device token even after accounts are turned off,
+    // so a browser can always detach itself and learn why it was signed out.
+    if (c.req.path === '/api/account/config' || c.req.path === '/api/account/sign-out' || c.req.path === '/api/account/device-status') return next();
     const state = await accountsState(deps);
     if (state === 'disabled') throw accountError(404, 'accounts_disabled', 'Accounts are not enabled on this site.');
     if (state === 'unavailable') {
@@ -298,12 +301,18 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     if (s) await enforceCsrf(c, s, allowedOrigins(c));
     let didSomething = false;
     const token = bearerToken(c.req.header('authorization'));
+    const revokeAndLog = async (userId: string, deviceId: string) => {
+      const device = await adb.findDevice(userId, deviceId);
+      if (!device || !(await adb.revokeDevice(userId, deviceId, t))) return false;
+      await recordAccountActivity(accountActivityContext(deps, c), accountEntry('account.device_revoked', device.workspace_id, { device: { id: device.id, label: device.device_label } }));
+      return true;
+    };
     if (token?.startsWith(TOKEN_PREFIX.workspace)) {
       const device = await adb.findActiveDeviceByHash(await sha256Hex(token));
-      if (device) didSomething = await adb.revokeDevice(device.user_id, device.id, t);
+      if (device) didSomething = await revokeAndLog(device.user_id, device.id);
     }
     if (s) {
-      if (s.row.device_token_id) await adb.revokeDevice(s.user.id, s.row.device_token_id, t);
+      if (s.row.device_token_id) await revokeAndLog(s.user.id, s.row.device_token_id);
       await adb.raw.batch([adb.revokeSessionStatement(s.idHash, t)]);
       didSomething = true;
     }
@@ -311,6 +320,21 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     if (!didSomething) throw accountError(401, 'unauthorized', 'Not signed in.');
     settings.invalidate();
     return c.body(null, 204);
+  });
+
+  /**
+   * Why a device token stopped working, for the holder of that token only
+   * (Bearer): `revoked` (signed out from another device / everywhere),
+   * `account_disabled` (by the site operator) or `unknown`. Lets the app say
+   * "you were signed out" instead of a generic disconnect.
+   */
+  app.get('/device-status', async (c) => {
+    await enforceRateLimit(deps.rateLimiters.poll, `account-device-status:${clientIp(c)}`);
+    const token = bearerToken(c.req.header('authorization'));
+    if (!token?.startsWith(TOKEN_PREFIX.workspace)) throw accountError(400, 'bad_request', 'Send the device token as a Bearer token.');
+    const row = await adb.deviceStatusByHash(await sha256Hex(token));
+    const status = !row ? 'unknown' : row.disabled_at ? 'account_disabled' : row.revoked_at ? 'revoked' : 'active';
+    return c.json({ status });
   });
 
   // ---------------------------------------------------------------------------
@@ -324,11 +348,19 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
   }
 
   /** Mints a device token for this browser, binding it to the current session. */
-  async function mintDevice(c: Context<AccEnv>, workspaceId: string, before: D1PreparedStatement[] = []) {
+  async function mintDevice(
+    c: Context<AccEnv>,
+    workspaceId: string,
+    before: D1PreparedStatement[] = [],
+    event?: 'account.workspace_created' | 'account.workspace_claimed',
+  ) {
     const s = c.get('session');
     const token = deps.secrets.generate(TOKEN_PREFIX.workspace);
     const id = deps.ids.uuid();
     const t = now();
+    const label = deviceLabelFromUserAgent(c.req.header('user-agent'));
+    // Activity entries are committed in the same batch as the device token (server/services/activity.ts).
+    const actx = accountActivityContext(deps, c);
     await adb.raw.batch([
       ...before,
       adb.insertDeviceTokenStatement({
@@ -336,10 +368,12 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
         workspace_id: workspaceId,
         user_id: s.user.id,
         token_hash: await sha256Hex(token),
-        device_label: deviceLabelFromUserAgent(c.req.header('user-agent')),
+        device_label: label,
         created_at: t,
         revoked_at: null,
       }),
+      ...(event ? accountWriteStatements(actx, accountEntry(event, workspaceId)) : []),
+      ...accountWriteStatements(actx, accountEntry('account.device_signed_in', workspaceId, { device: { id, label } })),
     ]);
     await replaceSessionDevice(s, id);
     // Suspension is checked against an in-memory set of token hashes: refresh it for the new token.
@@ -379,7 +413,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     const disabledHash = `${DISABLED_TOKEN_HASH_PREFIX}${deps.ids.uuid()}`;
     let minted;
     try {
-      minted = await mintDevice(c, id, [adb.createWorkspaceStatement(id, disabledHash, createdAt), adb.addOwnerStatement(id, s.user.id, now())]);
+      minted = await mintDevice(c, id, [adb.createWorkspaceStatement(id, disabledHash, createdAt), adb.addOwnerStatement(id, s.user.id, now())], 'account.workspace_created');
     } catch (error) {
       if (await ownedOrNull(s.user.id)) throw accountError(409, 'workspace_exists', 'This account already has a workspace.');
       throw error;
@@ -413,7 +447,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     if (await adb.workspaceOwner(ws.id)) throw accountError(409, 'workspace_owned', 'This workspace belongs to another account.');
     let minted;
     try {
-      minted = await mintDevice(c, ws.id, [adb.addOwnerStatement(ws.id, s.user.id, now())]);
+      minted = await mintDevice(c, ws.id, [adb.addOwnerStatement(ws.id, s.user.id, now())], 'account.workspace_claimed');
     } catch (error) {
       // Unique indexes: a concurrent claim won.
       if ((await adb.workspaceOwner(ws.id)) || (await ownedOrNull(s.user.id))) throw accountError(409, 'workspace_owned', 'This workspace was claimed concurrently.');
@@ -459,6 +493,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
         label: r.device_label,
         createdAt: r.created_at,
         lastSeenAt: r.last_seen_at,
+        lastUsedAt: r.last_used_at ?? null,
         signedIn: r.signed_in > 0,
         current: r.id === s.row.device_token_id,
       })),
@@ -468,7 +503,9 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
   authed.delete('/devices/:id', async (c) => {
     const s = c.get('session');
     const id = c.req.param('id');
-    if (!(await adb.revokeDevice(s.user.id, id, now()))) throw accountError(404, 'not_found', 'Device not found.');
+    const device = await adb.findDevice(s.user.id, id);
+    if (!device || !(await adb.revokeDevice(s.user.id, id, now()))) throw accountError(404, 'not_found', 'Device not found.');
+    await recordAccountActivity(accountActivityContext(deps, c), accountEntry('account.device_revoked', device.workspace_id, { device: { id, label: device.device_label } }));
     if (id === s.row.device_token_id) clearUserSessionCookie(c);
     settings.invalidate();
     return c.body(null, 204);
@@ -478,7 +515,16 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
   authed.post('/sign-out-everywhere', async (c) => {
     const s = c.get('session');
     const { keepThisDevice } = await body(c, z.object({ keepThisDevice: z.boolean().default(false) }));
+    const before = await adb.countActiveDevices(s.user.id);
     await adb.revokeAll(s.user.id, now(), keepThisDevice ? { sessionHash: s.idHash, deviceId: s.row.device_token_id } : undefined);
+    const ws = await ownedOrNull(s.user.id);
+    const revoked = before - (await adb.countActiveDevices(s.user.id));
+    if (ws) {
+      await recordAccountActivity(
+        accountActivityContext(deps, c),
+        accountEntry(keepThisDevice ? 'account.signed_out_other_devices' : 'account.signed_out_everywhere', ws.id, { changes: { counts: { devices: revoked } } }),
+      );
+    }
     if (!keepThisDevice) clearUserSessionCookie(c);
     settings.invalidate();
     return c.body(null, 204);
@@ -491,6 +537,10 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     if (!ws) throw accountError(409, 'no_workspace', 'This account has no workspace yet.');
     const recoveryKey = deps.secrets.generate(TOKEN_PREFIX.workspace);
     await adb.setRecoveryTokenHash(ws.id, await sha256Hex(recoveryKey));
+    await recordAccountActivity(
+      accountActivityContext(deps, c),
+      accountEntry(workspaceView(ws).recoveryKeyEnabled ? 'account.recovery_key_rotated' : 'account.recovery_key_created', ws.id),
+    );
     settings.invalidate();
     return c.json<RecoveryKeyRotateResponse>({ recoveryKey });
   });
@@ -501,6 +551,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     const ws = await ownedOrNull(s.user.id);
     if (!ws) throw accountError(409, 'no_workspace', 'This account has no workspace yet.');
     await adb.setRecoveryTokenHash(ws.id, `${DISABLED_TOKEN_HASH_PREFIX}${deps.ids.uuid()}`);
+    if (workspaceView(ws).recoveryKeyEnabled) await recordAccountActivity(accountActivityContext(deps, c), accountEntry('account.recovery_key_disabled', ws.id));
     settings.invalidate();
     return c.json({ workspace: workspaceView({ ...ws, token_hash: DISABLED_TOKEN_HASH_PREFIX }) });
   });
@@ -523,6 +574,7 @@ export function createAccountRoutes({ deps, repo, adb, telemetry }: AccountRoute
     } else if (ws) {
       recoveryKey = deps.secrets.generate(TOKEN_PREFIX.workspace);
       await adb.setRecoveryTokenHash(ws.id, await sha256Hex(recoveryKey));
+      await recordAccountActivity(accountActivityContext(deps, c), accountEntry('account.deleted', ws.id));
     }
     await adb.deleteUser(s.user.id);
     clearUserSessionCookie(c);

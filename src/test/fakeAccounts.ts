@@ -19,6 +19,8 @@ export function installFakeAccounts(fake: FakeApi, opts: { enabled?: boolean; re
     sessionDeviceId: null as string | null,
     calls: [] as string[],
     startBodies: [] as unknown[],
+    /** Answer of GET /device-status (why a device token stopped working). */
+    deviceStatus: 'unknown' as 'active' | 'revoked' | 'account_disabled' | 'unknown',
   };
   const mint = () => {
     const token = `mi_ws_device${String(++counter).padStart(37, '0')}`;
@@ -26,7 +28,7 @@ export function installFakeAccounts(fake: FakeApi, opts: { enabled?: boolean; re
     fake.state.tokenValid = true;
     const id = `device-${counter}`;
     acc.devices = acc.devices.map((d) => ({ ...d, current: false }));
-    acc.devices.push({ id, label: 'Chrome on Linux', createdAt: Date.parse('2026-11-17T10:00:00Z'), lastSeenAt: null, signedIn: true, current: true });
+    acc.devices.push({ id, label: 'Chrome on Linux', createdAt: Date.parse('2026-11-17T10:00:00Z'), lastSeenAt: null, lastUsedAt: null, signedIn: true, current: true });
     acc.sessionDeviceId = id;
     return { token, deviceId: id };
   };
@@ -36,6 +38,7 @@ export function installFakeAccounts(fake: FakeApi, opts: { enabled?: boolean; re
     const path = req.path.slice('/api/account'.length) || '/';
     acc.calls.push(`${req.method} ${path}`);
     if (path === '/config') return fake.json(200, { enabled: acc.enabled, requiredForNewWorkspaces: acc.enabled && acc.required });
+    if (path === '/device-status') return fake.json(200, { status: acc.deviceStatus });
     if (!acc.enabled) return fake.apiError(404, 'accounts_disabled', 'Accounts are not enabled on this site.');
     if (path === '/auth/start' && req.method === 'POST') {
       acc.startBodies.push(req.body);

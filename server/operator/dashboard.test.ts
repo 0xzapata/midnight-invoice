@@ -325,7 +325,8 @@ describe('telemetry', () => {
     await telemetry.flush();
     clock.advance(49 * 3_600_000);
     const results = await runScheduledJobs(deps, { cron: '17 * * * *', scheduledTime: clock.now.getTime() });
-    expect(results).toEqual([{ name: 'operator.maintenance', ok: true }]);
+    // Every job on the hourly cron runs (user-account housekeeping shares it).
+    expect(results).toEqual([{ name: 'operator.maintenance', ok: true }, { name: 'accounts.cleanup', ok: true }]);
     const rows = await d1.db.prepare('SELECT granularity, COUNT(*) AS n FROM telemetry_rollups GROUP BY granularity').all<{ granularity: string; n: number }>();
     expect(rows.results.find((r) => r.granularity === 'm')).toBeUndefined();
     expect(rows.results.find((r) => r.granularity === 'h')!.n).toBeGreaterThan(0);

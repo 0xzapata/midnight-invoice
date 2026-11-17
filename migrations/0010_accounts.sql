@@ -47,6 +47,7 @@ CREATE TABLE workspace_tokens (
   token_hash    TEXT NOT NULL UNIQUE,
   device_label  TEXT NOT NULL,
   created_at    INTEGER NOT NULL,
+  last_used_at  INTEGER,                  -- last authenticated API use (throttled)
   revoked_at    INTEGER
 );
 CREATE INDEX workspace_tokens_workspace ON workspace_tokens (workspace_id);

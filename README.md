@@ -332,6 +332,12 @@ first.
    privacy boundary is unchanged (no invoice or client data). The *Telemetry*
    page has an *Account sign-in* group (successful and failed sign-ins).
 
+Turning accounts off later does not lock anyone out: browsers that are
+already signed in keep syncing with their own keys, but nobody can sign in,
+add a device or manage their account until accounts are back (*Users →
+Accounts* shows how many workspaces are owned by an account). Disable
+individual accounts to revoke their devices.
+
 Operators and users are separate identities even though they share the WorkOS
 environment: an operator signing in to the app gets an ordinary user account,
 and neither session is ever accepted by the other side.
@@ -354,7 +360,11 @@ and neither session is ever accepted by the other side.
   devices*, *sign out everywhere*, recovery key (rotate / create / turn off) and
   *delete account* (optionally with the workspace; if kept, the browser
   continues anonymously with a fresh recovery key). One account has one
-  workspace.
+  workspace. Devices show when they last synced.
+- Account events (signing in on a device, signing devices out, recovery key
+  changes, deleting the account) appear in the workspace's *Activity* log.
+- A browser that was signed out from another device, or whose account the
+  operator disabled, says so in Settings and keeps its local invoices.
 
 Locally, `bun run dev:operator` seeds `alice@example.com` and `bob@example.com`
 (and an unverified user) in the WorkOS emulator; it signs in the user named by

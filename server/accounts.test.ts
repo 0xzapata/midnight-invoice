@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { safeReturnTo, deviceLabelFromUserAgent } from '../shared/accounts';
 import { api, connectAgent, countingLimiter, createWorkspace, sampleInvoice, startD1, TestClock } from './test/helpers';
-import { browser, buildOperatorApp, INITIAL_PASSWORD } from './test/operator';
-import { accountsApp, accountsWorkos, alice, bearer, bob, signInUser, type App } from './test/accounts';
+import { browser, buildOperatorApp } from './test/operator';
+import { accountsApp, alice, bearer, bob, signInUser, type App } from './test/accounts';
 import { allowAll } from './deps';
+import { runScheduledJobs } from './scheduled';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
 beforeAll(async () => {
@@ -14,7 +15,7 @@ afterAll(async () => {
 });
 
 const TABLES = [
-  'user_oauth_states', 'user_sessions', 'workspace_tokens', 'workspace_members', 'users',
+  'activity', 'user_oauth_states', 'user_sessions', 'workspace_tokens', 'workspace_members', 'users',
   'operator_sessions', 'operators', 'operator_oauth_states', 'operator_login_attempts', 'operator_settings', 'operator_audit',
   'operator_state', 'telemetry_rollups', 'telemetry_errors', 'workspace_suspensions', 'workspace_activity', 'agents', 'clients', 'invoices', 'workspaces',
 ];
@@ -70,11 +71,13 @@ describe('availability', () => {
     const { app } = await accountsApp(d1.db, { enable: false });
     const b = browser(app);
     expect((await b.get('/api/account/config')).json).toEqual({ enabled: false, requiredForNewWorkspaces: false });
-    for (const [method, path] of [['GET', '/api/account/session'], ['POST', '/api/account/auth/start'], ['GET', '/api/account/auth/callback?state=x&code=y'], ['GET', '/api/account/devices'], ['POST', '/api/account/sign-out']] as const) {
+    for (const [method, path] of [['GET', '/api/account/session'], ['POST', '/api/account/auth/start'], ['GET', '/api/account/auth/callback?state=x&code=y'], ['GET', '/api/account/devices'], ['POST', '/api/account/workspace']] as const) {
       const res = await b.call(method, path, { body: method === 'POST' ? {} : undefined });
       expect(res.status, path).toBe(404);
       expect(res.json.error.code).toBe('accounts_disabled');
     }
+    // A browser can always detach itself: sign-out stays reachable (nothing to sign out here).
+    expect((await b.post('/api/account/sign-out', undefined)).status).toBe(401);
     // Anonymous workspaces are unaffected.
     expect((await api(app).post('/api/v1/workspaces')).status).toBe(201);
   });
@@ -587,5 +590,163 @@ describe('account deletion', () => {
   });
 });
 
-void INITIAL_PASSWORD;
-void accountsWorkos;
+const activityOf = async (app: App, token: string) => {
+  const res = await api(app).get('/api/v1/activity?limit=200', token);
+  if (res.status !== 200) throw new Error(`activity failed: ${res.status} ${res.text}`);
+  return res as {
+    json: { activity: { action: string; actor: { type: string }; entity: { type: string; label: string } | null; changes: { counts?: Record<string, number> } | null }[] };
+    text: string;
+  };
+};
+
+describe('activity log', () => {
+  it('records account events in the workspace log without tokens, session ids or emails', async () => {
+    const { app, workos, operator } = await accountsApp(d1.db);
+    const client = api(app);
+    const ws = await createWorkspace(client);
+    const { b } = await signInUser(app, workos, alice);
+    const sessionId = b.jar.get('__Secure-mi_user_session')!.split('.')[0];
+    const claim = (await b.post('/api/account/workspace/claim', {}, { headers: bearer(ws.token) })).json;
+    const { b: b2 } = await signInUser(app, workos, alice);
+    const dev2 = (await b2.post('/api/account/workspace/connect', {})).json;
+    expect((await b.del(`/api/account/devices/${dev2.deviceId}`)).status).toBe(204);
+    const { b: b3 } = await signInUser(app, workos, alice);
+    await b3.post('/api/account/workspace/connect', {});
+    expect((await b.post('/api/account/sign-out-everywhere', { keepThisDevice: true })).status).toBe(204);
+    await b.post('/api/account/recovery-key/rotate', {});
+    await b.post('/api/account/recovery-key/disable', {});
+    await b.post('/api/account/recovery-key/disable', {}); // already off: not logged twice
+    await b.post('/api/account/recovery-key/rotate', {});
+
+    const log = await activityOf(app, claim.token);
+    const actions = log.json.activity.map((e) => e.action).reverse();
+    expect(actions).toEqual([
+      'account.workspace_claimed',
+      'account.device_signed_in',
+      'account.device_signed_in',
+      'account.device_revoked',
+      'account.device_signed_in',
+      'account.signed_out_other_devices',
+      'account.recovery_key_rotated',
+      'account.recovery_key_disabled',
+      'account.recovery_key_created',
+    ]);
+    const signedIn = log.json.activity.find((e) => e.action === 'account.device_signed_in')!;
+    expect(signedIn.entity).toMatchObject({ type: 'device', label: expect.any(String) });
+    expect(log.json.activity.find((e) => e.action === 'account.signed_out_other_devices')!.changes).toEqual({ counts: { devices: 1 } });
+    for (const leak of ['alice@example.com', claim.token, dev2.token, ws.token, 'mi_ws_', sessionId]) {
+      expect(log.text.includes(leak), `activity leaked ${leak.slice(0, 12)}`).toBe(false);
+    }
+
+    // Deleting the account (workspace kept) and an operator disabling an account are logged too.
+    const kept = (await b.call('DELETE', '/api/account', { body: { confirm: 'alice@example.com', deleteWorkspace: false } })).json;
+    expect((await activityOf(app, kept.recoveryKey)).json.activity[0].action).toBe('account.deleted');
+    const { b: bobB } = await signInUser(app, workos, bob);
+    const bobWs = (await bobB.post('/api/account/workspace', {})).json;
+    expect((await activityOf(app, bobWs.token)).json.activity.map((e) => e.action).reverse()).toEqual(['account.workspace_created', 'account.device_signed_in']);
+    const bobId = (await operator.get('/api/operator/accounts?q=bob')).json.accounts[0].id;
+    await operator.post(`/api/operator/accounts/${bobId}/disable`, { reason: 'private operator note' });
+    await operator.post(`/api/operator/accounts/${bobId}/enable`);
+    const { b: bobAgain } = await signInUser(app, workos, bob);
+    const bobDev = (await bobAgain.post('/api/account/workspace/connect', {})).json;
+    const bobLog = await activityOf(app, bobDev.token);
+    const disabled = bobLog.json.activity.find((e) => e.action === 'account.disabled')!;
+    expect(disabled.actor).toEqual({ type: 'system' });
+    expect(bobLog.text.includes('private operator note')).toBe(false);
+  });
+});
+
+describe('device status, last use and housekeeping', () => {
+  it('tells the holder of a rejected device token why it stopped working', async () => {
+    const { app, workos, operator } = await accountsApp(d1.db);
+    const anon = browser(app);
+    const status = async (token: string) => (await anon.call('GET', '/api/account/device-status', { headers: bearer(token) })).json.status;
+    const { b } = await signInUser(app, workos, alice);
+    const dev = (await b.post('/api/account/workspace', {})).json;
+    const { b: b2 } = await signInUser(app, workos, alice);
+    const dev2 = (await b2.post('/api/account/workspace/connect', {})).json;
+    expect(await status(dev.token)).toBe('active');
+    expect(await status('mi_ws_unknownunknownunknownunknownunknown1234')).toBe('unknown');
+    await b.del(`/api/account/devices/${dev2.deviceId}`);
+    expect(await status(dev2.token)).toBe('revoked');
+    const id = (await operator.get('/api/operator/accounts')).json.accounts[0].id;
+    await operator.post(`/api/operator/accounts/${id}/disable`, {});
+    expect(await status(dev.token)).toBe('account_disabled');
+    expect((await anon.call('GET', '/api/account/device-status')).status).toBe(400);
+  });
+
+  it('records device last use on successful bearer requests, throttled', async () => {
+    const clock = new TestClock();
+    const { app, workos } = await accountsApp(d1.db, { clock });
+    const { b } = await signInUser(app, workos, alice);
+    const dev = (await b.post('/api/account/workspace', {})).json;
+    const lastUsed = async () => (await d1.db.prepare('SELECT last_used_at AS t FROM workspace_tokens WHERE id = ?').bind(dev.deviceId).first<{ t: number | null }>())!.t;
+    const until = async (pred: (v: number | null) => boolean) => {
+      for (let i = 0; i < 50; i++) {
+        const v = await lastUsed();
+        if (pred(v)) return v;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return lastUsed();
+    };
+    const settle = () => new Promise((r) => setTimeout(r, 150));
+    expect(await lastUsed()).toBeNull();
+    expect((await api(app).get('/api/v1/invoices', dev.token)).status).toBe(200);
+    const first = await until((v) => v !== null);
+    expect(first).toBe(clock.now.getTime());
+    clock.advance(10_000);
+    await api(app).get('/api/v1/invoices', dev.token);
+    await settle();
+    expect(await lastUsed()).toBe(first); // within the 60 s throttle
+    clock.advance(61_000);
+    await api(app).post('/api/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' }, dev.token, { accept: 'application/json, text/event-stream' });
+    const second = await until((v) => v !== first);
+    expect(second).toBe(clock.now.getTime());
+    // Failed requests do not count.
+    clock.advance(61_000);
+    expect((await api(app).get('/api/v1/invoices/00000000-0000-4000-8000-000000000999', dev.token)).status).toBe(404);
+    await settle();
+    expect(await lastUsed()).toBe(second);
+    expect((await b.get('/api/account/devices')).json.devices[0].lastUsedAt).toBe(second);
+  });
+
+  it('prunes expired sign-in states, ended sessions and long-revoked device tokens hourly', async () => {
+    const clock = new TestClock();
+    const { app, workos, deps } = await accountsApp(d1.db, { clock });
+    const { b } = await signInUser(app, workos, alice);
+    const dev = (await b.post('/api/account/workspace', {})).json;
+    const { b: b2 } = await signInUser(app, workos, alice);
+    const dev2 = (await b2.post('/api/account/workspace/connect', {})).json;
+    await b.del(`/api/account/devices/${dev2.deviceId}`);
+    await browser(app).post('/api/account/auth/start', {}); // an abandoned sign-in
+    const n = (table: string) => count(`SELECT COUNT(*) AS n FROM ${table}`);
+    expect(await n('user_oauth_states')).toBe(1);
+    const run = () => runScheduledJobs(deps, { cron: '17 * * * *', scheduledTime: clock.now.getTime() });
+    clock.advance(11 * 60_000);
+    expect((await run()).find((r) => r.name === 'accounts.cleanup')).toEqual({ name: 'accounts.cleanup', ok: true });
+    expect(await n('user_oauth_states')).toBe(0);
+    expect(await n('workspace_tokens')).toBe(2); // the revoked one is kept for 30 days (sign-out reason)
+    expect(await n('user_sessions')).toBe(2);
+    clock.advance(31 * DAY);
+    await run();
+    expect(await n('workspace_tokens')).toBe(1);
+    expect(await n('user_sessions')).toBe(0); // idle past the timeout
+    expect((await api(app).get('/api/v1/invoices', dev.token)).status).toBe(200); // the active device keeps syncing
+  });
+
+  it('keeps device tokens working when accounts are turned off; sign-out and the operator warning still work', async () => {
+    const { app, workos, operator } = await accountsApp(d1.db);
+    const { b } = await signInUser(app, workos, alice);
+    const dev = (await b.post('/api/account/workspace', {})).json;
+    const { b: b2 } = await signInUser(app, workos, alice);
+    const dev2 = (await b2.post('/api/account/workspace/connect', {})).json;
+    expect((await operator.put('/api/operator/settings/accounts.enabled', { value: false })).status).toBe(200);
+    expect((await browser(app).get('/api/account/config')).json.enabled).toBe(false);
+    expect((await b.get('/api/account/session')).status).toBe(404);
+    expect((await api(app).get('/api/v1/invoices', dev.token)).status).toBe(200);
+    expect((await operator.get('/api/operator/accounts')).json).toMatchObject({ enabled: false, linkedWorkspaces: 1 });
+    expect((await browser(app).post('/api/account/sign-out', undefined, { headers: bearer(dev2.token) })).status).toBe(204);
+    expect((await api(app).get('/api/v1/invoices', dev2.token)).status).toBe(401);
+    expect((await api(app).get('/api/v1/invoices', dev.token)).status).toBe(200);
+  });
+});

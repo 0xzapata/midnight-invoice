@@ -122,6 +122,13 @@ export function Accounts() {
         </div>
       }
     >
+      {first && !first.enabled && first.linkedWorkspaces > 0 && (
+        <p role="status" className="mb-3 border border-yellow-500/40 bg-yellow-500/5 px-3 py-2 text-xs text-foreground">
+          User accounts are off, but {first.linkedWorkspaces} workspace{first.linkedWorkspaces === 1 ? ' is' : 's are'} owned by an account. Their
+          signed-in devices keep syncing with their own keys (nobody is locked out), but nobody can sign in, add a device or manage their
+          account until accounts are turned back on. Disable an account here to revoke its devices.
+        </p>
+      )}
       {q.isPending && <Spinner />}
       <ErrorNote error={q.error} />
       {q.data && rows.length === 0 && <Empty>No accounts match.</Empty>}

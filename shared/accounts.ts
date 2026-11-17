@@ -86,6 +86,8 @@ export interface DeviceItem {
   createdAt: number;
   /** Most recent activity of a session linked to this device (account pages), if any. */
   lastSeenAt: number | null;
+  /** Last authenticated API use of this device's token (sync, approvals), throttled. */
+  lastUsedAt: number | null;
   signedIn: boolean;
   current: boolean;
 }
@@ -197,6 +199,8 @@ export interface OperatorAccountItem {
 
 export interface OperatorAccountsResponse {
   enabled: boolean;
+  /** Workspaces owned by an account. When accounts are off their device tokens keep working (see README). */
+  linkedWorkspaces: number;
   requiredForNewWorkspaces: boolean;
   accounts: OperatorAccountItem[];
   next: string | null;

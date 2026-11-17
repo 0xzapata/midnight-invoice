@@ -204,6 +204,7 @@ describe('operator console: dashboard', () => {
     'GET /accounts': () => ({
       json: {
         enabled: true,
+        linkedWorkspaces: 1,
         requiredForNewWorkspaces: false,
         accounts: [
           { id: 'acc-1', email: 'alice@example.com', emailVerified: true, createdAt: Date.now(), lastSignInAt: Date.now(), workspaceId: 'ws-1234567890', activeDevices: 2, disabled: false, disabledAt: null, disabledReason: null },

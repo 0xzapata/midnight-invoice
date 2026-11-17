@@ -235,7 +235,7 @@ export const SETTINGS = {
     group: 'Accounts',
     label: 'User accounts',
     description:
-      'Let users sign in with WorkOS AuthKit to reach their workspace from any browser. Needs the WorkOS credentials above and the redirect URI <public URL>/api/account/auth/callback in the WorkOS dashboard.',
+      'Let users sign in with WorkOS AuthKit to reach their workspace from any browser. Needs the WorkOS credentials above and the redirect URI <public URL>/api/account/auth/callback in the WorkOS dashboard. Turning it off later hides sign-in; already signed-in devices keep syncing (see Users → Accounts).',
     default: false,
   }),
   'accounts.requiredForNewWorkspaces': setting.boolean({

@@ -29,9 +29,9 @@ import {
 import { syncNow } from '@/lib/sync/engine';
 import { useCloudStore } from '@/stores/useCloudStore';
 import { cn } from '@/lib/utils';
-import { AccountLinkedPanel, AccountSignInOption } from '@/accounts/components/AccountSignIn';
+import { AccountLinkedPanel, AccountSignInOption, AccountSignedOutNotice } from '@/accounts/components/AccountSignIn';
 import { useAccountConfig } from '@/accounts/hooks';
-import { useLinkedAccount } from '@/accounts/useAccountStore';
+import { useAccountStore, useLinkedAccount } from '@/accounts/useAccountStore';
 
 const sectionCard = 'rounded-lg border border-border bg-card p-4 sm:p-5';
 
@@ -111,7 +111,9 @@ export function EnableCloudSyncCard({
 }) {
   const [pending, setPending] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
-  const disconnected = useCloudStore((s) => s.disconnectedReason === 'token_rejected');
+  // A signed-in browser that was signed out gets the account's own explanation instead.
+  const accountNotice = useAccountStore((s) => !!s.signedOut);
+  const disconnected = useCloudStore((s) => s.disconnectedReason === 'token_rejected') && !accountNotice;
   // Operator setting: new workspaces need an account (the anonymous "Turn on" button is hidden).
   const accountRequired = useAccountConfig(offerAccount).data?.requiredForNewWorkspaces === true;
 
@@ -130,6 +132,7 @@ export function EnableCloudSyncCard({
 
   return (
     <div className={cn(sectionCard, 'space-y-4')}>
+      <AccountSignedOutNotice />
       {disconnected && (
         <div role="alert" className="flex gap-3 border border-destructive/30 bg-destructive/10 p-3 text-sm text-foreground">
           <Unplug className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
@@ -165,7 +168,7 @@ export function EnableCloudSyncCard({
             {pending ? 'Turning on…' : 'Turn on cloud sync'}
           </Button>
         )}
-        <Button variant="outline" onClick={() => setShowConnect((v) => !v)} aria-expanded={showConnect}>
+        <Button variant="outline" onClick={() => setShowConnect((v) => !v)} aria-expanded={showConnect} className="h-auto min-h-10 whitespace-normal">
           <KeyRound className="w-4 h-4" aria-hidden="true" />
           Connect existing workspace
         </Button>

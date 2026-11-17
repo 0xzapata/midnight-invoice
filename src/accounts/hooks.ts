@@ -20,7 +20,9 @@ export function useAccountConfig(enabled = true) {
         return { enabled: false, requiredForNewWorkspaces: false };
       }
     },
-    staleTime: 5 * 60_000,
+    // Read at most once per page load: the flag only changes when the operator flips it.
+    staleTime: Infinity,
+    gcTime: Infinity,
     retry: false,
   });
 }
@@ -30,6 +32,7 @@ export function useAccountSession(enabled: boolean) {
   return useQuery({
     queryKey: ACCOUNT_SESSION_KEY,
     enabled,
+    staleTime: 60_000,
     queryFn: async () => {
       try {
         return await accountApi.session();

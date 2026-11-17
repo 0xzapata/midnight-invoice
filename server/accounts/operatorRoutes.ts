@@ -9,6 +9,7 @@ import type { OperatorAccountsResponse } from '../../shared/accounts';
 import type { AppDeps } from '../deps';
 import { readJson } from '../http';
 import { OperatorError } from '../operator/errors';
+import { accountActivityContext, accountEntry, recordAccountActivity } from './activity';
 import { createAccountsDb } from './db';
 
 type Audit = (c: Context, action: string, target?: string | null, detail?: Record<string, unknown> | null) => Promise<unknown>;
@@ -47,6 +48,7 @@ export function registerAccountOperatorRoutes(full: Hono<any>, deps: AppDeps, au
     const last = page[page.length - 1];
     return c.json<OperatorAccountsResponse>({
       enabled: deps.settings.get('accounts.enabled'),
+      linkedWorkspaces: await adb.linkedWorkspaceCount(),
       requiredForNewWorkspaces: deps.settings.get('accounts.requiredForNewWorkspaces'),
       accounts: page.map((r) => ({
         id: r.id,
@@ -72,6 +74,9 @@ export function registerAccountOperatorRoutes(full: Hono<any>, deps: AppDeps, au
     const changed = await adb.disableUser(id, now(), parsed.data.reason || null);
     if (!changed) throw OperatorError.conflict('already_disabled', 'This account is already disabled.');
     await audit(c, 'account.disable', id, parsed.data.reason ? { reason: parsed.data.reason } : null);
+    // The owner sees why their devices stopped syncing (no reason text: it is operator-private).
+    const ws = await adb.ownedWorkspace(id);
+    if (ws) await recordAccountActivity(accountActivityContext(deps), accountEntry('account.disabled', ws.id, { actor: { type: 'system' } }));
     deps.settings.invalidate();
     return c.json({ disabled: true });
   });

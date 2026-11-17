@@ -94,7 +94,11 @@ function DeviceRow({ device, onRevoke, pending }: { device: DeviceItem; onRevoke
         </p>
         <p className="text-xs">
           Added {format(device.createdAt, 'PP')}
-          {device.lastSeenAt ? ` · account last used ${formatDistanceToNow(device.lastSeenAt, { addSuffix: true })}` : ''}
+          {device.lastUsedAt
+            ? ` · last synced ${formatDistanceToNow(device.lastUsedAt, { addSuffix: true })}`
+            : device.lastSeenAt
+              ? ` · signed in ${formatDistanceToNow(device.lastSeenAt, { addSuffix: true })}`
+              : ''}
           {!device.signedIn && ' · syncing, account session ended'}
         </p>
       </div>

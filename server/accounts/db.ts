@@ -34,6 +34,7 @@ export interface DeviceTokenRow {
   user_id: string;
   device_label: string;
   created_at: number;
+  last_used_at?: number | null;
   revoked_at: number | null;
 }
 
@@ -172,11 +173,49 @@ export function createAccountsDb(db: D1Database) {
     async findWorkspaceByRecoveryHash(tokenHash: string): Promise<{ id: string; created_at: string } | null> {
       return db.prepare('SELECT id, created_at FROM workspaces WHERE token_hash = ?').bind(tokenHash).first();
     },
+    /** One of this user's devices (active or not). */
+    async findDevice(userId: string, id: string): Promise<DeviceTokenRow | null> {
+      return db
+        .prepare('SELECT id, workspace_id, user_id, device_label, created_at, last_used_at, revoked_at FROM workspace_tokens WHERE id = ? AND user_id = ?')
+        .bind(id, userId)
+        .first<DeviceTokenRow>();
+    },
+    /** Status of a device token presented by its holder (also revoked ones), for a clear "signed out" message. */
+    async deviceStatusByHash(tokenHash: string): Promise<{ revoked_at: number | null; disabled_at: number | null } | null> {
+      return db
+        .prepare('SELECT t.revoked_at, u.disabled_at FROM workspace_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?')
+        .bind(tokenHash)
+        .first();
+    },
+    /** Throttled "last used" for a device token (no-op for other tokens and within the throttle window). */
+    touchDeviceStatement(tokenHash: string, now: number, throttleMs: number): D1PreparedStatement {
+      return db
+        .prepare('UPDATE workspace_tokens SET last_used_at = ?1 WHERE token_hash = ?2 AND revoked_at IS NULL AND (last_used_at IS NULL OR last_used_at <= ?3)')
+        .bind(now, tokenHash, now - throttleMs);
+    },
+    async countActiveDevices(userId: string): Promise<number> {
+      return (await db.prepare('SELECT COUNT(*) AS n FROM workspace_tokens WHERE user_id = ? AND revoked_at IS NULL').bind(userId).first<{ n: number }>())?.n ?? 0;
+    },
+    /** Housekeeping (scheduled): expired OAuth states, ended sessions, long-revoked device tokens. */
+    async cleanup(now: number, opts: { sessionIdleMs: number; keepRevokedMs: number }): Promise<{ states: number; sessions: number; tokens: number }> {
+      const [states, sessions, tokens] = await db.batch([
+        db.prepare('DELETE FROM user_oauth_states WHERE expires_at < ?').bind(now),
+        db
+          .prepare('DELETE FROM user_sessions WHERE expires_at < ?1 OR last_seen_at < ?2 OR (revoked_at IS NOT NULL AND revoked_at < ?3)')
+          .bind(now, now - opts.sessionIdleMs, now - opts.keepRevokedMs),
+        db.prepare('DELETE FROM workspace_tokens WHERE revoked_at IS NOT NULL AND revoked_at < ?').bind(now - opts.keepRevokedMs),
+      ]);
+      return { states: states.meta.changes ?? 0, sessions: sessions.meta.changes ?? 0, tokens: tokens.meta.changes ?? 0 };
+    },
+    /** Workspaces owned by an account (operator warning when accounts are turned off). */
+    async linkedWorkspaceCount(): Promise<number> {
+      return (await db.prepare("SELECT COUNT(*) AS n FROM workspace_members WHERE role = 'owner'").first<{ n: number }>())?.n ?? 0;
+    },
     async listDevices(userId: string, now: number): Promise<(DeviceTokenRow & { last_seen_at: number | null; signed_in: number })[]> {
       return (
         await db
           .prepare(
-            `SELECT t.id, t.workspace_id, t.user_id, t.device_label, t.created_at, t.revoked_at,
+            `SELECT t.id, t.workspace_id, t.user_id, t.device_label, t.created_at, t.last_used_at, t.revoked_at,
                (SELECT MAX(s.last_seen_at) FROM user_sessions s WHERE s.device_token_id = t.id) AS last_seen_at,
                (SELECT COUNT(*) FROM user_sessions s WHERE s.device_token_id = t.id AND s.revoked_at IS NULL AND s.expires_at > ?) AS signed_in
              FROM workspace_tokens t WHERE t.user_id = ? AND t.revoked_at IS NULL ORDER BY t.created_at DESC`,

@@ -152,8 +152,9 @@ export async function signOutThisBrowser(): Promise<void> {
   try {
     await accountApi.signOut(token);
   } catch (e) {
-    // Already signed out / token already revoked: nothing left to revoke.
-    if (!isAccountError(e, 401)) throw e;
+    // Already signed out / token already revoked (401), or accounts turned off / unavailable
+    // (404 / 503): nothing more to do on the server; still leave the workspace here.
+    if (!isAccountError(e, 401) && !isAccountError(e, 404) && !isAccountError(e, 503)) throw e;
   }
   if (linked) leaveWorkspace(null);
   useAccountStore.getState().setLinked(null);

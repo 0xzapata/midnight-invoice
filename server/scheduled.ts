@@ -11,6 +11,7 @@
 import type { AppDeps } from './deps';
 import { operatorMaintenanceJob } from './operator/jobs';
 import { activityRetentionJob } from './activityJobs';
+import { accountsCleanupJob } from './accounts/jobs';
 
 export interface ScheduledJobContext {
   deps: AppDeps;
@@ -25,7 +26,7 @@ export interface ScheduledJob {
   run(ctx: ScheduledJobContext): Promise<void>;
 }
 
-export const JOBS: ScheduledJob[] = [operatorMaintenanceJob, activityRetentionJob];
+export const JOBS: ScheduledJob[] = [operatorMaintenanceJob, activityRetentionJob, accountsCleanupJob];
 
 export const CRON_SCHEDULES = [...new Set(JOBS.map((j) => j.cron))];
 

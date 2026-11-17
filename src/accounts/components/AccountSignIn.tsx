@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { LogIn, LogOut, UserPlus, UserRound } from 'lucide-react';
+import { LogIn, LogOut, Unplug, UserPlus, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,7 @@ import { safeReturnTo } from '../../../shared/accounts';
 import { accountErrorMessage, startAccountSignIn } from '../api';
 import { signOutThisBrowser } from '../connect';
 import { ACCOUNT_SESSION_KEY, useAccountConfig, useAccountSession } from '../hooks';
-import { useLinkedAccount } from '../useAccountStore';
+import { useAccountStore, useLinkedAccount } from '../useAccountStore';
 
 export function SignInButtons({ returnTo, size = 'default' }: { returnTo?: string; size?: 'default' | 'sm' }) {
   const location = useLocation();
@@ -101,12 +101,47 @@ export function AccountSignInOption({ returnTo, className }: { returnTo?: string
   );
 }
 
+/**
+ * Shown instead of the generic "disconnected" banner when a signed-in browser's
+ * device key was rejected: signed out from another device or everywhere, or
+ * the account was disabled by the site operator. Local data is always kept.
+ */
+export function AccountSignedOutNotice() {
+  const notice = useAccountStore((s) => s.signedOut);
+  const dismiss = useAccountStore((s) => s.dismissSignedOut);
+  if (!notice) return null;
+  const text =
+    notice.reason === 'account_disabled'
+      ? 'The site operator disabled this account, so this browser stopped syncing. Your invoices are still here.'
+      : notice.reason === 'revoked'
+        ? 'This browser was signed out from another device (or with “sign out everywhere”). Your invoices are still here; sign in again to keep syncing.'
+        : 'This browser was signed out: the server no longer accepts its key. Your invoices are still here; sign in again to keep syncing.';
+  return (
+    <div role="alert" className="flex gap-3 border border-destructive/30 bg-destructive/10 p-3 text-sm text-foreground">
+      <Unplug className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="font-medium">
+          Signed out of <span className="break-all">{notice.email}</span>
+        </p>
+        <p>{notice.reason === 'checking' ? 'This browser stopped syncing. Your invoices are still here.' : text}</p>
+      </div>
+      <button type="button" onClick={dismiss} className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground" aria-label="Dismiss">
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 /** Replaces the recovery-key panel when this browser syncs as a signed-in device. */
 export function AccountLinkedPanel() {
   const linked = useLinkedAccount();
   const queryClient = useQueryClient();
+  const config = useAccountConfig();
   const [busy, setBusy] = useState(false);
   if (!linked) return null;
+  // Accounts turned off by the operator: the device key keeps syncing (nobody is locked out);
+  // account management is hidden until accounts return. The browser can still detach itself.
+  const accountsOff = config.data !== undefined && !config.data.enabled;
   const signOut = async () => {
     setBusy(true);
     try {
@@ -125,19 +160,29 @@ export function AccountLinkedPanel() {
         <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <div className="min-w-0 space-y-1">
           <h4 className="text-sm font-medium text-foreground">Your account</h4>
-          <p className="text-sm text-muted-foreground">
-            Signed in as <span className="font-medium text-foreground break-all">{linked.email}</span>. To use this workspace on another
-            device, sign in there with the same account. This browser has its own key, which you can revoke from any signed-in device.
-          </p>
+          {accountsOff ? (
+            <p className="text-sm text-muted-foreground">
+              Synced with the account <span className="font-medium text-foreground break-all">{linked.email}</span>. Accounts are turned off on
+              this site right now: this browser keeps syncing with its own key, but signing in on other devices and account settings are
+              unavailable. If you sign out here you may not be able to reconnect until accounts are back (or with a recovery key).
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Signed in as <span className="font-medium text-foreground break-all">{linked.email}</span>. To use this workspace on another
+              device, sign in there with the same account. This browser has its own key, which you can revoke from any signed-in device.
+            </p>
+          )}
         </div>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/account">
-            <UserRound className="w-4 h-4" aria-hidden="true" />
-            Manage account
-          </Link>
-        </Button>
+        {!accountsOff && (
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/account">
+              <UserRound className="w-4 h-4" aria-hidden="true" />
+              Manage account
+            </Link>
+          </Button>
+        )}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" disabled={busy}>

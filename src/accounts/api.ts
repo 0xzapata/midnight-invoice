@@ -85,6 +85,9 @@ export const accountApi = {
   claim: (workspaceToken: string) => request<DeviceTokenResponse>('POST', '/workspace/claim', { body: {}, bearer: workspaceToken }),
   connect: (currentToken?: string | null) => request<DeviceTokenResponse>('POST', '/workspace/connect', { body: {}, bearer: currentToken }),
   devices: () => request<DevicesResponse>('GET', '/devices'),
+  /** Why a (rejected) device token stopped working; the token itself authenticates the question. */
+  deviceStatus: (deviceToken: string) =>
+    request<{ status: 'active' | 'revoked' | 'account_disabled' | 'unknown' }>('GET', '/device-status', { bearer: deviceToken }),
   revokeDevice: (id: string) => request<void>('DELETE', `/devices/${encodeURIComponent(id)}`),
   signOutEverywhere: (keepThisDevice: boolean) => request<void>('POST', '/sign-out-everywhere', { body: { keepThisDevice } }),
   rotateRecoveryKey: () => request<RecoveryKeyRotateResponse>('POST', '/recovery-key/rotate', { body: {} }),
@@ -106,6 +109,8 @@ export async function startAccountSignIn(intent: 'sign-in' | 'sign-up', returnTo
 export function accountErrorMessage(error: unknown): string {
   if (error instanceof AccountApiError) {
     if (error.code === 'rate_limited') return 'Too many attempts. Wait a minute and try again.';
+    // Operator policy (maintenance mode, suspended workspace) carries a message meant for users.
+    if (error.code === 'maintenance' || error.code === 'workspace_suspended' || error.code === 'registration_closed') return error.message;
     if (error.code === 'accounts_unavailable' || error.status === 503) return 'Accounts are not available on this site right now.';
     if (error.status === 401) return 'Your account session ended. Sign in again.';
     return error.message;

@@ -186,8 +186,8 @@ describe('/account', () => {
     accounts.signIn('alice@example.com', null);
     accounts.acc.workspace = { ...fake.state.workspace, recoveryKeyEnabled: true };
     accounts.acc.devices = [
-      { id: 'device-1', label: 'Firefox on macOS', createdAt: Date.parse('2026-11-10T10:00:00Z'), lastSeenAt: null, signedIn: true, current: true },
-      { id: 'device-2', label: 'Safari on iOS', createdAt: Date.parse('2026-11-12T10:00:00Z'), lastSeenAt: null, signedIn: true, current: false },
+      { id: 'device-1', label: 'Firefox on macOS', createdAt: Date.parse('2026-11-10T10:00:00Z'), lastSeenAt: null, lastUsedAt: null, signedIn: true, current: true },
+      { id: 'device-2', label: 'Safari on iOS', createdAt: Date.parse('2026-11-12T10:00:00Z'), lastSeenAt: null, lastUsedAt: null, signedIn: true, current: false },
     ];
     accounts.acc.sessionDeviceId = 'device-1';
     useAccountStore.setState({ linked: { userId: 'user-alice@example.com', email: 'alice@example.com', deviceId: 'device-1', workspaceId: 'ws-1' } });

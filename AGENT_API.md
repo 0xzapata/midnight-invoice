@@ -371,6 +371,12 @@ logged.
 | `agent.revoked` | the user revoked an agent | |
 | `agent.revoked_key_used` | a revoked agent's key was used (401; at most once per agent and hour) | |
 | `sync.bulk_upload` | the browser uploaded its local data when joining a workspace (one entry per upload) | `{counts:{invoices,clients}}` |
+| `account.workspace_created` / `account.workspace_claimed` | the owner created this workspace with an account / attached it to their account (optional user accounts) | |
+| `account.device_signed_in` / `account.device_revoked` | a browser signed in to the owner's account (gets its own workspace token) / was signed out; entity `device` with a label like "Firefox on macOS" | |
+| `account.signed_out_other_devices` / `account.signed_out_everywhere` | the owner signed out other devices / every device | `{counts:{devices}}` |
+| `account.recovery_key_created` / `_rotated` / `_disabled` | the workspace's original token (recovery key) was created, replaced or turned off | |
+| `account.deleted` | the owner deleted their account and kept the workspace | |
+| `account.disabled` | the site operator disabled the owning account (actor `system`) | |
 
 New features add `<entity>.<verb>` codes; clients must accept codes they do
 not know. Entries never contain document bodies, field values, tokens or keys:
