@@ -34,13 +34,18 @@ only as SHA-256 hashes. Send them as `Authorization: Bearer <secret>`.
 | `settings:read` | Read the default sender settings |
 | `clients:read` | List/search/get saved clients; bill an invoice to a saved client (`clientId`) |
 | `clients:write` | Create, update, archive and delete saved clients |
+| `templates:read` | List/search/get invoice templates; with `invoices:write`, create invoices from a template |
+| `templates:write` | Create, update, archive and delete invoice templates |
 
 There is no separate `clients:delete`: deleting a client is a soft delete of
 address-book data that never touches invoices (they keep their own copy of the
 client's details), and `clients:write` can already blank every field of a
 client, so a separate scope would not protect anything. Scopes are never added
 to existing agents: an agent approved before clients existed keeps exactly the
-scopes it was granted and must register again to get client access.
+scopes it was granted and must register again to get client access. The
+same holds for `templates:read` / `templates:write` (write includes delete,
+for the same reason as clients: deleting a template never touches the
+invoices made from it).
 
 Settings writes, agent management and workspace deletion require the workspace
 token; no scope grants them.
@@ -140,6 +145,13 @@ All bodies are JSON (`Content-Type: application/json`). Errors always look like
 | PUT | `/api/v1/clients/:id` | any | `clients:write` | Create-or-replace with client UUID → 201/200 |
 | PATCH | `/api/v1/clients/:id` | any | `clients:write` | Partial update (e.g. `{"archivedAt": "…"}`) → 200 |
 | DELETE | `/api/v1/clients/:id` | any | `clients:write` | Soft delete → 204 (invoices unchanged) |
+| GET | `/api/v1/templates` | any | `templates:read` | Search (`q`: name or description) and sync feed, see [Templates](#templates) |
+| POST | `/api/v1/templates` | any | `templates:write` | → 201 `{template}` + `ETag`, `Location` |
+| GET | `/api/v1/templates/:id` | any | `templates:read` | `{template}` + `ETag`; 410 if deleted |
+| PUT | `/api/v1/templates/:id` | any | `templates:write` | Create-or-replace with client UUID → 201/200 |
+| PATCH | `/api/v1/templates/:id` | any | `templates:write` | Partial update (lineItems replaces the list) → 200 |
+| DELETE | `/api/v1/templates/:id` | any | `templates:write` | Soft delete → 204 (invoices unchanged) |
+| POST | `/api/v1/templates/:id/instantiate` | any | `invoices:write` + `templates:read` | Optional overrides → 201 `{invoice, template, placeholders, warnings}`, see [Creating an invoice from a template](#creating-an-invoice-from-a-template) |
 | GET | `/api/v1/invoices/:id/pdf` | any | `invoices:read` | `application/pdf`, styled like the app's invoice preview; optional `?theme=light\|dark` (default `dark`, the app default; anything else → 400) |
 | GET | `/api/v1/settings` | any | `settings:read` | `{settings,updatedAt}` (defaults + `updatedAt:null` if never saved) |
 | PUT | `/api/v1/settings` | workspace token | | Body = settings object → `{settings,updatedAt}` |
@@ -324,10 +336,89 @@ A saved client (`ApiClientRecord`):
   `{clients, syncedAt, hasMore, next}`), and clients have the same revision,
   ETag, `If-Match`/`If-None-Match: *`, tombstone and `410` rules.
 
+### Templates
+
+A template (`ApiTemplate`) is a reusable invoice blueprint:
+
+```json
+{
+  "id": "9b2f…", "name": "Monthly retainer", "description": "Design retainer, billed on the 1st",
+  "clientId": "5c1e…", "invoiceNamePattern": "Retainer {{month_name}} {{year}}",
+  "lineItems": [{ "id": "…", "description": "Design retainer – {{prev_month_name}} {{prev_month_year}}", "quantity": 1, "price": 2500 }],
+  "taxRate": null, "currency": null, "paymentTermsDays": 14,
+  "notes": "Thank you, {{client_name}}! Reference {{invoice_number}}.", "paymentDetails": "",
+  "archivedAt": null, "createdAt": "…", "updatedAt": "…", "deletedAt": null, "revision": 1,
+  "createdBy": { "type": "user" }, "updatedBy": { "type": "user" }
+}
+```
+
+- Body of `POST`/`PUT` (`TemplateInput`): only `name` is required. "Not
+  set" is `null` for `clientId`, `taxRate`, `currency`, `paymentTermsDays`
+  and `""` for the text fields; unset values fall through to the client's
+  defaults and the workspace settings when an invoice is created. Limits:
+  name 200, description 1000, invoice name 200, 0–200 line items (description
+  1–1000), notes/payment details 5000, tax 0–100, terms 0–3650 days. Bodies ≤
+  256 KiB. Line ids are generated when omitted.
+- `clientId`, when set or changed, must name a live client of the workspace
+  and needs `clients:read` (like invoices). An unchanged reference is never
+  re-checked, so a template stays editable after its client is deleted.
+- Archive with `PATCH {"archivedAt": "…"}` (hidden from the app's
+  pickers); delete is a soft delete. Same feed, revision, ETag,
+  `If-Match`/`If-None-Match: *`, tombstone and `410` rules as clients.
+
+#### Placeholders
+
+Text in a template's invoice name, line descriptions and notes may contain
+`{{month}}` (03), `{{month_name}}` (March), `{{prev_month_name}}` (February), `{{prev_month_year}}` (year of the previous month), `{{year}}`, `{{quarter}}` (Q1), `{{client_name}}` (the Bill To name) and `{{invoice_number}}`. They are resolved when an invoice is created, against its **issue
+date** (a calendar date, so no time zone can shift the month). Only these
+exact lowercase names are replaced (`{{ month_name }}` with spaces is fine);
+nothing is ever evaluated. Unknown names (`{{Month}}`, `{{monthname}}`) and
+known ones without a value (`{{client_name}}` on an invoice with no Bill To
+name) are left in the text as typed and reported. Payment details are copied
+as typed.
+
+### Creating an invoice from a template
+
+```bash
+curl -X POST "$BASE/api/v1/templates/$TEMPLATE_ID/instantiate" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"issueDate": "2026-12-01"}'
+# → 201 {"invoice": {…"status": "draft", "templateId": "9b2f…", "invoiceName": "Retainer December 2026",
+#        "dueDate": "2026-12-15", "lineItems": [{"description": "Design retainer – November 2026", …}]…},
+#        "template": {"id": "9b2f…", "name": "Monthly retainer", "revision": 1},
+#        "placeholders": {"unknown": [], "unresolved": []}, "warnings": []}
+```
+
+- Requires `invoices:write` **and** `templates:read` (plus `clients:read` when
+  the invoice is billed to a saved client, as for any invoice). With
+  `invoices:read` too, `{{invoice_number}}` uses the number the invoice gets;
+  without it (and without an explicit `invoiceNumber`) it stays as typed and a
+  warning says why.
+- The body is optional: any `InvoicePatch` field (status, sentAt, paidAt and
+  templateId are ignored). **Precedence for every field: explicit request
+  value → template → client defaults → workspace settings.**
+  - `clientId`: request (`null` = no saved client) → the template's client.
+    If the template's client was deleted it is skipped with a warning.
+  - `lineItems`: request (replaces all template lines, used as given) →
+    template lines (with fresh ids).
+  - `dueDate`: request → issue date + template `paymentTermsDays` → issue
+    date + client terms → none.
+  - `taxRate`, `currency`: request → template → client default → settings.
+    `paymentDetails`: request → template → settings. `notes`,
+    `invoiceName`: request → template → none.
+  - Values given in the request are used verbatim (placeholders are only
+    resolved in template text).
+- The invoice is always a **draft**, an independent snapshot that records
+  `templateId`: editing or deleting the template never changes it.
+  `templateId` on `POST/PUT/PATCH /invoices` is only that reference (used by
+  sync); it does not apply a template.
+- A template without line items needs `lineItems` in the request (400
+  otherwise).
+
 ### Sync semantics
 
-These rules apply to every synced collection: invoices (`/invoices`) and
-saved clients (`/clients`). The examples use invoices.
+These rules apply to every synced collection: invoices (`/invoices`), saved
+clients (`/clients`) and templates (`/templates`). The examples use invoices.
 
 Designed so the browser can mirror its local invoices and pick up agents'
 changes.
@@ -419,11 +510,21 @@ Tools (only those your scopes allow are listed; others are rejected):
 | `create_client` | `clients:write` | not destructive | `ClientInput` |
 | `update_client` | `clients:write` | destructive, idempotent | `{id, expected_revision?, …fields}` (PATCH semantics) |
 | `delete_client` | `clients:write` | destructive, idempotent | `{id}` (soft delete; invoices unchanged) |
+| `list_templates` | `templates:read` | read-only | `{query?, limit?}` → `{templates, hasMore}` (search by name/description) |
+| `get_template` | `templates:read` | read-only | `{id}` |
+| `create_template` | `templates:write` | not destructive | `TemplateInput` |
+| `update_template` | `templates:write` | destructive, idempotent | `{id, expected_revision?, …fields}` (PATCH semantics) |
+| `delete_template` | `templates:write` | destructive, idempotent | `{id}` (soft delete; invoices unchanged) |
+| `create_invoice_from_template` | `invoices:write` + `templates:read` | not destructive | `{id, …overrides}` → same as `POST /templates/:id/instantiate` |
 
 `create_invoice` and `update_invoice` accept `clientId` (rules as in
 [Billing a saved client](#billing-a-saved-client)); their descriptions tell
 the model to look the client up with `list_clients` instead of inventing an
-address.
+address. `list_templates` and `create_invoice_from_template` tell the model
+to prefer an existing template whenever the user mentions one or a recurring
+invoice. `create_invoice_from_template` is listed only when the credential
+has both of its scopes; `create_invoice`/`update_invoice` do not offer
+`templateId`.
 
 Tool results carry the JSON as text and as `structuredContent`. Errors are
 tool results with `isError: true` and the REST error body as text.
