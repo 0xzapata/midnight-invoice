@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 import { api, connectAgent, createWorkspace, sampleInvoice, startD1, TestClock } from '../test/helpers';
 import { GITHUB_TOKEN, buildOperatorApp, completeSetup, fakeGithub, fakeWorkos, routeFetch, type Browser } from '../test/operator';
 import { runScheduledJobs } from '../scheduled';
@@ -136,6 +138,12 @@ describe('users (workspaces and agents)', () => {
     await s.client.post('/api/v1/invoices', sampleInvoice({ toName: 'Other client' }), agent.api_key);
     const saved = await s.client.post('/api/v1/clients', { name: 'Hidden Client GmbH', email: 'secret-ap@hidden.example', address: '42 Confidential Road' }, ws.token);
     if (saved.status !== 201) throw new Error(`client create failed: ${saved.status} ${saved.text}`);
+    const template = await s.client.post(
+      '/api/v1/templates',
+      { name: 'Covert Template Name', description: 'Private retainer terms', notes: 'TEMPLATE NOTE 77', lineItems: [{ description: 'Secret line {{month_name}}', quantity: 1, price: 99 }] },
+      ws.token,
+    );
+    if (template.status !== 201) throw new Error(`template create failed: ${template.status} ${template.text}`);
     return { ...s, ws, agent };
   }
 
@@ -160,7 +168,7 @@ describe('users (workspaces and agents)', () => {
     for (const path of ['/workspaces', '/agents', '/overview', '/telemetry?range=1h', '/telemetry?range=7d', '/audit', '/security']) {
       const r = await b.get(`/api/operator${path}`);
       expect(r.status).toBe(200);
-      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', 'Hidden Client', 'secret-ap@hidden.example', 'Confidential Road', ws.token]) {
+      for (const leak of ['SECRET CLIENT', 'PRIVATE NOTE', 'Other client', 'Design work', 'Hidden Client', 'secret-ap@hidden.example', 'Confidential Road', 'Covert Template', 'Private retainer', 'TEMPLATE NOTE', 'Secret line', ws.token]) {
         expect(r.text.includes(leak), `${path} leaked ${leak}`).toBe(false);
       }
     }
@@ -175,6 +183,7 @@ describe('users (workspaces and agents)', () => {
       expect(res.json.error).toMatchObject({ code: 'workspace_suspended' });
       expect((await client.post('/api/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' }, token)).status).toBe(403);
       expect((await client.get('/api/v1/clients', token)).json.error.code).toBe('workspace_suspended');
+      expect((await client.get('/api/v1/templates', token)).json.error.code).toBe('workspace_suspended');
     }
     const listed = (await b.get('/api/operator/workspaces?status=suspended')).json.workspaces;
     expect(listed[0]).toMatchObject({ suspended: true, suspensionReason: 'abuse report' });
@@ -193,7 +202,7 @@ describe('users (workspaces and agents)', () => {
     expect((await b.del(`/api/operator/workspaces/${ws.workspace.id}`, { confirm: 'wrong' })).status).toBe(400);
     expect((await b.del(`/api/operator/workspaces/${ws.workspace.id}`, { confirm: ws.workspace.id })).status).toBe(204);
     expect((await client.get('/api/v1/invoices', ws.token)).status).toBe(401);
-    for (const table of ['clients', 'invoices', 'agents', 'workspace_activity', 'workspace_suspensions']) {
+    for (const table of ['clients', 'templates', 'invoices', 'agents', 'workspace_activity', 'workspace_suspensions']) {
       expect(await d1.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE workspace_id = ?`).bind(ws.workspace.id).first('n'), table).toBe(0);
     }
     expect((await b.del(`/api/operator/workspaces/${ws.workspace.id}`, { confirm: ws.workspace.id })).status).toBe(404);
@@ -216,6 +225,7 @@ describe('users (workspaces and agents)', () => {
     expect(o.invoices).toMatchObject({ total: 2, recent: 2, byCreator: { user: { total: 1 }, agent: { total: 1 } } });
     expect(o.agents).toMatchObject({ active: 1, revoked: 0 });
     expect(o.clients).toEqual({ total: 1, recent: 1 });
+    expect(o.templates).toEqual({ total: 1, recent: 1 });
     expect(o.api.last24h.requests).toBeGreaterThan(4);
     expect(o.requestsHourly).toHaveLength(24);
   });
@@ -233,6 +243,11 @@ describe('telemetry', () => {
     const cl = await client.post('/api/v1/clients', { name: 'Telemetry Co' }, ws.token);
     await client.get(`/api/v1/clients/${cl.json.client.id}`, ws.token);
     await client.get('/api/v1/clients?include_deleted=true', ws.token);
+    const tpl = await client.post('/api/v1/templates', { name: 'Telemetry Template', lineItems: [{ description: 'Telemetry line', quantity: 1, price: 1 }] }, ws.token);
+    await client.get(`/api/v1/templates/${tpl.json.template.id}`, ws.token);
+    await client.get('/api/v1/templates?include_deleted=true', ws.token);
+    await client.post(`/api/v1/templates/${tpl.json.template.id}/instantiate`, { toName: 'Telemetry Buyer', fromName: 'S' }, ws.token);
+    await client.post('/api/mcp', { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_templates', arguments: {} } }, ws.token);
     await client.post(`/api/v1/invoices/${id}/mark-sent`, undefined, ws.token);
     await client.get('/api/v1/invoices/summary', ws.token);
     await client.get('/api/v1/invoices', 'mi_ws_invalid');
@@ -256,8 +271,14 @@ describe('telemetry', () => {
         'rest|GET /clients (sync)',
         'rest|POST /invoices/:id/mark-sent',
         'rest|GET /invoices/summary',
+        'rest|POST /templates',
+        'rest|GET /templates/:id',
+        'rest|GET /templates (sync)',
+        'rest|POST /templates/:id/instantiate',
+        'mcp|tool list_templates',
       ]),
     );
+    for (const leak of [tpl.json.template.id, 'Telemetry Template', 'Telemetry line', 'Telemetry Buyer']) expect(JSON.stringify(t)).not.toContain(leak);
     expect(JSON.stringify(t)).not.toContain(cl.json.client.id);
     expect(JSON.stringify(t)).not.toContain('Telemetry Co');
     const groupOfMetric = (m: string) => t.metrics.find((x: { metric: string }) => x.metric === m).group;
@@ -265,13 +286,18 @@ describe('telemetry', () => {
     expect(groupOfMetric('rest|GET /invoices/summary')).toBe('Invoice status');
     expect(groupOfMetric('rest|GET /clients/:id')).toBe('Clients');
     expect(groupOfMetric('rest|GET /clients (sync)')).toBe('Sync');
+    expect(groupOfMetric('rest|GET /templates/:id')).toBe('Templates');
+    expect(groupOfMetric('rest|POST /templates/:id/instantiate')).toBe('Templates');
+    expect(groupOfMetric('rest|GET /templates (sync)')).toBe('Sync');
     expect(JSON.stringify(t)).not.toContain(id);
     const pdf = t.metrics.find((m: { metric: string }) => m.metric === 'rest|GET /invoices/:id/pdf');
     expect(pdf).toMatchObject({ group: 'PDF rendering', count: 1, errors: 0 });
     expect(t.totals.authFailures).toBeGreaterThanOrEqual(1);
     expect(t.groups.map((g: { group: string }) => g.group)).toEqual(expect.arrayContaining(['Sync', 'PDF rendering', 'MCP endpoint', 'Invoices']));
     expect(t.recentErrors.some((e: { status: number; metric: string }) => e.status === 401 && e.metric === 'rest|GET /invoices')).toBe(true);
-    expect(t.d1).toMatchObject({ ok: true, migration: '0004_operator.sql' });
+    // The newest migration file is the one D1 reports as applied last.
+    const latest = readdirSync(path.resolve(import.meta.dirname, '../../migrations')).filter((f) => f.endsWith('.sql')).sort().pop();
+    expect(t.d1).toMatchObject({ ok: true, migration: latest });
     expect(t.series).toHaveLength(60);
     // Rollups exist for both granularities.
     const g = await d1.db.prepare("SELECT DISTINCT granularity FROM telemetry_rollups ORDER BY granularity").all();

@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 - **Sync engine** generalised to synced collections (`src/lib/sync/collection.ts`, `collections/`): invoices and clients share pull/push, queue, backoff, tombstones and the three-way merge; uploads of referenced clients go before the invoices that reference them. The cloud store moves to version 2 (per-collection cursors and queue entries; version 1 data is migrated).
 - Invoice `toName` may be omitted on `POST`/`PUT /api/v1/invoices` when `clientId` is given (OpenAPI `InvoiceInput.required` is now `["lineItems"]`).
 - The dashboard's "New Invoice" button is icon-only on small screens.
-- Dashboard header: the Clients / Templates / Agents labels show from the `lg` breakpoint, and the app name text is visually hidden below `sm`, so all header actions fit at 390 px.
+- Dashboard header: Clients, Templates and Agents are separate links from `sm` (labels from `lg`) and one "Pages" menu on phones (`src/components/HeaderNav.tsx`), so the header fits at 320 px with sync status and New Invoice. On the invoice page "Save as template" sits in the "More actions" menu below `lg`. Saving a template from an invoice offers "View templates" in the toast. The operator console counts templates (counts only), groups template routes under "Templates" in telemetry and treats `GET /templates?include_deleted=true` as sync.
 
 ### Changed
 - **Dependencies**: Upgraded to current major versions: React 19.3, React Router 8 (replaces `react-router-dom` 6), Tailwind CSS 4, Vite 8, Vitest 5, TypeScript 6.0, ESLint 10, Zod 4, date-fns 4, lucide-react 1, Sonner 2, tailwind-merge 3, next-themes 0.4, vite-plugin-pwa 2, jsdom 31 and more.

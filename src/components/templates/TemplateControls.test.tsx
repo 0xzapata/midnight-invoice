@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { act } from 'react';
+import { toast } from 'sonner';
 import { InvoiceForm } from '@/components/invoice/InvoiceForm';
 import ViewInvoice from '@/pages/ViewInvoice';
 import { useTemplateStore } from '@/stores/useTemplateStore';
@@ -166,6 +168,7 @@ describe('“Save as template” on the invoice page', () => {
       <MemoryRouter initialEntries={['/invoice/inv-1']}>
         <Routes>
           <Route path="/invoice/:id" element={<ViewInvoice />} />
+          <Route path="/templates" element={<p>Templates page</p>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -186,6 +189,13 @@ describe('“Save as template” on the invoice page', () => {
       lineItems: [{ description: 'Build', quantity: 1, price: 4000 }],
     });
     expect(useInvoiceStore.getState().invoices).toEqual([invoice]);
+    // The toast offers to open the Templates page.
+    const [title, options] = vi.mocked(toast.success).mock.calls[vi.mocked(toast.success).mock.calls.length - 1];
+    expect(title).toBe('Saved the template “Website build”');
+    const action = (options as { action: { label: string; onClick: () => void } }).action;
+    expect(action.label).toBe('View templates');
+    act(() => action.onClick());
+    expect(await screen.findByText('Templates page')).toBeInTheDocument();
   });
 });
 

@@ -208,3 +208,39 @@ describe('templates as the third synced collection', () => {
     expect(Object.keys(useCloudStore.getState().syncErrors)).toEqual([syncKey('templates', ID.retainer)]);
   });
 });
+
+describe('operator pause applies to templates', () => {
+  const suspended = () => fake.apiError(403, 'workspace_suspended', 'This workspace has been suspended by the site operator.');
+  const maintenance = () => fake.apiError(503, 'maintenance', 'Back at 10:00 UTC', undefined, { 'retry-after': '300' });
+
+  for (const [name, refuse] of [['suspension', suspended], ['maintenance', maintenance]] as const) {
+    it(`${name}: a template upload is paused, kept in the queue and sent once the workspace is available again`, async () => {
+      connectFake();
+      await syncNow();
+      const off = fake.use((req) => (req.path.startsWith('/templates') && req.method !== 'GET' ? refuse() : undefined));
+      saveTemplate(ID.retainer);
+      await syncNow();
+      const s = useCloudStore.getState();
+      expect(s.status).toBe('paused');
+      expect(s.queue).toEqual([expect.objectContaining({ collection: 'templates', entityId: ID.retainer, attempts: 0 })]);
+      expect(s.syncErrors).toEqual({});
+      expect(fake.server.getTemplate(ID.retainer)).toBeUndefined();
+      off();
+      await syncNow({ force: true });
+      expect(useCloudStore.getState().status).toBe('synced');
+      expect(fake.server.getTemplate(ID.retainer)).toMatchObject({ name: RETAINER.name });
+    });
+  }
+
+  it('a refused template pull pauses sync without touching local templates', async () => {
+    connectFake();
+    saveTemplate(ID.retainer);
+    await syncNow();
+    await whenIdle();
+    const off = fake.use((req) => (req.path === '/templates' ? suspended() : undefined));
+    await syncNow({ force: true });
+    expect(useCloudStore.getState().status).toBe('paused');
+    expect(local(ID.retainer)).toBeDefined();
+    off();
+  });
+});

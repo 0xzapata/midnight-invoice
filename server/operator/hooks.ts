@@ -70,7 +70,7 @@ function restMetricName(c: Context): string {
     // keep "(unmatched)"
   }
   const short = template.replace(/^\/api\/v1/, '').replace(/^\/api\/operator/, '') || '/';
-  const sync = c.req.method === 'GET' && (template === '/api/v1/invoices' || template === '/api/v1/clients') && c.req.query('include_deleted') === 'true';
+  const sync = c.req.method === 'GET' && (template === '/api/v1/invoices' || template === '/api/v1/clients' || template === '/api/v1/templates') && c.req.query('include_deleted') === 'true';
   return `${c.req.method} ${short}${sync ? ' (sync)' : ''}`;
 }
 
