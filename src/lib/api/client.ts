@@ -54,6 +54,8 @@ export interface WritePreconditions {
   ifMatch?: number;
   /** Create only: 412 if the id already exists. */
   ifNoneMatch?: boolean;
+  /** Part of a bulk upload (joining a workspace): batch id sent as `X-Midnight-Sync` so the activity log summarises it. */
+  bulkUpload?: string;
 }
 
 const encode = (segment: string) => encodeURIComponent(segment);
@@ -125,6 +127,7 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
     const headers: Record<string, string> = {};
     if (pre.ifMatch !== undefined) headers['if-match'] = `"${pre.ifMatch}"`;
     if (pre.ifNoneMatch) headers['if-none-match'] = '*';
+    if (pre.bulkUpload) headers['x-midnight-sync'] = `bulk-upload; batch=${pre.bulkUpload}`;
     return headers;
   };
 
