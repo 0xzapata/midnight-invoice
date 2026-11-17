@@ -6,7 +6,7 @@ export const env = createEnv({
         // Add server-side environment variables here
     },
     client: {
-        VITE_APP_NAME: z.string().min(1),
+        VITE_APP_NAME: z.string().min(1).optional().default("Midnight Invoice"),
         VITE_APP_ENV: z.enum(["DEVELOPMENT", "STAGING", "PREVIEW", "PRODUCTION"]).optional().default("DEVELOPMENT"),
     },
     /**
