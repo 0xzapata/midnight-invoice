@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { formatCurrency } from '@/lib/invoice-utils';
 import { AgentBadge } from '@/components/AgentBadge';
+import { RecurringBadge } from '@/recurring/RecurringBadge';
 import { useCloudStore } from '@/stores/useCloudStore';
 import { invoiceIssues } from '@/lib/validation';
 import { invoiceListLabel } from '@/lib/invoiceName';
@@ -87,6 +88,7 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
                   </p>
                   <StatusBadge invoice={invoice} today={today} />
                   <AgentBadge invoice={invoice} />
+                  <RecurringBadge invoice={invoice} />
                   {syncErrors[invoice.id] && (
                     <button
                       type="button"

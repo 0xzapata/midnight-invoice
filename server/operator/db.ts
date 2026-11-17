@@ -523,7 +523,7 @@ export function createOperatorDb(db: D1Database) {
     // Stats
     // -------------------------------------------------------------------------
     async overviewCounts(sinceIso: string, sinceMs: number, nowMs: number) {
-      const [ws, inv, invBy, ag, reg, act, sus, cli, tpl] = await db.batch([
+      const [ws, inv, invBy, ag, reg, act, sus, cli, tpl, rec] = await db.batch([
         db.prepare('SELECT COUNT(*) AS total, SUM(created_at >= ?) AS recent FROM workspaces').bind(sinceIso),
         db.prepare('SELECT COUNT(*) AS total, SUM(created_at >= ?) AS recent FROM invoices WHERE deleted_at IS NULL').bind(sinceIso),
         db.prepare(
@@ -540,6 +540,7 @@ export function createOperatorDb(db: D1Database) {
         db.prepare('SELECT COUNT(*) AS n FROM workspace_suspensions'),
         db.prepare('SELECT COUNT(*) AS total, SUM(created_at >= ?) AS recent FROM clients WHERE deleted_at IS NULL').bind(sinceIso),
         db.prepare('SELECT COUNT(*) AS total, SUM(created_at >= ?) AS recent FROM templates WHERE deleted_at IS NULL').bind(sinceIso),
+        db.prepare(`SELECT COUNT(*) AS total, SUM(status = 'active') AS active, SUM(status = 'paused') AS paused FROM recurring_schedules WHERE deleted_at IS NULL`),
       ]);
       const first = <T>(r: D1Result) => (r.results[0] ?? {}) as T;
       return {
@@ -552,6 +553,7 @@ export function createOperatorDb(db: D1Database) {
         suspended: first<{ n: number }>(sus).n ?? 0,
         clients: first<{ total: number; recent: number | null }>(cli),
         templates: first<{ total: number; recent: number | null }>(tpl),
+        recurring: first<{ total: number; active: number | null; paused: number | null }>(rec),
       };
     },
     async dailyCreations(table: 'workspaces' | 'invoices', sinceIso: string): Promise<{ day: string; n: number }[]> {

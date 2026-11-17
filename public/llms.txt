@@ -26,7 +26,8 @@ approves in the app. OAuth access tokens only work on /api/mcp.
 1. POST /api/v1/agents/register with {"name", "description"?, "scopes": [...]}
    Scopes: invoices:read, invoices:write, invoices:delete, settings:read,
    clients:read, clients:write, templates:read, templates:write,
-   activity:read, invoices:send (email invoices; ask only if needed)
+   activity:read, invoices:send (email invoices; ask only if needed),
+   recurring:read, recurring:write
 2. Show the user `user_code` and `verification_url_complete`; they approve it in the app.
 3. Poll POST /api/v1/agents/token with {"device_code"} every `interval` seconds
    until it returns {"api_key"} (errors: authorization_pending, slow_down,
@@ -39,6 +40,14 @@ approves in the app. OAuth access tokens only work on /api/mcp.
 - GET /api/v1/invoices?status=overdue (also draft, sent, paid, void; comma list), due_before, due_after, client
 - POST /api/v1/invoices/:id/mark-sent | mark-paid | void | reopen (scope invoices:write)
 - MCP: list_invoices (same filters), get_invoice_summary, set_invoice_status
+
+## Bill something every month (recurring invoices)
+
+- Confirm cadence, start date, time zone and end with the user first.
+- POST /api/v1/recurring {"name","templateId","clientId"?,"frequency":"weekly|biweekly|monthly|quarterly|yearly","startDate","timezone"?,"endDate"?|"maxOccurrences"?,"autoAction"?:"draft|mark_sent"}
+  (scope recurring:write + invoices:write + templates:read; MCP create_recurring)
+- GET /api/v1/recurring/:id/preview (next dates + next invoice), POST …/pause | resume | run-now {"period"}
+- Generated invoices: GET /api/v1/invoices?recurring_id=…  Agents can never turn on automatic emailing.
 
 ## What did I already do?
 

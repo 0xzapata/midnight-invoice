@@ -13,6 +13,7 @@ import { operatorMaintenanceJob } from './operator/jobs';
 import { oauthPruneJob } from './oauth/jobs';
 import { activityRetentionJob } from './activityJobs';
 import { accountsCleanupJob } from './accounts/jobs';
+import { recurringGenerateJob } from './recurring/job';
 
 export interface ScheduledJobContext {
   deps: AppDeps;
@@ -27,7 +28,7 @@ export interface ScheduledJob {
   run(ctx: ScheduledJobContext): Promise<void>;
 }
 
-export const JOBS: ScheduledJob[] = [operatorMaintenanceJob, oauthPruneJob, activityRetentionJob, accountsCleanupJob];
+export const JOBS: ScheduledJob[] = [operatorMaintenanceJob, oauthPruneJob, activityRetentionJob, accountsCleanupJob, recurringGenerateJob];
 
 export const CRON_SCHEDULES = [...new Set(JOBS.map((j) => j.cron))];
 

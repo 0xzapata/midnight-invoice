@@ -4,6 +4,7 @@
  * (`set_invoice_status`, `get_invoice_summary`). Rules: shared/invoice-status.ts.
  */
 import type { ApiInvoice } from '../../shared/api';
+import type { Actor } from '../../shared/types/invoice';
 import {
   actionTarget,
   statusOf,
@@ -40,6 +41,8 @@ export async function changeInvoiceStatus(
     ifMatch?: RevisionPrecondition;
     /** Records this entry instead of `invoice.status_changed` (e.g. one `invoice.emailed` entry for send + status change). */
     activity?: ActivityInput;
+    /** `updatedBy` of the write (default: the principal), e.g. the system for a recurring schedule's email. */
+    actor?: Actor;
   },
 ): Promise<{ invoice: ApiInvoice; changed: boolean }> {
   requireScope(ctx.principal, 'invoices:write');
@@ -84,7 +87,7 @@ export async function changeInvoiceStatus(
       id,
       data,
       numberValue: invoiceNumberValue(existing.invoice_number),
-      actor: actorOf(ctx.principal),
+      actor: opts.actor ?? actorOf(ctx.principal),
       expectedRevision: existing.revision,
     }, activityWriteIf(ctx, opts.activity ?? invoiceChangedInput(id, { ...current, ...label }, { ...data, ...label })));
     if (row) return { invoice: toApiInvoice(row, todayDate), changed: true };

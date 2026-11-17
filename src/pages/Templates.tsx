@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode } from 'react';
-import { Archive, ArchiveRestore, Bot, FilePlus2, FileStack, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
+import { Link } from 'react-router';
+import { Archive, ArchiveRestore, Bot, FilePlus2, FileStack, Pencil, Plus, Repeat, Search, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ import {
 import { PageHeader } from '@/components/PageHeader';
 import { TemplateFormDialog } from '@/components/templates/TemplateFormDialog';
 import { useNewInvoiceFromTemplate } from '@/components/templates/useNewInvoiceFromTemplate';
+import { recurringLink } from '@/recurring/useMakeRecurring';
 import { useTemplateStore } from '@/stores/useTemplateStore';
 import { useClientStore } from '@/stores/useClientStore';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
@@ -124,6 +126,13 @@ function TemplateRow({ template, usedCount, onEdit, onNewInvoice }: { template: 
           <Button size="sm" onClick={onNewInvoice} aria-label={`New invoice from ${template.name}`}>
             <FilePlus2 className="h-4 w-4" aria-hidden="true" />
             New invoice
+          </Button>
+        )}
+        {!archived && (
+          <Button variant="outline" size="icon" className="h-9 w-9" asChild>
+            <Link to={recurringLink(template.id)} viewTransition aria-label={`Make ${template.name} recurring`} title="Make recurring">
+              <Repeat className="h-4 w-4" aria-hidden="true" />
+            </Link>
           </Button>
         )}
         <Button variant="outline" size="icon" className="h-9 w-9" onClick={onEdit} aria-label={`Edit ${template.name}`} title="Edit">

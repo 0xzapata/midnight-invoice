@@ -162,6 +162,8 @@ describe('/account/connect (after the AuthKit callback)', () => {
     renderAt('/account/connect?return_to=%2F%3Ftab%3Dsettings');
     const dialog = await screen.findByRole('alertdialog', { name: /different workspace/i });
     expect(within(dialog).getByText(/not changed or merged on the server/)).toBeInTheDocument();
+    // Schedules are server state: the prompt must not suggest they move with the invoices.
+    expect(dialog).toHaveTextContent('Recurring invoices are not copied');
     await user.click(within(dialog).getByRole('button', { name: /cancel and sign out/i }));
     expect(await screen.findByTestId('location')).toHaveTextContent('/?tab=settings');
     expect(accounts.acc.calls).toContain('POST /sign-out');

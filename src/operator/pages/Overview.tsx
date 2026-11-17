@@ -25,11 +25,12 @@ export function OverviewPage() {
   return (
     <>
       <PageTitle title="Overview" description="Headline numbers across workspaces, invoices, agents and the API. Refreshes every 30 seconds." />
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <StatTile label="Workspaces" value={fmtNumber(o.workspaces.total)} sub={`+${fmtNumber(o.workspaces.recent)} new · ${fmtNumber(o.workspaces.active7d)} active (7d)`} />
         <StatTile label="Invoices" value={fmtNumber(o.invoices.total)} sub={`+${fmtNumber(o.invoices.recent)} created (7d)`} />
         <StatTile label="Saved clients" value={fmtNumber(o.clients.total)} sub={`+${fmtNumber(o.clients.recent)} added (7d) · counts only`} />
         <StatTile label="Templates" value={fmtNumber(o.templates.total)} sub={`+${fmtNumber(o.templates.recent)} added (7d) · counts only`} />
+        <StatTile label="Recurring schedules" value={fmtNumber(o.recurring.total)} sub={`${fmtNumber(o.recurring.active)} active · ${fmtNumber(o.recurring.paused)} paused · counts only`} />
         <StatTile label="Agents" value={fmtNumber(o.agents.active)} sub={`${fmtNumber(o.agents.revoked)} revoked · ${fmtNumber(o.agents.pendingRegistrations)} pending`} />
         <StatTile
           label="API requests (24h)"
@@ -77,6 +78,7 @@ export function OverviewPage() {
             rows={[
               { label: `People (${fmtNumber(o.invoices.byCreator.user.recent)} in 7d)`, value: o.invoices.byCreator.user.total },
               { label: `Agents (${fmtNumber(o.invoices.byCreator.agent.recent)} in 7d)`, value: o.invoices.byCreator.agent.total, tone: 'muted' },
+              { label: `Recurring schedules (${fmtNumber(o.invoices.byCreator.system.recent)} in 7d)`, value: o.invoices.byCreator.system.total, tone: 'muted' },
             ]}
             format={(v) => fmtNumber(v)}
           />

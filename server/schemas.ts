@@ -91,6 +91,13 @@ const templateIdRef = z
   .transform((v) => v.toLowerCase())
   .nullable();
 
+/** The recurring schedule that generated the invoice (`null` = none). A reference only, like templateId. */
+const recurringIdRef = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Must be a recurring schedule id (UUID)')
+  .transform((v) => v.toLowerCase())
+  .nullable();
+
 /** POST /invoices and PUT /invoices/:id body. Unknown keys (e.g. totals echoed back) are stripped. */
 export const invoiceInputSchema = z.object({
   invoiceNumber: invoiceFields.invoiceNumber.optional(),
@@ -115,6 +122,7 @@ export const invoiceInputSchema = z.object({
   id: z.string().optional(),
   clientId: clientIdRef.optional(),
   templateId: templateIdRef.optional(),
+  recurringId: recurringIdRef.optional(),
 });
 export type InvoiceInputParsed = z.infer<typeof invoiceInputSchema>;
 
@@ -141,6 +149,7 @@ export const invoicePatchSchema = z.object({
   id: z.string().optional(),
   clientId: clientIdRef.optional(),
   templateId: templateIdRef.optional(),
+  recurringId: recurringIdRef.optional(),
 });
 export type InvoicePatchParsed = z.infer<typeof invoicePatchSchema>;
 
@@ -191,6 +200,7 @@ export const listInvoicesQuerySchema = z.object({
   due_after: isoDate.optional(),
   client: z.string().trim().min(1).max(LIMITS.shortText).optional(),
   client_id: clientIdRef.unwrap().optional(),
+  recurring_id: recurringIdRef.unwrap().optional(),
 });
 
 export const summaryQuerySchema = z.object({

@@ -34,6 +34,7 @@ import {
   senderDisplayName,
 } from '../../shared/email-template';
 import type { Actor } from '../../shared/types/invoice';
+import type { ActivityActor } from '../../shared/activity';
 import { INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 import { actorOf, requireScope, type Principal } from '../auth';
 import { sha256Hex } from '../crypto';
@@ -75,6 +76,21 @@ export const sendEmailRequestSchema = z
 export type SendEmailRequest = z.infer<typeof sendEmailRequestSchema>;
 
 export const IDEMPOTENCY_KEY_RE = /^[\x21-\x7e]{1,255}$/;
+
+/**
+ * An unattended send on the workspace's behalf (a recurring schedule's
+ * `send_email` auto action): nobody reviews it, so the agent rules apply —
+ * only the invoice's toEmail, only an address the user entered, and the
+ * sender details must be the user's (settings, or a template the user saved
+ * last). It counts against the workspace's own windows and the site cap,
+ * never an agent's. `actor` is stored on the message and the status change,
+ * `activityActor` / `recurring` on the activity entries.
+ */
+export interface UnattendedSend {
+  actor: Actor;
+  activityActor: ActivityActor;
+  recurring: { id: string; label: string | null };
+}
 
 export function toApiEmail(row: EmailMessageRow): InvoiceEmail {
   return {
@@ -126,9 +142,11 @@ async function requireSenderReview(
   invoice: ApiInvoice,
   settings: { fromName: string; fromEmail: string; paymentDetails: string } | null,
   emails: ReturnType<typeof createEmailRepository>,
+  unattended?: UnattendedSend,
 ): Promise<void> {
-  if (ctx.principal.type !== 'agent') return;
-  const flag = await emails.senderReviewFlag(ctx.principal.workspaceId, invoice.id);
+  if (ctx.principal.type !== 'agent' && !unattended) return;
+  // Unattended sends are always checked: the invoice was written by the system, from a template someone else may have edited.
+  const flag = unattended ? { agent_name: null } : await emails.senderReviewFlag(ctx.principal.workspaceId, invoice.id);
   if (!flag) return;
   // Payment details may also come from a template the user saved last (instantiated by the agent).
   const templatePd = invoice.templateId ? await emails.userTemplatePaymentDetails(ctx.principal.workspaceId, invoice.templateId) : null;
@@ -138,6 +156,14 @@ async function requireSenderReview(
     return !(f === 'paymentDetails' && templatePd !== null && templatePd.trim() !== '' && value === templatePd.trim());
   });
   if (differing.length === 0) return;
+  if (unattended) {
+    throw new ApiError(
+      403,
+      'invoice_needs_review',
+      `The invoice’s ${differing.join(', ')} ${differing.length === 1 ? 'differs' : 'differ'} from your default settings and ${differing.length === 1 ? 'was' : 'were'} not saved by you (the template was last changed by an agent). Review the template, or open the invoice and send it yourself.`,
+      { fields: differing },
+    );
+  }
   noteBlocked(ctx, invoice, invoice.toEmail, 'invoice_needs_review');
   throw new ApiError(
     403,
@@ -192,6 +218,7 @@ async function resolveRecipients(
   req: SendEmailRequest,
   workspaceFromEmail: string,
   emails: ReturnType<typeof createEmailRepository>,
+  restricted = ctx.principal.type === 'agent',
 ): Promise<Recipients> {
   const { principal } = ctx;
   const invoiceTo = invoice.toEmail.trim();
@@ -219,7 +246,7 @@ async function resolveRecipients(
   });
   if (cc.length > EMAIL_LIMITS.cc) throw errors.validation([{ path: 'cc', message: `At most ${EMAIL_LIMITS.cc} cc recipients` }]);
 
-  if (principal.type === 'agent') {
+  if (restricted) {
     if (normalizeEmail(to) !== normalizeEmail(invoiceTo)) {
       noteBlocked(ctx, invoice, to, 'agent_recipient_override');
       throw recipientNotAllowed('Agents can only email an invoice to the client email on the invoice (toEmail).', { reason: 'agent_recipient_override' });
@@ -248,13 +275,14 @@ async function loadSendableInvoice(ctx: ServiceContext, id: string): Promise<Api
 }
 
 /** Marks a draft as sent through the shared transition rules (invoices:send implies this one transition). */
-async function markDraftSent(ctx: ServiceContext, invoice: ApiInvoice, activity: ActivityInput): Promise<{ invoice: ApiInvoice; changed: boolean }> {
+async function markDraftSent(ctx: ServiceContext, invoice: ApiInvoice, activity: ActivityInput, actor?: Actor): Promise<{ invoice: ApiInvoice; changed: boolean }> {
   if (statusOf(invoice) !== 'draft') return { invoice, changed: false };
   const elevated: ServiceContext = { ...ctx, principal: { ...ctx.principal, scopes: [...ctx.principal.scopes, 'invoices:write'] } };
   try {
     // One activity entry for the send and the status change (recorded atomically with the status write).
     return await changeInvoiceStatus(elevated, invoice.id, { action: 'mark_sent' }, {
       activity: { ...activity, changes: { ...activity.changes, status: { from: 'draft', to: 'sent' } } },
+      actor,
     });
   } catch (error) {
     // The email went out; a concurrent status change must not turn that into an error.
@@ -270,7 +298,7 @@ export async function sendInvoiceEmail(
   ctx: ServiceContext,
   rawId: string,
   body: unknown,
-  opts: { idempotencyKey?: string | null } = {},
+  opts: { idempotencyKey?: string | null; unattended?: UnattendedSend } = {},
 ): Promise<SendInvoiceEmailResponse> {
   try {
     return await send(ctx, rawId, body, opts);
@@ -287,9 +315,10 @@ async function send(
   ctx: ServiceContext,
   rawId: string,
   body: unknown,
-  opts: { idempotencyKey?: string | null },
+  opts: { idempotencyKey?: string | null; unattended?: UnattendedSend },
 ): Promise<SendInvoiceEmailResponse> {
   const { principal, deps } = ctx;
+  const unattended = opts.unattended;
   requireScope(principal, 'invoices:send');
   const id = parseInvoiceId(rawId);
   const parsed = sendEmailRequestSchema.safeParse(body ?? {});
@@ -315,8 +344,8 @@ async function send(
   }
   const workspaceSettings = (await ctx.repo.getSettings(principal.workspaceId))?.settings ?? null;
   const workspaceFromEmail = workspaceSettings?.fromEmail ?? '';
-  const { to, cc } = await resolveRecipients(ctx, invoice, req, workspaceFromEmail, emails);
-  await requireSenderReview(ctx, invoice, workspaceSettings, emails);
+  const { to, cc } = await resolveRecipients(ctx, invoice, req, workspaceFromEmail, emails, principal.type === 'agent' || !!unattended);
+  await requireSenderReview(ctx, invoice, workspaceSettings, emails, unattended);
   const theme = req.theme ?? config.pdfTheme;
   const filename = pdfFilename(invoice.invoiceNumber);
   const composed = composeInvoiceEmail(invoice, { subject: req.subject, message: req.message, attachmentName: filename });
@@ -367,7 +396,7 @@ async function send(
   }
 
   // --- Record the attempt -------------------------------------------------------
-  const actor = actorOf(principal);
+  const actor = unattended?.actor ?? actorOf(principal);
   let messageId: string;
   if (retryOf) {
     if (!(await emails.requeue(principal.workspaceId, retryOf.id, retryOf.updated_at, now))) {
@@ -401,7 +430,12 @@ async function send(
   const fail = async (code: string, message: string, status: number, retryable: boolean): Promise<never> => {
     const at = deps.clock().toISOString();
     await emails.markFailed(principal.workspaceId, messageId, code, message, at);
-    void recordActivity(ctx, { action: 'invoice.email_failed', entity, changes: { email: { to: maskEmail(to), cc: cc.length, resend, code } } });
+    void recordActivity(ctx, {
+      action: 'invoice.email_failed',
+      entity,
+      changes: { email: { to: maskEmail(to), cc: cc.length, resend, code }, ...(unattended ? { recurring: unattended.recurring } : {}) },
+      ...(unattended ? { actor: unattended.activityActor } : {}),
+    });
     const row = await emails.get(principal.workspaceId, messageId);
     throw new ApiError(status, 'email_send_failed', message, { reason: code, retryable, email: row ? toApiEmail(row) : null });
   };
@@ -441,8 +475,13 @@ async function send(
     return fail('provider_unavailable', 'Sending failed unexpectedly. Nothing is known to have been delivered.', 502, true);
   }
 
-  const emailed: ActivityInput = { action: 'invoice.emailed', entity, changes: { email: { to: maskEmail(to), cc: cc.length, resend } } };
-  const { invoice: finalInvoice, changed } = await markDraftSent(ctx, invoice, emailed);
+  const emailed: ActivityInput = {
+    action: 'invoice.emailed',
+    entity,
+    changes: { email: { to: maskEmail(to), cc: cc.length, resend }, ...(unattended ? { recurring: unattended.recurring } : {}) },
+    ...(unattended ? { actor: unattended.activityActor } : {}),
+  };
+  const { invoice: finalInvoice, changed } = await markDraftSent(ctx, invoice, emailed, unattended?.actor);
   if (!changed) void recordActivity(ctx, emailed);
   if (changed) await emails.markStatusChanged(principal.workspaceId, messageId);
   const row = (await emails.get(principal.workspaceId, messageId))!;

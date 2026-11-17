@@ -54,6 +54,14 @@ export const ACTIVITY_ACTIONS = [
   'agent.oauth_connected',
   'agent.oauth_scopes_changed',
   'agent.oauth_reuse_detected',
+  // Recurring invoices
+  'recurring.created',
+  'recurring.updated',
+  'recurring.paused',
+  'recurring.resumed',
+  'recurring.ended',
+  'recurring.deleted',
+  'recurring.run_failed',
 ] as const;
 
 export type KnownActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -68,6 +76,7 @@ export const ACTIVITY_ACTION_GROUPS = {
   emails: { label: 'Emails', prefixes: ['invoice.email'] },
   clients: { label: 'Clients', prefixes: ['client.'] },
   templates: { label: 'Templates', prefixes: ['template.'] },
+  recurring: { label: 'Recurring invoices', prefixes: ['recurring.'] },
   access: { label: 'Agent access', prefixes: ['agent.'] },
   settings: { label: 'Settings', prefixes: ['settings.'] },
   sync: { label: 'Sync uploads', prefixes: ['sync.'] },
@@ -76,7 +85,7 @@ export const ACTIVITY_ACTION_GROUPS = {
 export type ActivityActionGroup = keyof typeof ACTIVITY_ACTION_GROUPS;
 
 /** Kinds of things an entry can be about. Open for new features. */
-export type ActivityEntityType = 'invoice' | 'client' | 'template' | 'settings' | 'agent' | 'agent_registration' | (string & {});
+export type ActivityEntityType = 'invoice' | 'client' | 'template' | 'recurring' | 'settings' | 'agent' | 'agent_registration' | (string & {});
 
 export type ActivityActor =
   | { type: 'user' }
@@ -114,6 +123,16 @@ export interface ActivityChanges {
    * a resend, and the failure or refusal code. Never the message.
    */
   email?: { to: string; cc?: number; resend?: boolean; code?: string };
+  /** `invoice.created` by a recurring schedule: which one (name snapshot). */
+  recurring?: { id: string; label: string | null };
+  /** Recurring: the period (run date, YYYY-MM-DD) an entry is about. */
+  period?: string;
+  /** `recurring.run_failed`: stable reason code (template_deleted, client_deleted, validation_failed, …). */
+  reason?: string;
+  /** `invoice.created` by a recurring schedule: older missed periods skipped by the catch-up policy. */
+  skipped?: number;
+  /** How a recurring run was started: by the schedule or by "run now". */
+  trigger?: 'schedule' | 'run_now';
 }
 
 export type ActivitySource = 'rest' | 'mcp' | 'system';

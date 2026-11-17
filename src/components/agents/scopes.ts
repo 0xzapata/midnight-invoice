@@ -1,7 +1,7 @@
 import type { Scope } from '../../../shared/api';
 
 /** Plain-language scope descriptions for consent and management screens. */
-export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitive?: boolean; sensitiveLabel?: string }> = {
+export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitive?: boolean; sensitiveLabel?: string; note?: string }> = {
   'invoices:read': {
     title: 'View invoices',
     allows: 'See every invoice in this workspace (clients, amounts, notes, payment details), the next invoice number, and download PDFs.',
@@ -46,6 +46,16 @@ export const SCOPE_INFO: Record<Scope, { title: string; allows: string; sensitiv
     sensitive: true,
     sensitiveLabel: 'Sends email',
   },
+  'recurring:read': {
+    title: 'View your recurring invoices',
+    allows: 'See your recurring invoice schedules (template, client, how often, next date, last result) and which invoices they generated.',
+  },
+  'recurring:write': {
+    title: 'Set up and manage recurring invoices',
+    allows:
+      'Create, change, pause, resume, run and delete schedules that generate invoices from your templates automatically. Generated invoices are drafts, or marked as sent if the agent sets it up that way; together with “Create and edit invoices” and “View your invoice templates”.',
+    note: 'It can never turn on automatic emailing to your clients: only you can, in the app.',
+  },
 };
 
 export const SCOPE_SHORT: Record<Scope, string> = {
@@ -59,4 +69,6 @@ export const SCOPE_SHORT: Record<Scope, string> = {
   'templates:write': 'Edit templates',
   'activity:read': 'Own activity',
   'invoices:send': 'Email invoices',
+  'recurring:read': 'View recurring',
+  'recurring:write': 'Manage recurring',
 };

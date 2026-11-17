@@ -88,6 +88,7 @@ export function createFakeApi() {
       currency: input.currency ?? state.settings.settings.currency,
       ...(input.clientId ? { clientId: input.clientId } : {}),
       ...(input.templateId ? { templateId: input.templateId } : {}),
+      ...(input.recurringId ? { recurringId: input.recurringId } : {}),
       createdAt: existing?.createdAt ?? input.createdAt ?? at,
       updatedAt: at,
       deletedAt: null,
@@ -563,4 +564,4 @@ export function createFakeApi() {
 
 export type FakeApi = ReturnType<typeof createFakeApi>;
 
-export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read', 'invoices:send'];
+export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read', 'invoices:send', 'recurring:read', 'recurring:write'];

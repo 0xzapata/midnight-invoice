@@ -16,6 +16,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - 📋 Duplicate invoices
 - ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip (works offline)
 - 🧩 Invoice templates: reusable blueprints (`/templates`) with line items, terms, notes and a default client; placeholders such as `{{month_name}}` and `{{prev_month_name}}` are filled in for each invoice's issue date; "New from template" on the dashboard, "From template" and "Save as template" in the invoice form and on the invoice page; invoices are independent copies
+- 🔁 Recurring invoices (with cloud sync): schedules (`/recurring`) that create an invoice from a template every week, two weeks, month, quarter or year, in your time zone, even when the app is closed — as a draft (default) or marked as sent; plain-language summary ("Every month on the 1st, starting 1 Dec 2026 — next: …"), upcoming dates and a preview of the next invoice; pause, resume, "Run now", end date or number of invoices; "Make recurring" from a template or an invoice; generated invoices carry a *Recurring* badge and a dashboard filter
 - 👥 Saved clients: a client list (`/clients`) with default currency, tax rate and payment terms; pick a client on an invoice to fill Bill To, "Save as client" from an invoice, one-click import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
@@ -302,7 +303,7 @@ Resend dashboard. In development, point the Worker at a local fake with
 
 The console shows metadata only: workspace ids, timestamps and counts, agent
 names and scopes, and for optional user accounts their sign-in email. There is no endpoint that returns invoice contents, client
-data, workspace settings or tokens. Telemetry stores route templates, status
+data, workspace settings or tokens (recurring schedules appear as counts only). Telemetry stores route templates, status
 classes, durations and `cf-ray`; never ids in paths, bodies, tokens or IPs.
 
 ### Local development with `workos dev`
@@ -431,7 +432,8 @@ on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
    `settings:read`, `clients:read`, `clients:write`, `templates:read`,
-   `templates:write`, `activity:read`, `invoices:send`) and shows you a code like
+   `templates:write`, `activity:read`, `invoices:send`, `recurring:read`,
+   `recurring:write`) and shows you a code like
    `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
@@ -456,6 +458,19 @@ your templates ("send the usual retainer": `list_templates` →
 explicit values win over the template, the template over the client's
 defaults, and those over your settings. The new invoice is a draft.
 `templates:write` lets it add, edit, archive and delete templates.
+
+With `recurring:write` (plus `invoices:write` and `templates:read`) an agent
+can set up recurring invoices ("bill Globex the retainer on the 1st of every
+month": `create_recurring`, or `POST /api/v1/recurring`), pause, resume and
+run them; `recurring:read` lets it list them. The server generates each
+period's invoice exactly once (hourly job, run dates in the schedule's time
+zone; only the most recent missed period is caught up after downtime or a
+pause). Generated invoices are drafts or marked sent; **only you** can make a
+schedule email each invoice automatically (with email set up on the server),
+never an agent — and an automatic email only goes to a client address you
+entered, and waits for your review if an agent changed the template's payment
+details. See AGENT_API.md,
+*Recurring invoices*.
 
 ### Connecting an agent (as a user)
 

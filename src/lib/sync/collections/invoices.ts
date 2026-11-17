@@ -79,6 +79,7 @@ export const invoiceCollection: SyncCollection<Invoice, ApiInvoice, InvoiceConte
     const next: Invoice = { ...fromApiInvoice(server), ...merged, invoiceName: merged.invoiceName || local.invoiceName };
     if (!next.clientId) delete next.clientId;
     if (!next.templateId) delete next.templateId;
+    if (!next.recurringId) delete next.recurringId;
     return next;
   },
   withoutServerState,

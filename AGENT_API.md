@@ -58,6 +58,8 @@ must never ask a user for a workspace token.
 | `templates:write` | Create, update, archive and delete invoice templates |
 | `activity:read` | Read this agent's **own** entries of the [activity log](#activity-log) (`GET /activity`, `get_my_activity`) |
 | `invoices:send` | Email an invoice (PDF attached) to the client on file; sending a draft marks it sent. Sensitive: real email to real people |
+| `recurring:read` | List/get [recurring schedules](#recurring-invoices) and their upcoming dates (the preview also needs `templates:read`) |
+| `recurring:write` | Create, update, pause, resume, run now and delete recurring schedules. Creating, changing, resuming or running one also needs `invoices:write` + `templates:read` (+ `clients:read` when the schedule or its template bills a saved client). Never automatic emailing (see below) |
 
 There is no separate `clients:delete`: deleting a client is a soft delete of
 address-book data that never touches invoices (they keep their own copy of the
@@ -72,7 +74,8 @@ The same holds for `invoices:send`: no existing agent can send email until
 the user approves a new registration that asks for it.
 
 Settings writes, agent management and workspace deletion require the workspace
-token; no scope grants them.
+token; no scope grants them. Neither does choosing automatic emailing for a
+recurring schedule (`autoAction: "send_email"`): only the user can turn it on.
 
 ## Connect with OAuth (MCP clients)
 
@@ -674,6 +677,114 @@ curl -X POST "$BASE/api/v1/templates/$TEMPLATE_ID/instantiate" \
   sync); it does not apply a template.
 - A template without line items needs `lineItems` in the request (400
   otherwise).
+### Recurring invoices
+
+A schedule generates an invoice from a [template](#templates) on every run
+date, on the server (the browser may be closed). Schedules are server state:
+the app needs cloud sync for them, and generated invoices reach browsers
+through the normal invoice sync.
+
+```bash
+# "Bill Globex the usual retainer on the 1st of every month, Berlin time"
+curl -X POST "$BASE/api/v1/recurring" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Globex retainer","templateId":"9b2f…","clientId":"c1a…","frequency":"monthly",
+       "startDate":"2026-12-01","timezone":"Europe/Berlin"}'
+# → 201 {"recurring":{…,"status":"active","nextRunDate":"2026-12-01",
+#        "summary":"Every month on the 1st, starting 1 Dec 2026 — next: 1 Dec 2026","revision":1}}
+```
+
+| Endpoint | Scope | Does |
+|---|---|---|
+| `GET /recurring?status=&template_id=` | `recurring:read` | List (oldest first) |
+| `POST /recurring` | `recurring:write` (+ `invoices:write`, `templates:read`, `clients:read` for a client) | Create (`status: "paused"` to create paused) |
+| `GET/PUT/PATCH/DELETE /recurring/:id` | read / write | ETag = revision, `If-Match` like templates; PUT replaces the configuration (status and history kept); DELETE is soft and idempotent; generated invoices are kept |
+| `POST /recurring/:id/pause` / `resume` | `recurring:write` | Idempotent. Resume applies the catch-up policy at once |
+| `POST /recurring/:id/run-now` `{period?}` | `recurring:write` | Generates the next period now (201), or returns the invoice already generated for `period` (200) |
+| `GET /recurring/:id/preview?count=6` | `recurring:read` + `templates:read` | Upcoming dates + the next invoice rendered (placeholders resolved, totals) + any `problem` |
+| `GET /invoices?recurring_id=` | `invoices:read` | A schedule's generated invoices |
+
+Fields: `name`, `templateId` (required, a live template), `clientId` (bills
+this saved client instead of the template's default client), `frequency`
+(`weekly`, `biweekly`, `monthly`, `quarterly` = every 3 months, `yearly`),
+`startDate`, `timezone` (IANA, default `UTC`; the app sends the browser's),
+`endDate` (inclusive) or `maxOccurrences`, `autoAction` (`draft` default,
+`mark_sent`, `send_email`), `overrides` (`notes`, `taxRate`; null = the
+template's). Read-only: `status` (`active`/`paused`/`ended`), `nextRunDate`,
+`lastRunDate`, `lastInvoiceId`, `runCount`, `lastError`
+(`{code, message, at, period, attempts}`), `retryAt`, `skippedCount`,
+`lastSkipped`, `summary`.
+
+**Calendar.** `startDate` is the anchor: weekly schedules run on its weekday,
+monthly/quarterly/yearly ones on its day of the month. When that day does not
+exist, the run is on the month's last day (the 31st → 30 Apr, 28/29 Feb) and
+later months return to the anchor day; 29 Feb → 28 Feb in other years. Run
+dates are calendar dates in `timezone`: a period is due once that date has
+begun there, and the hourly job (`7 * * * *` UTC) generates it in its first
+run after local midnight. DST changes move local midnight but never skip or
+repeat a date. Each invoice is dated with its run date, and the template's
+placeholders (`{{month_name}}`, …) resolve against that date. A new schedule's
+first run date is the first one on or after today; changing the frequency,
+start date or time zone recomputes it from today.
+
+**Content.** Same precedence as instantiating the template: schedule client
+→ template client; overrides → template → client defaults → workspace
+settings. Numbers come from the usual atomic allocator. The invoice records
+`templateId` and `recurringId`, `createdBy` is
+`{type:"system", recurringId, recurringName}`, and it is otherwise an
+ordinary, independent invoice.
+
+**Exactly once.** The invoice id is derived from (schedule, period), a
+`recurring_runs` row per period has a unique key, and the schedule advances
+with a compare-and-set, all in one D1 transaction: retries, overlapping cron
+runs, concurrent isolates and run-now never create a second invoice for a
+period (not even after the first was deleted).
+
+**Catch-up.** After downtime, a pause, a suspension or a failure streak only
+the most recent missed period is generated; older ones are skipped and
+recorded (`skippedCount`, `lastSkipped`). Not configurable: a burst of
+back-dated invoices is rarely wanted, and every skip is visible.
+
+**Failures** (template or client deleted, invalid invoice, suspended
+workspace, maintenance) are stored in `lastError` and retried with backoff (1
+h, 2 h, 4 h … 24 h); one failing schedule never stops the others. Editing the
+schedule clears the error. Ended schedules stop; raising `maxOccurrences` or
+the end date continues them.
+
+**Automatic emailing (`autoAction: "send_email"`).** Only the user (workspace
+or device token) can turn it on; an agent cannot choose it, and cannot change,
+resume or run a schedule that has it (it may pause or delete one): emailing a
+client every period without review is the user's decision, not something a
+consent-screen grant should imply. Turning it on needs email to be set up on
+the server (`503 email_not_configured`; `GET /recurring` returns
+`email: {configured, reason}` for the app) and a client — the schedule's, or
+the template's — whose email address the user entered themselves (`400`
+otherwise). Each period's invoice is generated as a draft and then sent with
+the [email feature's own send](#sending-invoices-by-email) (PDF attached, to
+the client on file), under these rules:
+
+- **Unattended rules**: like an agent's send — only the invoice's `toEmail`,
+  only an address the user entered (an agent-edited client email is held as
+  `email_address_not_confirmed`), and sender details that are the user's
+  (payment details from the settings or from a template the user saved last;
+  if an agent changed the template's payment details last, the email is held
+  as `email_needs_review` until the user saves the template).
+- **Limits**: counted like the user's own sends (workspace hourly/daily
+  windows and the site-wide daily cap, never bypassed; held as
+  `email_rate_limited` and retried after the window).
+- **Exactly once**: the send's idempotency key is `recurring/<schedule>/<period>`
+  (and the provider gets a key per message), so a retry after a partial
+  failure replays instead of sending twice.
+- **Status**: the invoice becomes `sent` only when the email went out (one
+  `invoice.emailed` entry, actor system, with `changes.recurring`; no separate
+  `invoice.status_changed`).
+- **Failures**: the invoice stays a draft; `lastError` gets the reason plus
+  `invoiceId`, `sendPending` and `nextAttemptAt`, and only the send is retried
+  by the hourly job (backoff 1 h … 24 h, at most 8 attempts; not after the
+  invoice was deleted, voided or emailed some other way). The next period's
+  invoice is generated on time regardless. Failures also appear in the
+  invoice's email history (`invoice.email_failed` for provider errors) and as
+  `recurring.run_failed` with the `email_*` reason.
+
 ### Activity log
 
 Every write in the workspace leaves one entry in an append-only activity log:
@@ -697,7 +808,7 @@ logged.
 
 | `action` | When | `changes` |
 |---|---|---|
-| `invoice.created` | POST, PUT that creates, `create_invoice`, `POST /templates/:id/instantiate`, `create_invoice_from_template` | `{status:{from:null,to}}` if not a draft; `{template:{id,label}}` when made from a template (one entry; the label is the template name at the time) |
+| `invoice.created` | POST, PUT that creates, `create_invoice`, `POST /templates/:id/instantiate`, `create_invoice_from_template`, a recurring schedule | `{status:{from:null,to}}` if not a draft; `{template:{id,label}}` when made from a template (one entry; the label is the template name at the time); from a schedule also `{recurring:{id,label}, trigger:"schedule"\|"run_now", skipped?}` (actor = system for scheduled runs, the caller for run-now) |
 | `invoice.updated` | PUT/PATCH/`update_invoice` that changed fields | `{fields:[…names]}` |
 | `invoice.status_changed` | status changed (mark-sent/-paid/void/reopen, PATCH/PUT `status`, `set_invoice_status`) | `{status:{from,to}, fields?}` |
 | `invoice.deleted` | DELETE, `delete_invoice` | |
@@ -718,6 +829,9 @@ logged.
 | `agent.oauth_denied` | the user denied an MCP client | `{requestedScopes}` |
 | `agent.oauth_connected` | an approved MCP client exchanged its code and became an agent (actor = the agent) | `{scopes}` |
 | `agent.oauth_scopes_changed` | a re-authorisation changed an OAuth agent's permissions (actor = the agent) | `{scopes, previousScopes}` |
+| `recurring.created` / `recurring.updated` / `recurring.paused` / `recurring.resumed` / `recurring.deleted` | schedule writes (REST, MCP); entity `recurring` (label = schedule name) | `{fields}` for updates (names only); `{skipped}` on resume when missed dates were skipped |
+| `recurring.ended` | a schedule ran out of dates (end date / number of invoices); actor = system | `{period?}` |
+| `recurring.run_failed` | the generator could not create a period's invoice (actor = system; one entry per schedule, period and reason, repeats counted) | `{reason, period, counts:{attempts}}` |
 | `agent.oauth_reuse_detected` | a rotated refresh token or a used code came back; the grant was revoked (actor = system; once per grant) | `{credential: "refresh_token" \| "authorization_code"}` |
 | `account.workspace_created` / `account.workspace_claimed` | the owner created this workspace with an account / attached it to their account (optional user accounts) | |
 | `account.device_signed_in` / `account.device_revoked` | a browser signed in to the owner's account (gets its own workspace token) / was signed out; entity `device` with a label like "Firefox on macOS" | |
@@ -860,6 +974,14 @@ Tools (only those your scopes allow are listed; others are rejected):
 | `update_template` | `templates:write` | destructive, idempotent | `{id, expected_revision?, …fields}` (PATCH semantics) |
 | `delete_template` | `templates:write` | destructive, idempotent | `{id}` (soft delete; invoices unchanged) |
 | `create_invoice_from_template` | `invoices:write` + `templates:read` | not destructive | `{id, …overrides}` → same as `POST /templates/:id/instantiate` |
+| `list_recurring` | `recurring:read` | read-only | `{status?, template_id?}` → `{recurring}` |
+| `get_recurring` | `recurring:read` | read-only | `{id}` |
+| `preview_recurring` | `recurring:read` (+ `templates:read`) | read-only | `{id, count?}` → same as `GET /recurring/:id/preview` |
+| `create_recurring` | `recurring:write` (+ `invoices:write`, `templates:read`) | not destructive | `RecurringInput` |
+| `update_recurring` | `recurring:write` (+ same) | destructive, idempotent | `{id, expected_revision?, …fields}` (PATCH semantics) |
+| `pause_recurring` / `resume_recurring` | `recurring:write` | idempotent | `{id}` |
+| `run_recurring_now` | `recurring:write` (+ same) | idempotent per period | `{id, period?}` → same as `POST /recurring/:id/run-now` |
+| `delete_recurring` | `recurring:write` | destructive, idempotent | `{id}` (generated invoices are kept) |
 | `get_my_activity` | `activity:read` | read-only | `{action?, entity_type?, entity_id?, since?, until?, before?, limit?}` → this agent's own activity entries (same as `GET /activity`) |
 | `send_invoice_email` | `invoices:send` | not read-only, not idempotent, open-world | `{id, cc_me?, subject?, message?, theme?, idempotency_key?}` → same as `POST /invoices/:id/send` (always to the invoice `toEmail`; confirm with the user first) |
 
@@ -870,7 +992,10 @@ address. `list_templates` and `create_invoice_from_template` tell the model
 to prefer an existing template whenever the user mentions one or a recurring
 invoice. `create_invoice_from_template` is listed only when the credential
 has both of its scopes; `create_invoice`/`update_invoice` do not offer
-`templateId`.
+`templateId`. The recurring tools tell the model to confirm cadence, start
+date, time zone and end with the user before creating or changing a schedule,
+and to pass `period` to `run_recurring_now`. `list_invoices` takes
+`recurring_id` for a schedule's generated invoices.
 
 Tool results carry the JSON as text and as `structuredContent`. Errors are
 tool results with `isError: true` and the REST error body as text.
@@ -884,7 +1009,7 @@ tool results with `isError: true` and the REST error body as text.
 | 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off), `recipient_not_allowed` (email recipient rules for agents), `invoice_needs_review` (an agent changed the sender or payment details; the user must review the invoice), `account_required` (`POST /workspaces` only: the site requires a signed-in account for new workspaces) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
-| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition`, `idempotency_conflict` (Idempotency-Key reused for another request, or still in progress) |
+| 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion; recurring: paused/ended schedule, not the next period), `invalid_status_transition`, `limit_reached` (too many recurring schedules), `idempotency_conflict` (Idempotency-Key reused for another request, or still in progress) |
 | 410 | `gone` (deleted invoice or client; expired registration) |
 | 412 | `precondition_failed` |
 | 413 | `payload_too_large` |
@@ -892,6 +1017,7 @@ tool results with `isError: true` and the REST error body as text.
 | 429 | `rate_limited` (+ `Retry-After`; email limits add `details.reason`) |
 | 502 | `email_send_failed` (the email provider refused or failed; `details.email` is the recorded attempt) |
 | 503 | `email_not_configured` (no email provider set up on this server), `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering). Treat it and `workspace_suspended` as "pause and retry later", not as a rejection of your request. |
+| 503 | `recurring_disabled` (recurring generation switched off by the site; run-now only) |
 
 ### Operator controls
 
@@ -930,4 +1056,6 @@ stay available.
 CORS on `/api/v1` and `/api/mcp` (the API is same-origin for the app; agents
 call it server-to-server), OAuth access tokens on the REST API, confidential
 OAuth clients (client secrets, `private_key_jwt`), DPoP, OpenID Connect,
-webhooks (including email delivery events such as bounces), per-agent rate limits outside email, pagination of `GET /agents`.
+webhooks (including email delivery events such as bounces), per-agent rate limits outside email, pagination of `GET /agents` and
+`GET /recurring` (bounded by the per-workspace schedule limit), daily or
+custom cron recurring cadences.

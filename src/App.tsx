@@ -14,6 +14,7 @@ import Account from "./accounts/pages/Account";
 import AccountConnect from "./accounts/pages/AccountConnect";
 import Templates from "./pages/Templates";
 import Activity from "./pages/Activity";
+import Recurring from "./pages/Recurring";
 import { CloudSyncRuntime } from "@/components/sync/CloudSyncRuntime";
 import { Footer } from "@/components/Footer";
 import { AppThemeProvider } from "@/components/AppThemeProvider";
@@ -53,6 +54,7 @@ const App = () => {
           <Route path="/account/connect" element={<AccountConnect />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/activity" element={<Activity />} />
+          <Route path="/recurring" element={<Recurring />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <Footer />

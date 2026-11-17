@@ -203,6 +203,7 @@ export function ScopeChoice({ scope, checked, onChange }: { scope: Scope; checke
         </label>
         <p id={`${id}-desc`} className="text-xs text-muted-foreground">
           {info.allows}
+          {info.note && <span className="mt-1 block font-medium text-foreground">{info.note}</span>}
         </p>
       </div>
     </div>

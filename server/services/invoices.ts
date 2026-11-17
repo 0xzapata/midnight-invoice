@@ -3,6 +3,7 @@
  * Sync semantics are documented in AGENT_API.md ("Sync semantics").
  */
 import type { ApiInvoice, ListInvoicesResponse } from '../../shared/api';
+import type { ActivityActor, ActivityChanges } from '../../shared/activity';
 import type { Actor, InvoiceFormData } from '../../shared/types/invoice';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 import { calculateInvoiceTotals, formatInvoiceNumber, invoiceNumberValue } from '../../shared/invoice-totals';
@@ -100,6 +101,7 @@ function finalize(data: InvoiceFormData & Partial<InvoiceStatusFields>, placehol
   if (stored.invoiceName === undefined || stored.invoiceName === '') delete stored.invoiceName;
   if (!stored.clientId) delete stored.clientId;
   if (!stored.templateId) delete stored.templateId;
+  if (!stored.recurringId) delete stored.recurringId;
   return stored;
 }
 
@@ -132,6 +134,7 @@ function withDefaults(input: InvoiceInputParsed, settings: DefaultSettings, toda
     currency: input.currency ?? settings.currency,
     ...(input.clientId ? { clientId: input.clientId } : {}),
     ...(input.templateId ? { templateId: input.templateId } : {}),
+    ...(input.recurringId ? { recurringId: input.recurringId } : {}),
   };
 }
 
@@ -156,10 +159,11 @@ export function listFiltersOf(q: {
   due_after?: string;
   client?: string;
   client_id?: string;
+  recurring_id?: string;
 }): Omit<InvoiceListFilters, 'today'> | undefined {
   const statuses = q.status?.filter((s) => s !== 'overdue');
   const overdue = q.status?.includes('overdue') ?? false;
-  if (!q.status?.length && !q.due_before && !q.due_after && !q.client && !q.client_id) return undefined;
+  if (!q.status?.length && !q.due_before && !q.due_after && !q.client && !q.client_id && !q.recurring_id) return undefined;
   return {
     statuses: statuses && statuses.length > 0 ? [...new Set(statuses)] : undefined,
     overdue,
@@ -167,6 +171,7 @@ export function listFiltersOf(q: {
     dueAfter: q.due_after,
     client: q.client,
     clientId: q.client_id,
+    recurringId: q.recurring_id,
   };
 }
 
@@ -216,8 +221,26 @@ export async function nextInvoiceNumber(ctx: ServiceContext): Promise<string> {
 // Commands
 // ---------------------------------------------------------------------------
 
-/** Which template a new invoice came from, for its `invoice.created` entry (label = template name at the time). */
-export type InvoiceOrigin = { fromTemplate?: { id: string; label: string | null } };
+/**
+ * Where a new invoice came from, for its `invoice.created` entry (labels are
+ * name snapshots taken at the time). A recurring schedule's generator also
+ * passes the invoice id (derived from schedule + period), the `system` actor
+ * that becomes `createdBy`, and statements committed in the same batch after
+ * the insert (services/recurring); then a conflicting id yields null instead
+ * of an error.
+ */
+export type InvoiceOrigin = {
+  fromTemplate?: { id: string; label: string | null };
+  fromRecurring?: { id: string; label: string | null };
+  id?: string;
+  /** `createdBy` / `updatedBy` (default: the principal). */
+  actor?: Actor;
+  /** Actor of the `invoice.created` entry (default: the principal). */
+  activityActor?: ActivityActor;
+  /** Extra summary for the `invoice.created` entry (e.g. what triggered a recurring run). */
+  activityChanges?: ActivityChanges;
+  also?: D1PreparedStatement[];
+};
 
 async function templateOrigin(ctx: ServiceContext, data: StoredInvoiceData, origin: InvoiceOrigin): Promise<InvoiceOrigin['fromTemplate']> {
   if (origin.fromTemplate) return origin.fromTemplate;
@@ -236,8 +259,12 @@ async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceDat
   if (input.action === 'invoice.created') {
     const fromTemplate = await templateOrigin(ctx, data, origin);
     if (fromTemplate) input.changes = { ...input.changes, template: fromTemplate };
+    if (origin.fromRecurring) input.changes = { ...input.changes, recurring: origin.fromRecurring };
+    if (origin.activityChanges) input.changes = { ...input.changes, ...origin.activityChanges };
+    if (origin.activityActor) input.actor = origin.activityActor;
   }
   const activity = activityWrite(ctx, input, { labelSql: labelOf.invoice(ctx.principal.workspaceId, id) });
+  if (origin.also?.length) activity.statements.push(...origin.also);
   return ctx.repo.insertInvoice({
     workspaceId: ctx.principal.workspaceId,
     id,
@@ -245,22 +272,38 @@ async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceDat
     numberValue: allocate ? null : invoiceNumberValue(data.invoiceNumber),
     allocateNumber: allocate,
     createdAt,
-    actor: actorOf(ctx.principal),
+    actor: origin.actor ?? actorOf(ctx.principal),
   }, activity);
 }
 
 /** POST /invoices: server-generated id; missing invoiceNumber is allocated atomically. */
 export async function createInvoice(ctx: ServiceContext, body: unknown, origin: InvoiceOrigin = {}): Promise<ApiInvoice> {
-  requireScope(ctx.principal, 'invoices:write');
+  const invoice = await createInvoiceIfAbsent(ctx, body, origin);
+  if (!invoice) throw errors.internal();
+  return invoice;
+}
+
+/**
+ * The invoice a POST /invoices with `body` would store (client prefill,
+ * workspace defaults, validation), without storing it. An empty
+ * `invoiceNumber` means "allocated on insert". Used by createInvoice and by
+ * the recurring-invoice preview.
+ */
+export async function newInvoiceData(ctx: ServiceContext, body: unknown): Promise<StoredInvoiceData> {
   const input = await prefillInvoiceInput(ctx, parseOrThrow(invoiceInputSchema, body), today(ctx.deps));
   const settings = await loadSettings(ctx);
-  const data = finalize(
+  return finalize(
     { ...withDefaults(input, settings, today(ctx.deps), ctx.deps.ids.uuid), ...statusForCreate(input, today(ctx.deps)) },
     input.invoiceNumber === undefined,
   );
-  const row = await insertNew(ctx, ctx.deps.ids.uuid(), data, null, origin);
-  if (!row) throw errors.internal();
-  return toApiInvoice(row, today(ctx.deps));
+}
+
+/** createInvoice, but null when `origin.id` already exists (live or deleted): the caller decides what that means. */
+export async function createInvoiceIfAbsent(ctx: ServiceContext, body: unknown, origin: InvoiceOrigin = {}): Promise<ApiInvoice | null> {
+  requireScope(ctx.principal, 'invoices:write');
+  const data = await newInvoiceData(ctx, body);
+  const row = await insertNew(ctx, origin.id ?? ctx.deps.ids.uuid(), data, null, origin);
+  return row ? toApiInvoice(row, today(ctx.deps)) : null;
 }
 
 /**

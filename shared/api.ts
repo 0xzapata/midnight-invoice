@@ -7,6 +7,7 @@ import type { DefaultSettings } from './settings';
 import type { Client } from './types/client';
 import type { InvoiceTemplate } from './types/template';
 import type { InvoiceStatus, InvoiceSummary } from './invoice-status';
+import type { RecurringAutoAction, RecurringFrequency, RecurringSchedule } from './recurring';
 export type { ActivityAction, ActivityActor, ActivityChanges, ActivityEntry, ActivityEntityType, ActivitySource, ListActivityResponse } from './activity';
 
 export const API_BASE_PATH = '/api/v1';
@@ -24,6 +25,8 @@ export const SCOPES = [
   'templates:write',
   'activity:read',
   'invoices:send',
+  'recurring:read',
+  'recurring:write',
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 
@@ -38,6 +41,9 @@ export const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   'templates:write': 'Create, update, archive and delete invoice templates (never changes existing invoices)',
   'activity:read': "Read this agent's own entries in the workspace activity log (never other agents' or the user's)",
   'invoices:send': 'Email invoices (PDF attached) to the client on file; sending a draft marks it sent',
+  'recurring:read': 'List and read recurring invoice schedules, their upcoming dates and generated-invoice history',
+  'recurring:write':
+    'Create, update, pause, resume, run and delete recurring invoice schedules (creating, changing, resuming or running one also needs invoices:write and templates:read, plus clients:read for a client). Never automatic emailing: only the user can turn that on',
 };
 
 /** Credential prefixes (all secrets are 256-bit random, base64url). */
@@ -76,6 +82,9 @@ export type ApiErrorCode =
   | 'invalid_grant'
   // Invoice status change not allowed from the current status (HTTP 409)
   | 'invalid_status_transition'
+  // Recurring invoices: a per-workspace limit was reached (HTTP 409); generation is switched off (HTTP 503)
+  | 'limit_reached'
+  | 'recurring_disabled'
   // Set by the site operator (operator console)
   | 'maintenance'
   | 'workspace_suspended'
@@ -329,6 +338,8 @@ export interface InvoiceInput {
    * template). `null` clears it (PATCH).
    */
   templateId?: string | null;
+  /** The recurring schedule that generated the invoice: a reference only (set by the generator, kept by sync). */
+  recurringId?: string | null;
 }
 
 /** Body of PATCH /api/v1/invoices/:id — any subset of fields; lineItems replaces the whole list. */
@@ -541,4 +552,77 @@ export interface ListInvoiceEmailsResponse {
     /** Minimum minutes between two sends of the same invoice. */
     cooldownMinutes: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Recurring invoices (types and calendar rules: shared/recurring.ts)
+// ---------------------------------------------------------------------------
+
+export type {
+  RecurringAutoAction,
+  RecurringError,
+  RecurringFrequency,
+  RecurringOverrides,
+  RecurringSchedule,
+  RecurringScheduleConfig,
+  RecurringStatus,
+} from './recurring';
+
+/** GET /api/v1/recurring */
+export interface ListRecurringResponse {
+  recurring: RecurringSchedule[];
+  /** Whether the `send_email` auto action can be turned on (email set up on this server), and why not. */
+  email: { configured: boolean; reason: string | null };
+}
+
+export interface RecurringResponse {
+  recurring: RecurringSchedule;
+}
+
+/** Body of POST /api/v1/recurring and PUT /api/v1/recurring/:id. */
+export interface RecurringInput {
+  name: string;
+  templateId: string;
+  clientId?: string | null;
+  frequency: RecurringFrequency;
+  startDate: string;
+  /** IANA time zone (default UTC); the app sends the browser's. */
+  timezone?: string;
+  endDate?: string | null;
+  maxOccurrences?: number | null;
+  autoAction?: RecurringAutoAction;
+  overrides?: { notes?: string | null; taxRate?: number | null };
+  /** POST only: create the schedule paused. */
+  status?: 'active' | 'paused';
+}
+
+/** Body of PATCH /api/v1/recurring/:id — any subset; `overrides` is merged. */
+export type RecurringPatch = Partial<Omit<RecurringInput, 'status'>>;
+
+/** GET /api/v1/recurring/:id/preview */
+export interface RecurringPreviewResponse {
+  recurring: RecurringSchedule;
+  /** Next run dates (YYYY-MM-DD in the schedule's time zone), respecting the end conditions. */
+  upcoming: string[];
+  /** The next invoice as it would be generated now (placeholders resolved for its run date), or null when nothing is due any more or it cannot be built. */
+  nextInvoice: (Omit<InvoiceInput, 'lineItems'> & { lineItems: { id: string; description: string; quantity: number; price: number }[]; subtotal: number; taxAmount: number; total: number }) | null;
+  placeholders: { unknown: string[]; unresolved: string[] };
+  warnings: string[];
+  /** Why the next invoice cannot be generated right now (same codes as lastError), or null. */
+  problem: { code: string; message: string } | null;
+}
+
+/** POST /api/v1/recurring/:id/run-now (optional body) */
+export interface RunRecurringNowRequest {
+  /** The period to generate (must be the schedule's nextRunDate). Retrying with the same period never generates twice. */
+  period?: string;
+}
+
+/** POST /api/v1/recurring/:id/run-now → 201 (generated) or 200 (that period was already generated) */
+export interface RunRecurringNowResponse {
+  period: string;
+  generated: boolean;
+  /** The period's invoice (null if it was deleted since). */
+  invoice: ApiInvoice | null;
+  recurring: RecurringSchedule;
 }
