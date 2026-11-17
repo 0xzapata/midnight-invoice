@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Plus, FileText, Settings, Sparkles, Bot, Users, FileStack, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { Plus, FileText, Settings, Sparkles, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ import { useCloudEnabled } from '@/stores/useCloudStore';
 import { StatusFilterChips, TotalsStrip } from '@/components/invoice/status/StatusOverview';
 import { useInvoiceStatusView, type StatusFilter } from '@/components/invoice/status/useInvoiceStatus';
 import { NewFromTemplateButton } from '@/components/templates/NewFromTemplateButton';
+import { HeaderNav } from '@/components/HeaderNav';
 
 type Tab = 'invoices' | 'settings' | 'coming';
 const TABS: readonly Tab[] = ['invoices', 'settings', 'coming'];
@@ -91,33 +92,17 @@ const Index = () => {
 
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60">
-        <div className="container flex h-14 items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-primary/10 flex items-center justify-center">
+        <div className="container flex h-14 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="w-8 h-8 shrink-0 bg-primary/10 flex items-center justify-center">
                 <img src="/favicon.svg" alt={`${env.VITE_APP_NAME} Logo`} className="w-4 h-4 text-primary" />
               </div>
-              <h1 className="whitespace-nowrap max-sm:sr-only text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
+              {/* On the narrowest phones the logo alone stands for the app name. */}
+              <h1 className="truncate whitespace-nowrap text-sm font-semibold text-foreground max-[359px]:sr-only">{env.VITE_APP_NAME}</h1>
             </div>
-          <div className="flex items-center gap-0.5 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <SyncStatusIndicator />
-            <Button variant="ghost" size="sm" asChild className="px-1.5 font-mono lg:px-3">
-              <Link to="/clients" viewTransition>
-                <Users className="w-4 h-4" aria-hidden="true" />
-                <span className="sr-only lg:not-sr-only">Clients</span>
-              </Link>
-            </Button>
-            <Button variant="ghost" size="sm" asChild className="px-1.5 font-mono lg:px-3">
-              <Link to="/templates" viewTransition>
-                <FileStack className="w-4 h-4" aria-hidden="true" />
-                <span className="sr-only lg:not-sr-only">Templates</span>
-              </Link>
-            </Button>
-            <Button variant="ghost" size="sm" asChild className="px-1.5 font-mono lg:px-3">
-              <Link to="/agents" viewTransition>
-                <Bot className="w-4 h-4" aria-hidden="true" />
-                <span className="sr-only lg:not-sr-only">Agents</span>
-              </Link>
-            </Button>
+            <HeaderNav />
             <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
               <Plus className="w-4 h-4 sm:mr-2" aria-hidden="true" />
               <span className="sr-only sm:not-sr-only">New Invoice</span>
@@ -130,7 +115,8 @@ const Index = () => {
       <main className="container py-8">
         <div className="max-w-3xl mx-auto">
           {/* Tabs */}
-          <div className="flex gap-2 sm:gap-4 mb-8 border-b border-border">
+          {/* Tab icons and the "Coming Soon" label are dropped below sm so the row fits at 320 px. */}
+          <div className="flex gap-3 sm:gap-4 mb-8 border-b border-border">
             <button
               onClick={() => selectTab('invoices')}
               className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
@@ -139,8 +125,8 @@ const Index = () => {
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              <FileText className="w-4 h-4" />
-              Your Invoices
+              <FileText className="hidden w-4 h-4 sm:block" aria-hidden="true" />
+              <span className="whitespace-nowrap"><span className="hidden sm:inline">Your </span>Invoices</span>
             </button>
             <button
               onClick={() => selectTab('settings')}
@@ -150,7 +136,7 @@ const Index = () => {
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="hidden w-4 h-4 sm:block" aria-hidden="true" />
               Settings
             </button>
             <button
@@ -161,8 +147,8 @@ const Index = () => {
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Sparkles className="w-4 h-4" />
-              Coming Soon
+              <Sparkles className="w-4 h-4" aria-hidden="true" />
+              <span className="sr-only whitespace-nowrap sm:not-sr-only">Coming Soon</span>
             </button>
             <div className="ml-auto pb-1">
               <ThemeToggle />

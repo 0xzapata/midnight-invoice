@@ -1,14 +1,54 @@
-import { forwardRef, useMemo } from 'react';
+import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { InvoiceFormData } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/lib/invoice-utils';
 import { sanitizeInvoiceData } from '@/lib/sanitize';
+import { printableInvoiceName } from '@/lib/invoiceName';
 
 interface InvoicePreviewProps {
   data: InvoiceFormData;
 }
 
+/** The card is always laid out at the A4 width the PDF uses (595 px = 595 pt). */
+export const PREVIEW_WIDTH = 595;
+
+/**
+ * Scale that fits the fixed-width card into its container, and the card's
+ * scaled height. On phones (and in narrow columns) the card is shrunk as a
+ * whole with a CSS transform instead of being reflowed, so it stays a 1:1
+ * picture of the PDF. 1 when there is room.
+ */
+function useFitToWidth(outer: React.RefObject<HTMLDivElement | null>, inner: React.RefObject<HTMLDivElement | null>) {
+  const [fit, setFit] = useState<{ scale: number; height: number | null }>({ scale: 1, height: null });
+  useLayoutEffect(() => {
+    const measure = () => {
+      const width = outer.current?.clientWidth ?? PREVIEW_WIDTH;
+      const scale = width > 0 && width < PREVIEW_WIDTH ? width / PREVIEW_WIDTH : 1;
+      const height = scale < 1 && inner.current ? inner.current.offsetHeight * scale : null;
+      setFit((prev) => (prev.scale === scale && prev.height === height ? prev : { scale, height }));
+    };
+    measure();
+    let observer: ResizeObserver | undefined;
+    try {
+      observer = new ResizeObserver(measure);
+      if (outer.current) observer.observe(outer.current);
+      if (inner.current) observer.observe(inner.current);
+    } catch {
+      // No ResizeObserver (old browsers, some test environments): fall back to window resizes.
+      window.addEventListener('resize', measure);
+    }
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [outer, inner]);
+  return fit;
+}
+
 export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
   ({ data }, ref) => {
+    const outerRef = useRef<HTMLDivElement>(null);
+    const cardRef = useRef<HTMLDivElement>(null);
+    const fit = useFitToWidth(outerRef, cardRef);
     // Sanitize all input data for safe rendering
     const safeData = useMemo(() => sanitizeInvoiceData(data), [data]);
 
@@ -18,12 +58,24 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
     );
     const tax = subtotal * (safeData.taxRate / 100);
     const total = subtotal + tax;
+    // Only a name the user typed; never a generated dashboard label.
+    const invoiceName = printableInvoiceName(safeData.invoiceName);
 
     return (
       <div
-        ref={ref}
-        className="invoice-preview bg-card border border-border p-8 min-h-[800px] invoice-shadow fade-in"
-        style={{ width: '100%', maxWidth: '595px' }}
+        ref={outerRef}
+        className="w-full print:h-auto!"
+        style={{ maxWidth: PREVIEW_WIDTH, height: fit.height ?? undefined }}
+        data-preview-scale={fit.scale}
+      >
+      <div
+        ref={(node) => {
+          cardRef.current = node;
+          if (typeof ref === 'function') ref(node);
+          else if (ref) ref.current = node;
+        }}
+        className="invoice-preview bg-card border border-border p-8 min-h-[800px] invoice-shadow fade-in origin-top-left print:transform-none!"
+        style={{ width: PREVIEW_WIDTH, transform: fit.scale < 1 ? `scale(${fit.scale})` : undefined }}
       >
         {/* Header */}
         <div className="flex justify-between items-start mb-8">
@@ -34,6 +86,11 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
             <p className="text-lg font-semibold text-foreground">
               {safeData.invoiceNumber || 'INV-0001'}
             </p>
+            {invoiceName && (
+              <p className="mt-1 max-w-62 text-sm text-muted-foreground" data-testid="invoice-name">
+                {invoiceName}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <div className="flex gap-8">
@@ -173,6 +230,7 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
             </div>
           )}
         </div>
+      </div>
       </div>
     );
   }

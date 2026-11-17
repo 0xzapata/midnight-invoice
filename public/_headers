@@ -1,0 +1,6 @@
+# Cloudflare static-assets headers (https://developers.cloudflare.com/workers/static-assets/headers/).
+# The private operator console must never be indexed.
+/operator
+  X-Robots-Tag: noindex, nofollow
+/operator/*
+  X-Robots-Tag: noindex, nofollow

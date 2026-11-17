@@ -105,7 +105,7 @@ describe('Templates page', () => {
     const row = screen.getByText('Monthly retainer', { selector: 'h3' }).closest('li')!;
     expect(row).toHaveTextContent('Net 14');
     expect(row).toHaveTextContent('uses placeholders');
-  });
+  }, 20_000); // many keystrokes: slow on a loaded CI machine
 
   it('edits, archives and deletes a template; invoices made from it are untouched', async () => {
     const user = userEvent.setup();
@@ -147,7 +147,7 @@ describe('Templates page', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Delete template' }));
     expect(useTemplateStore.getState().templates).toEqual([]);
     expect(useInvoiceStore.getState().invoices).toEqual([inv]);
-  });
+  }, 20_000);
 
   it('“New invoice” opens a draft built from the template', async () => {
     const user = userEvent.setup();

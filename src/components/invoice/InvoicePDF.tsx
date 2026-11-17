@@ -3,6 +3,7 @@ import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { InvoiceFormData } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/lib/invoice-utils';
 import { sanitizeInvoiceData } from '@/lib/sanitize';
+import { printableInvoiceName } from '@/lib/invoiceName';
 import { PDF_FONT_FAMILY, registerPdfFonts } from './pdfFonts';
 import { wrapMonospace } from './wrapMonospace';
 import { INVOICE_PALETTES, type InvoiceTheme, resolveDocumentInvoiceTheme } from './invoiceTheme';
@@ -27,6 +28,24 @@ const SPAN_2 = GRID_UNIT * 2 + GRID_GAP;
 // grid-cols-2 gap-8
 const HALF_GAP = 32;
 const HALF_WIDTH = (CONTENT_WIDTH - HALF_GAP) / 2;
+// The invoice name under the number: max-w-62.
+const NAME_WIDTH = 248;
+
+/*
+ * Page breaks. react-pdf moves a block to the next page when its bottom
+ * *margin* would cross the page end (it counts `marginBottom` as presence
+ * needed ahead), even if the block itself fits. Every section below is spaced
+ * with marginBottom (mb-8, like the preview), so each one also gets
+ * `minPresenceAhead={-margin}` to cancel that: a section is only pushed when
+ * it really does not fit.
+ * SECTION_LABEL_KEEP keeps content together instead: a footer label is never
+ * left alone at a page bottom (label gap + two text-sm lines must follow it).
+ * Line-item rows never split (wrap={false}); the table header row is `fixed`,
+ * so it repeats at the top of every page the table continues on; the totals
+ * block never splits.
+ */
+const SECTION_GAP = 32; // mb-8
+const SECTION_LABEL_KEEP = 8 + 2 * 20;
 
 /** react-pdf's style object type (not exported by @react-pdf/renderer itself). */
 type Style = Parameters<typeof StyleSheet.create>[0][string];
@@ -61,16 +80,16 @@ const styles = StyleSheet.create({
 
   halves: { flexDirection: 'row', gap: HALF_GAP },
   half: { width: HALF_WIDTH },
-  parties: { marginBottom: 32 },
+  parties: { marginBottom: SECTION_GAP },
 
-  table: { marginBottom: 32 },
+  table: { marginBottom: SECTION_GAP },
   gridRow: { flexDirection: 'row', gap: GRID_GAP, borderBottomWidth: 1, borderBottomStyle: 'solid' },
   tableHeader: { paddingBottom: 12 },
   tableRow: { paddingVertical: 12 },
   colDesc: { width: SPAN_6 },
   colNum: { width: SPAN_2, alignItems: 'flex-end' },
 
-  summaryWrap: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 32 },
+  summaryWrap: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: SECTION_GAP },
   summary: { width: 256 }, // w-64
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopStyle: 'solid' },
@@ -84,9 +103,15 @@ interface InvoicePDFProps {
    * rendered outside a browser.
    */
   theme?: InvoiceTheme;
+  /**
+   * Registered fallback font families for characters Noto Sans Mono lacks
+   * (from `preparePdfFallbackFonts`, see ./pdfFallbackFonts.ts). Empty for
+   * text Noto Sans Mono covers.
+   */
+  fallbackFamilies?: string[];
 }
 
-export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
+export const InvoicePDF = ({ data, theme, fallbackFamilies = [] }: InvoicePDFProps) => {
   // Idempotent. In the browser this registers the fonts by URL on first render
   // (before react-pdf loads fonts); the Worker registers data URLs earlier.
   registerPdfFonts();
@@ -99,6 +124,8 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
   const tax = subtotal * (safeData.taxRate / 100);
   const total = subtotal + tax;
   const money = (amount: number) => formatCurrency(amount, safeData.currency);
+  // Only a name the user typed; never a generated dashboard label.
+  const invoiceName = printableInvoiceName(safeData.invoiceName);
 
   const fg = { color: palette.text };
   const muted = { color: palette.muted };
@@ -151,12 +178,22 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
 
   return (
     <Document title={safeData.invoiceNumber || 'Invoice'}>
-      <Page size="A4" style={[styles.page, { backgroundColor: palette.background, color: palette.text }]}>
+      <Page
+        size="A4"
+        style={[
+          styles.page,
+          { backgroundColor: palette.background, color: palette.text },
+          // react-pdf picks, per character, the first family that has a glyph for it.
+          fallbackFamilies.length > 0 ? { fontFamily: [PDF_FONT_FAMILY, ...fallbackFamilies] } : {},
+        ]}
+      >
         {/* Header */}
-        <View style={styles.header} wrap={false}>
+        <View style={styles.header} wrap={false} minPresenceAhead={-SECTION_GAP}>
           <View>
             <Text style={[...label, { marginBottom: 4 }]}>Invoice</Text>
             <Text style={[styles.invoiceNumber, fg]}>{safeData.invoiceNumber || 'INV-0001'}</Text>
+            {/* mt-1 max-w-62 text-sm text-muted-foreground */}
+            {invoiceName ? <View style={{ marginTop: 4 }}>{paragraph(invoiceName, NAME_WIDTH, [muted])}</View> : null}
           </View>
           <View style={styles.dates}>
             <View style={styles.dateCol}>
@@ -173,14 +210,15 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
         </View>
 
         {/* From / To */}
-        <View style={[styles.halves, styles.parties]} wrap={false}>
+        <View style={[styles.halves, styles.parties]} wrap={false} minPresenceAhead={-SECTION_GAP}>
           {party('From', safeData.fromName, safeData.fromAddress, safeData.fromEmail)}
           {party('Bill To', safeData.toName, safeData.toAddress, safeData.toEmail)}
         </View>
 
         {/* Line items */}
-        <View style={styles.table}>
-          <View style={[styles.gridRow, styles.tableHeader, { borderBottomColor: palette.border }]} wrap={false}>
+        <View style={styles.table} minPresenceAhead={-SECTION_GAP}>
+          {/* Repeats at the top of each page the table continues on. */}
+          <View style={[styles.gridRow, styles.tableHeader, { borderBottomColor: palette.border }]} wrap={false} fixed>
             <Text style={[...label, styles.colDesc]}>Description</Text>
             {['Qty', 'Price', 'Total'].map((heading) => (
               <View key={heading} style={styles.colNum}>
@@ -199,7 +237,7 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
         </View>
 
         {/* Summary */}
-        <View style={styles.summaryWrap} wrap={false}>
+        <View style={styles.summaryWrap} wrap={false} minPresenceAhead={-SECTION_GAP}>
           <View style={styles.summary}>
             {summaryRows.map(([name, value], i) => (
               <View key={name} style={[styles.summaryRow, gapAbove(8, i)]}>
@@ -219,7 +257,7 @@ export const InvoicePDF = ({ data, theme }: InvoicePDFProps) => {
           <View style={styles.halves}>
             {footer.map(([heading, body]) => (
               <View key={heading} style={styles.half}>
-                <Text style={[...label, { marginBottom: 8 }]}>{heading}</Text>
+                <Text style={[...label, { marginBottom: 8 }]} minPresenceAhead={SECTION_LABEL_KEEP}>{heading}</Text>
                 {paragraph(body, HALF_WIDTH, [muted], true)}
               </View>
             ))}

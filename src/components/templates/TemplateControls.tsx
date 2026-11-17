@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { memo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { BookmarkPlus, Check, ChevronsUpDown, FileStack } from 'lucide-react';
 import { toast } from 'sonner';
@@ -14,13 +14,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { activeTemplatesSorted, templateDataFromInvoice, useTemplateStore } from '@/stores/useTemplateStore';
+import { activeTemplatesSorted, useTemplateStore } from '@/stores/useTemplateStore';
 import { useClientStore } from '@/stores/useClientStore';
 import type { InvoiceFormData } from '@/types/invoice';
 import { cn } from '@/lib/utils';
 import { localToday } from '../../../shared/invoice-status';
-import type { InvoiceTemplate, TemplateFormData } from '../../../shared/types/template';
-import { TemplateFormDialog } from './TemplateFormDialog';
+import type { InvoiceTemplate } from '../../../shared/types/template';
+import { useSaveAsTemplate } from './useSaveAsTemplate';
 import { isPristineForTemplate, templateFormPatch, type ApplyMode } from './templateApply';
 import { notifyTemplateApplied } from './useNewInvoiceFromTemplate';
 
@@ -104,27 +104,16 @@ export function TemplatePicker({
   );
 }
 
-/** "Save as template": opens the template dialog prefilled from an invoice. */
+/** "Save as template" button (see useSaveAsTemplate). */
 export function SaveAsTemplateButton({ invoice, compact = false, className }: { invoice: () => Partial<InvoiceFormData>; compact?: boolean; className?: string }) {
-  const [initial, setInitial] = useState<TemplateFormData | null>(null);
-  const open = () => {
-    const inv = invoice();
-    const name = inv.invoiceName?.trim() || (inv.toName?.trim() ? `${inv.toName.trim()} invoice` : 'New template');
-    setInitial(templateDataFromInvoice(inv, name));
-  };
-  const save = (data: TemplateFormData) => {
-    const saved = useTemplateStore.getState().saveTemplate(data);
-    setInitial(null);
-    // No navigation here: the invoice form also renders outside a router (tests, embeds).
-    toast.success(`Saved the template “${saved.name}”`, { description: 'Find it under Templates, or use “From template” on a new invoice.' });
-  };
+  const { start, dialog } = useSaveAsTemplate(invoice);
   return (
     <>
-      <Button type="button" variant="outline" size="sm" onClick={open} className={className} title="Save as template">
+      <Button type="button" variant="outline" size="sm" onClick={start} className={className} title="Save as template">
         <BookmarkPlus className={cn('h-4 w-4', !compact && 'sm:mr-2')} aria-hidden="true" />
         <span className={compact ? 'sr-only' : 'sr-only sm:not-sr-only'}>Save as template</span>
       </Button>
-      <TemplateFormDialog open={initial !== null} onOpenChange={(o) => !o && setInitial(null)} initial={initial ?? undefined} onSave={save} />
+      {dialog}
     </>
   );
 }
@@ -135,12 +124,15 @@ export function SaveAsTemplateButton({ invoice, compact = false, className }: { 
  * already typed: on a form with content the user chooses between adding the
  * template's items (keeping everything typed) and replacing.
  */
-export function InvoiceTemplateBar({
-  values,
+export const InvoiceTemplateBar = memo(function InvoiceTemplateBar({
+  getValues,
+  templateId,
   touched,
   onApply,
 }: {
-  values: InvoiceFormData;
+  /** Current form values, read when needed (the bar does not re-render on every keystroke). */
+  getValues: () => InvoiceFormData;
+  templateId: string | undefined;
   touched: () => { currency: boolean; taxRate: boolean };
   onApply: (patch: Partial<InvoiceFormData>) => void;
 }) {
@@ -148,7 +140,7 @@ export function InvoiceTemplateBar({
   const hasTemplates = useTemplateStore((s) => s.templates.some((t) => !t.archivedAt));
 
   const apply = (template: InvoiceTemplate, mode: ApplyMode) => {
-    const { patch, report } = templateFormPatch(template, values, {
+    const { patch, report } = templateFormPatch(template, getValues(), {
       clients: useClientStore.getState().clients,
       mode,
       touched: touched(),
@@ -160,7 +152,7 @@ export function InvoiceTemplateBar({
   };
 
   const pick = (template: InvoiceTemplate) => {
-    if (isPristineForTemplate(values)) apply(template, 'replace');
+    if (isPristineForTemplate(getValues())) apply(template, 'replace');
     else setPending(template);
   };
 
@@ -168,8 +160,8 @@ export function InvoiceTemplateBar({
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
       <p className="text-xs text-muted-foreground">{hasTemplates ? 'Start from a saved template, or save this one for later.' : 'Save this invoice as a reusable template.'}</p>
       <div className="flex items-center gap-2">
-        {hasTemplates && <TemplatePicker onPick={pick} selectedId={values.templateId} />}
-        <SaveAsTemplateButton invoice={() => values} compact className="h-8 w-8 px-0" />
+        {hasTemplates && <TemplatePicker onPick={pick} selectedId={templateId} />}
+        <SaveAsTemplateButton invoice={getValues} compact className="h-8 w-8 px-0" />
       </div>
       <AlertDialog open={pending !== null} onOpenChange={(o) => !o && setPending(null)}>
         <AlertDialogContent>
@@ -192,4 +184,4 @@ export function InvoiceTemplateBar({
       </AlertDialog>
     </div>
   );
-}
+}, (a, b) => a.templateId === b.templateId); // the callbacks only read the (stable) form

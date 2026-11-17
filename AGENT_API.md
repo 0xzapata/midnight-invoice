@@ -535,7 +535,7 @@ tool results with `isError: true` and the REST error body as text.
 |---|---|
 | 400 | `validation_failed` (`details: [{path, message}]`), `invalid_json`, `bad_request`, `invalid_scope`, device-flow codes |
 | 401 | `unauthorized` (+ `WWW-Authenticate: Bearer realm="midnight-invoice", error="invalid_token"`) |
-| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type) |
+| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
 | 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition` |
@@ -544,6 +544,7 @@ tool results with `isError: true` and the REST error body as text.
 | 413 | `payload_too_large` |
 | 415 | `unsupported_media_type` |
 | 429 | `rate_limited` (+ `Retry-After`) |
+| 503 | `maintenance` (site in maintenance mode; `message` is the operator's notice, + `Retry-After`; `/health` keeps answering). Treat it and `workspace_suspended` as "pause and retry later", not as a rejection of your request. |
 
 ## Rate limits and abuse protection
 

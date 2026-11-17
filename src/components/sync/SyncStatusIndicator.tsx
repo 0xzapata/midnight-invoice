@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { AlertTriangle, CloudCheck, CloudOff, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CloudCheck, CloudOff, PauseCircle, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -13,6 +13,7 @@ const LABELS: Record<Exclude<SyncStatus, 'disabled'>, string> = {
   syncing: 'Syncing…',
   synced: 'Synced',
   offline: 'Offline',
+  paused: 'Sync paused',
   error: 'Sync error',
 };
 
@@ -30,8 +31,8 @@ export function SyncStatusIndicator({ className }: { className?: string }) {
 
   const label = LABELS[status];
   const busy = status === 'syncing' || status === 'idle';
-  const problem = status === 'error' || status === 'offline' || status === 'disconnected';
-  const Icon = busy ? RefreshCw : status === 'synced' ? CloudCheck : status === 'error' ? AlertTriangle : CloudOff;
+  const problem = status === 'error' || status === 'offline' || status === 'paused' || status === 'disconnected';
+  const Icon = busy ? RefreshCw : status === 'synced' ? CloudCheck : status === 'error' ? AlertTriangle : status === 'paused' ? PauseCircle : CloudOff;
 
   const waiting = pending > 0 ? `${pending} change${pending === 1 ? '' : 's'} waiting to sync.` : '';
   const detail =
@@ -41,8 +42,8 @@ export function SyncStatusIndicator({ className }: { className?: string }) {
         ? `All changes saved to the cloud${lastSyncedAt ? ` (last checked ${format(parseISO(lastSyncedAt), 'HH:mm:ss')})` : ''}.`
         : status === 'offline'
           ? `You are offline. ${waiting || 'Changes are kept in this browser.'}`
-          : status === 'error'
-            ? `${lastError ?? 'Sync failed.'} ${waiting}`
+          : status === 'error' || status === 'paused'
+            ? `${lastError ?? (status === 'paused' ? 'Cloud sync is paused.' : 'Sync failed.')} ${waiting}`
             : `Syncing with the cloud… ${waiting}`;
 
   return (
@@ -55,7 +56,7 @@ export function SyncStatusIndicator({ className }: { className?: string }) {
               'inline-flex h-9 items-center gap-1.5 px-2 font-mono text-xs font-medium transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
               status === 'synced' && 'text-muted-foreground',
               busy && 'text-muted-foreground',
-              status === 'offline' && 'text-amber-600 dark:text-amber-400',
+              (status === 'offline' || status === 'paused') && 'text-amber-600 dark:text-amber-400',
               (status === 'error' || status === 'disconnected') && 'text-destructive',
             )}
             aria-label={`Cloud sync: ${label}. ${detail}`}
@@ -71,7 +72,7 @@ export function SyncStatusIndicator({ className }: { className?: string }) {
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">{detail}</TooltipContent>
       </Tooltip>
-      {(status === 'error' || status === 'offline') && (
+      {(status === 'error' || status === 'offline' || status === 'paused') && (
         <Button variant="ghost" size="sm" className="h-9 px-2 text-xs" onClick={() => void syncNow({ force: true, pullSettings: true })}>
           Retry
         </Button>
