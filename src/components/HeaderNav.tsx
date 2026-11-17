@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Bot, FileStack, Menu, Users } from 'lucide-react';
+import { Bot, FileStack, Menu, Repeat, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 const LINKS = [
   { to: '/clients', label: 'Clients', icon: Users },
   { to: '/templates', label: 'Templates', icon: FileStack },
+  { to: '/recurring', label: 'Recurring', icon: Repeat },
   { to: '/agents', label: 'Agents', icon: Bot },
 ] as const;
 

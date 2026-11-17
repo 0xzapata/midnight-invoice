@@ -69,6 +69,18 @@ function EntityTarget({ entry, label, isSelf }: { entry: ActivityEntry; label: s
       </span>
     );
   }
+  if (entity.type === 'recurring') {
+    // Schedules live on the server (no local copy): link to the list unless this entry deleted it.
+    if (entry.action === 'recurring.deleted') return <span className={strong}>{label}</span>;
+    return (
+      <Link
+        to="/recurring"
+        className={cn(strong, 'underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring')}
+      >
+        {label}
+      </Link>
+    );
+  }
   if (entity.type === 'agent') {
     return (
       <Link to={`/activity?agent=${encodeURIComponent(entity.id)}`} className={cn(strong, 'underline decoration-border underline-offset-2 hover:decoration-foreground')}>

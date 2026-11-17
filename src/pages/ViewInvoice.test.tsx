@@ -166,7 +166,7 @@ describe('ViewInvoice', () => {
     const user = userEvent.setup();
     renderComponent();
     // Labelled buttons only from lg up (they overflowed at 390 px)...
-    for (const name of [/^delete$/i, /^edit$/i, /^duplicate$/i, /^save as template$/i, /^print$/i]) {
+    for (const name of [/^delete$/i, /^edit$/i, /^duplicate$/i, /^save as template$/i, /^make recurring$/i, /^print$/i]) {
       expect(screen.getByRole('button', { name })).toHaveClass('hidden', 'lg:inline-flex');
     }
     // ...Download PDF stays, icon-only with an accessible name below lg...
@@ -180,7 +180,7 @@ describe('ViewInvoice', () => {
     expect(screen.getByRole('heading', { name: 'INV-123' })).toHaveClass('truncate');
     await user.click(more);
     const menu = await screen.findByRole('dialog', { name: 'More actions' });
-    expect(within(menu).getAllByRole('button').map((b) => b.textContent)).toEqual(['Edit', 'Duplicate', 'Save as template', 'Print', 'Delete']);
+    expect(within(menu).getAllByRole('button').map((b) => b.textContent)).toEqual(['Edit', 'Duplicate', 'Save as template', 'Make recurring', 'Print', 'Delete']);
     await user.click(within(menu).getByRole('button', { name: 'Print' }));
     expect(mockPrint).toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'More actions' }));

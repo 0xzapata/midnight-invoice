@@ -47,6 +47,32 @@ const TEMPLATE_FIELDS: Record<string, string> = {
   archivedAt: 'archived',
 };
 
+const RECURRING_FIELDS: Record<string, string> = {
+  name: 'name',
+  templateId: 'template',
+  clientId: 'client',
+  frequency: 'how often',
+  startDate: 'start date',
+  timezone: 'time zone',
+  endDate: 'end date',
+  maxOccurrences: 'number of invoices',
+  autoAction: 'what happens to new invoices',
+  overrides: 'notes / tax rate overrides',
+};
+
+/** Plain words for `recurring.run_failed` reasons. */
+const RECURRING_FAILURES: Record<string, string> = {
+  template_deleted: 'its template was deleted',
+  template_not_found: 'its template does not exist',
+  client_deleted: 'its client was deleted',
+  validation_failed: 'the invoice would not be valid',
+  workspace_suspended: 'the workspace is suspended',
+  maintenance: 'the site was in maintenance',
+  email_unavailable: 'email sending is not available',
+  email_failed: 'the email could not be sent',
+  internal_error: 'of a server error',
+};
+
 const SETTINGS_FIELDS: Record<string, string> = {
   fromName: 'your name',
   fromEmail: 'your email',
@@ -63,7 +89,16 @@ const INVOICE_FIELDS: Record<string, string> = { ...FIELD_LABELS, sentAt: 'sent 
 const humanize = (field: string) => field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
 
 export function fieldLabel(entityType: string | undefined, field: string): string {
-  const map = entityType === 'client' ? CLIENT_FIELDS : entityType === 'template' ? TEMPLATE_FIELDS : entityType === 'settings' ? SETTINGS_FIELDS : INVOICE_FIELDS;
+  const map =
+    entityType === 'client'
+      ? CLIENT_FIELDS
+      : entityType === 'template'
+        ? TEMPLATE_FIELDS
+        : entityType === 'recurring'
+          ? RECURRING_FIELDS
+          : entityType === 'settings'
+            ? SETTINGS_FIELDS
+            : INVOICE_FIELDS;
   return map[field] ?? humanize(field);
 }
 
@@ -101,6 +136,11 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
     case 'invoice.created':
       parts = c.status ? ['created ', { target: true }, ` as ${c.status.to}`] : ['created ', { target: true }];
       if (c.template) parts.push(` from the template “${c.template.label ?? 'a template'}”`);
+      if (c.recurring) {
+        parts.push(` for the recurring invoice “${c.recurring.label ?? 'a schedule'}”`);
+        if (c.trigger === 'run_now') details.push('Created early with “Run now”');
+        if (c.skipped) details.push(`${plural(c.skipped, 'missed date')} skipped (only the most recent one is created)`);
+      }
       break;
     case 'invoice.updated':
       parts = ['edited ', { target: true }];
@@ -138,6 +178,34 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       const verb = { created: 'added', updated: 'edited', archived: 'archived', unarchived: 'restored', deleted: 'deleted' }[entry.action.slice('template.'.length) as 'created'];
       const what = entry.action === 'template.unarchived' ? 'archived template' : 'template';
       parts = targetLabel ? [`${verb} the ${what} `, { target: true }] : [`${verb} an ${what === 'template' ? 'invoice template' : what}`];
+      break;
+    }
+    case 'recurring.created':
+      parts = ['set up the recurring invoice ', { target: true }];
+      if (c.fields?.includes('status')) details.splice(0, details.length, 'Created paused');
+      break;
+    case 'recurring.updated':
+      parts = ['changed the recurring invoice ', { target: true }];
+      break;
+    case 'recurring.paused':
+      parts = ['paused the recurring invoice ', { target: true }];
+      break;
+    case 'recurring.resumed':
+      parts = ['resumed the recurring invoice ', { target: true }];
+      if (c.skipped) details.push(`${plural(c.skipped, 'missed date')} skipped (only the most recent one is created)`);
+      break;
+    case 'recurring.ended':
+      parts = ['ended the recurring invoice ', { target: true }, ': no dates left'];
+      break;
+    case 'recurring.deleted':
+      parts = ['deleted the recurring invoice ', { target: true }];
+      break;
+    case 'recurring.run_failed': {
+      parts = ['could not create an invoice for the recurring invoice ', { target: true }];
+      details.push(`Because ${RECURRING_FAILURES[c.reason ?? ''] ?? (c.reason ? c.reason.replace(/_/g, ' ') : 'of an error')}`);
+      if (c.period) details.push(`For the date ${c.period}`);
+      const attempts = c.counts?.attempts;
+      if (attempts && attempts > 1) details.push(`Tried ${attempts} times`);
       break;
     }
     case 'settings.updated':
@@ -205,7 +273,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       parts = entry.entity ? [`${entry.action} on `, { target: true }] : [entry.action];
   }
   if (parts.some((p) => typeof p !== 'string') && !targetLabel) {
-    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'template' ? 'a template' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : 'an item';
+    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'template' ? 'a template' : entry.entity?.type === 'recurring' ? 'a schedule' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : 'an item';
   }
   if (c.theme && entry.action === 'invoice.pdf_downloaded') details.push(`${c.theme === 'light' ? 'Light' : 'Dark'} theme`);
   return { actor, parts, targetLabel, details };

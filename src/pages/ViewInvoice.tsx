@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil, MoreHorizontal, BookmarkPlus } from 'lucide-react';
+import { Download, ArrowLeft, Trash2, Copy, Printer, Pencil, MoreHorizontal, BookmarkPlus, Repeat } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -23,6 +23,8 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { InvoiceStatusBar } from '@/components/invoice/status/InvoiceStatusBar';
 import { useSaveAsTemplate } from '@/components/templates/useSaveAsTemplate';
 import { InvoiceHistory } from '@/components/activity/InvoiceHistory';
+import { RecurringOrigin } from '@/recurring/RecurringBadge';
+import { useMakeRecurring } from '@/recurring/useMakeRecurring';
 import { toast } from 'sonner';
 
 export default function ViewInvoice() {
@@ -35,6 +37,7 @@ export default function ViewInvoice() {
   // We need to wait for invoices to load
   const invoice = invoices.length > 0 ? getInvoice(id || '') : undefined;
   const saveAsTemplate = useSaveAsTemplate(() => invoice ?? {});
+  const makeRecurring = useMakeRecurring(invoice);
 
   const handlePrint = () => {
     window.print();
@@ -185,6 +188,12 @@ export default function ViewInvoice() {
               <BookmarkPlus className="w-4 h-4 mr-2" aria-hidden="true" />
               Save as template
             </Button>
+            {!invoice.recurringId && (
+              <Button variant="outline" size="sm" onClick={makeRecurring.start} className="hidden lg:inline-flex" aria-label="Make recurring" title="Make recurring">
+                <Repeat className="w-4 h-4 xl:mr-2" aria-hidden="true" />
+                <span className="hidden xl:inline">Make recurring</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -210,6 +219,7 @@ export default function ViewInvoice() {
                   { label: 'Edit', icon: Pencil, onClick: handleEdit },
                   { label: 'Duplicate', icon: Copy, onClick: handleDuplicate },
                   { label: 'Save as template', icon: BookmarkPlus, onClick: saveAsTemplate.start },
+                  ...(invoice.recurringId ? [] : [{ label: 'Make recurring', icon: Repeat, onClick: makeRecurring.start }]),
                   { label: 'Print', icon: Printer, onClick: handlePrint },
                   { label: 'Delete', icon: Trash2, onClick: () => setDeleteDialogOpen(true), destructive: true },
                 ].map(({ label, icon: Icon, onClick, destructive }) => (
@@ -238,12 +248,14 @@ export default function ViewInvoice() {
         <SyncIssueNotice invoice={invoice} />
         <InvoiceStatusBar invoice={invoice} />
         <InvoiceAttribution invoice={invoice} />
+        <RecurringOrigin invoice={invoice} />
         <div className="flex justify-center">
           <InvoicePreview data={invoice} />
         </div>
         <InvoiceHistory invoiceId={invoice.id} />
       </main>
       {saveAsTemplate.dialog}
+      {makeRecurring.dialog}
     </div>
   );
 }

@@ -85,6 +85,7 @@ export function createFakeApi() {
       currency: input.currency ?? state.settings.settings.currency,
       ...(input.clientId ? { clientId: input.clientId } : {}),
       ...(input.templateId ? { templateId: input.templateId } : {}),
+      ...(input.recurringId ? { recurringId: input.recurringId } : {}),
       createdAt: existing?.createdAt ?? input.createdAt ?? at,
       updatedAt: at,
       deletedAt: null,
