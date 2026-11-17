@@ -170,6 +170,7 @@ export function groupOf(metric: string): { service: string; group: string; name:
   const [service, name = ''] = metric.split('|');
   if (service === 'mcp') return { service, group: EMAIL_MCP_TOOLS.has(name) ? 'Email' : 'MCP endpoint', name };
   if (service === 'operator') return { service, group: 'Operator console', name };
+  if (service === 'accounts') return { service, group: name.startsWith('sign-in') || name.includes(' /auth/') ? 'Account sign-in' : 'Accounts', name };
   const path = name.replace(/^[A-Z]+ /, '');
   let group = 'REST: other';
   if (name.endsWith('(sync)')) group = 'Sync';

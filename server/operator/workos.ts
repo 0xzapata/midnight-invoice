@@ -67,7 +67,14 @@ export function createWorkosClient(opts: WorkosClientOptions) {
           code_verifier: codeVerifier,
         }),
       });
-      if (!res.ok) throw OperatorError.unauthenticated('WorkOS rejected the sign-in. Start again.');
+      if (!res.ok) {
+        // AuthKit answers `email_verification_required` when the user has not proven their email yet.
+        const err = (await res.json().catch(() => null)) as { code?: unknown; error?: unknown } | null;
+        if (err?.code === 'email_verification_required' || err?.error === 'email_verification_required') {
+          throw new OperatorError(401, 'email_verification_required', 'Verify your email address first.');
+        }
+        throw OperatorError.unauthenticated('WorkOS rejected the sign-in. Start again.');
+      }
       const body = (await res.json()) as {
         user?: { id?: unknown; email?: unknown; email_verified?: unknown; first_name?: unknown; last_name?: unknown };
         authentication_method?: unknown;

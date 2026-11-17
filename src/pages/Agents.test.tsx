@@ -171,10 +171,17 @@ describe('Agents page', () => {
     expect(screen.getByText(/open this app in your browser/)).toBeInTheDocument();
   });
 
-  it('asks to turn on cloud sync first when it is off, without calling the API', () => {
+  it('asks to turn on cloud sync first when it is off, without calling the API', async () => {
     renderPage();
     expect(screen.getByText(/Turn on cloud sync to connect one/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Turn on cloud sync' })).toBeInTheDocument();
-    expect(fake.fetch).not.toHaveBeenCalled();
+    // The only request is the public, credential-free "does this site offer accounts?" flag
+    // (user accounts, src/accounts): nothing reaches the workspace API and nothing is sent.
+    await waitFor(() => expect(fake.fetch).toHaveBeenCalledTimes(1));
+    const [url, init] = fake.fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/account/config');
+    expect(init).toMatchObject({ method: 'GET', body: undefined });
+    expect(Object.keys(init.headers as object)).toEqual(['accept']);
+    expect(fake.requests.filter((r) => !r.path.startsWith('/api/account'))).toEqual([]);
   });
 });

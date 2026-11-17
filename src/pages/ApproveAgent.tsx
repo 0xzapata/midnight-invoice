@@ -400,7 +400,7 @@ export default function ApproveAgent() {
                   on (or connect the workspace you already use on another device); you will then review this request here.
                 </p>
               </StateCard>
-              <EnableCloudSyncCard />
+              <EnableCloudSyncCard accountFirst />
             </div>
           ) : (
             <RegistrationLoader key={code} code={code} onReset={reset} />

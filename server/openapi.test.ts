@@ -69,6 +69,22 @@ describe('OpenAPI document', () => {
     expect(doc).not.toMatch(/operator/i);
   });
 
+  it('keeps the cookie-authenticated account API (/api/account/*) out of the public document', () => {
+    // Rule: endpoints authenticated by the user session cookie live under /api/account, never
+    // under /api/v1, and are documented in AGENTS.md "User accounts" (browser-only contract in
+    // shared/accounts.ts), not in openapi.json / AGENT_API.md "Endpoints". The bearer API stays
+    // cookie-free; the only /api/v1 change is the `account_required` error on POST /workspaces.
+    const app = createApp(defaultDeps({ db: {} as D1Database, readAsset: async () => new ArrayBuffer(0) }));
+    const accountRoutes = app.routes.filter((r) => r.path.startsWith('/api/account') && METHODS.includes(r.method.toLowerCase()));
+    expect(accountRoutes.length).toBeGreaterThanOrEqual(12);
+    for (const op of routedOperations()) expect(op).not.toMatch(/account|sign-in|sign-out|recovery-key|devices/);
+    const doc = buildOpenApiDocument('http://app.test');
+    const text = JSON.stringify(doc);
+    expect(text).not.toMatch(/\/api\/account|mi_user_session|csrf/i);
+    const post = (doc.paths['/workspaces'] as { post: { responses: Record<string, { description: string }> } }).post;
+    expect(post.responses[403].description).toMatch(/account_required/);
+  });
+
   it('is served at /api/v1/openapi.json with the request origin', async () => {
     const app = createApp(defaultDeps({ db: {} as D1Database, readAsset: async () => new ArrayBuffer(0) }));
     const res = await app.request('https://invoices.example.org/api/v1/openapi.json');

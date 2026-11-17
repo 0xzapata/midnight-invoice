@@ -184,7 +184,7 @@ export default function Activity() {
             )}
           </div>
           {!enabled ? (
-            <EnableCloudSyncCard reason="Activity is recorded by the cloud workspace, so it starts once cloud sync is on. Changes you make while cloud sync is off stay in this browser and are not logged." />
+            <EnableCloudSyncCard offerAccount={false} reason="Activity is recorded by the cloud workspace, so it starts once cloud sync is on. Changes you make while cloud sync is off stay in this browser and are not logged." />
           ) : (
             <>
               <Filters />

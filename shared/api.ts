@@ -80,6 +80,8 @@ export type ApiErrorCode =
   | 'maintenance'
   | 'workspace_suspended'
   | 'registration_closed'
+  // New workspaces require a signed-in account (operator setting, see user accounts)
+  | 'account_required'
   // Sending invoices by email (POST /invoices/:id/send)
   | 'email_not_configured'
   | 'email_send_failed'

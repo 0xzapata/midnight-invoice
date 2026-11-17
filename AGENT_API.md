@@ -35,6 +35,15 @@ Replace `https://invoices.example.com` below with the deployment's URL
 All are 256-bit random secrets (base64url), returned **once**, stored
 only as SHA-256 hashes. Send them as `Authorization: Bearer <secret>`.
 
+A workspace can have more than one workspace token: when the site has optional
+user accounts, every signed-in browser gets its own `mi_ws_` token for the
+account's workspace, revocable on its own, besides the original token (the
+recovery key, which the owner may rotate or turn off). They are
+indistinguishable to the API and grant the same. Signing in, devices and
+recovery-key management are browser-only, cookie-authenticated endpoints under
+`/api/account` that are **not** part of this API; agents never need them and
+must never ask a user for a workspace token.
+
 ### Scopes
 
 | Scope | Allows |
@@ -710,6 +719,12 @@ logged.
 | `agent.oauth_connected` | an approved MCP client exchanged its code and became an agent (actor = the agent) | `{scopes}` |
 | `agent.oauth_scopes_changed` | a re-authorisation changed an OAuth agent's permissions (actor = the agent) | `{scopes, previousScopes}` |
 | `agent.oauth_reuse_detected` | a rotated refresh token or a used code came back; the grant was revoked (actor = system; once per grant) | `{credential: "refresh_token" \| "authorization_code"}` |
+| `account.workspace_created` / `account.workspace_claimed` | the owner created this workspace with an account / attached it to their account (optional user accounts) | |
+| `account.device_signed_in` / `account.device_revoked` | a browser signed in to the owner's account (gets its own workspace token) / was signed out; entity `device` with a label like "Firefox on macOS" | |
+| `account.signed_out_other_devices` / `account.signed_out_everywhere` | the owner signed out other devices / every device | `{counts:{devices}}` |
+| `account.recovery_key_created` / `_rotated` / `_disabled` | the workspace's original token (recovery key) was created, replaced or turned off | |
+| `account.deleted` | the owner deleted their account and kept the workspace | |
+| `account.disabled` | the site operator disabled the owning account (actor `system`) | |
 
 New features add `<entity>.<verb>` codes; clients must accept codes they do
 not know. Entries never contain document bodies, field values, tokens or keys:
@@ -866,7 +881,7 @@ tool results with `isError: true` and the REST error body as text.
 |---|---|
 | 400 | `validation_failed` (`details: [{path, message}]`), `invalid_json`, `bad_request`, `invalid_scope`, device-flow codes |
 | 401 | `unauthorized` (+ `WWW-Authenticate: Bearer realm="midnight-invoice", error="invalid_token"`) |
-| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off), `recipient_not_allowed` (email recipient rules for agents), `invoice_needs_review` (an agent changed the sender or payment details; the user must review the invoice) |
+| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off), `recipient_not_allowed` (email recipient rules for agents), `invoice_needs_review` (an agent changed the sender or payment details; the user must review the invoice), `account_required` (`POST /workspaces` only: the site requires a signed-in account for new workspaces) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
 | 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition`, `idempotency_conflict` (Idempotency-Key reused for another request, or still in progress) |

@@ -209,7 +209,9 @@ export function createOperatorDb(db: D1Database) {
         db.prepare(
           `SELECT w.token_hash AS h FROM workspaces w JOIN workspace_suspensions s ON s.workspace_id = w.id
            UNION ALL
-           SELECT a.key_hash AS h FROM agents a JOIN workspace_suspensions s ON s.workspace_id = a.workspace_id WHERE a.revoked_at IS NULL`,
+           SELECT a.key_hash AS h FROM agents a JOIN workspace_suspensions s ON s.workspace_id = a.workspace_id WHERE a.revoked_at IS NULL
+           UNION ALL
+           SELECT t.token_hash AS h FROM workspace_tokens t JOIN workspace_suspensions s ON s.workspace_id = t.workspace_id WHERE t.revoked_at IS NULL`,
         ),
       ]);
       return {

@@ -313,6 +313,7 @@ export function buildOpenApiDocument(baseUrl: string) {
           security: [],
           responses: {
             201: ok('Created', { type: 'object', properties: { workspace: ref('Workspace'), token: str({ description: 'mi_ws_…' }) } }),
+            403: { ...E[403], description: '`registration_closed`, or `account_required` when the site requires a signed-in account for new workspaces' },
             429: E[429],
           },
         },

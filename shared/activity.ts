@@ -36,6 +36,18 @@ export const ACTIVITY_ACTIONS = [
   'agent.revoked',
   'agent.revoked_key_used',
   'sync.bulk_upload',
+  // Optional user accounts (server/accounts/activity.ts); entity = the device where relevant.
+  'account.workspace_created',
+  'account.workspace_claimed',
+  'account.device_signed_in',
+  'account.device_revoked',
+  'account.signed_out_other_devices',
+  'account.signed_out_everywhere',
+  'account.recovery_key_created',
+  'account.recovery_key_rotated',
+  'account.recovery_key_disabled',
+  'account.deleted',
+  'account.disabled',
   // OAuth (MCP clients)
   'agent.oauth_authorized',
   'agent.oauth_denied',
@@ -59,6 +71,7 @@ export const ACTIVITY_ACTION_GROUPS = {
   access: { label: 'Agent access', prefixes: ['agent.'] },
   settings: { label: 'Settings', prefixes: ['settings.'] },
   sync: { label: 'Sync uploads', prefixes: ['sync.'] },
+  account: { label: 'Account & devices', prefixes: ['account.'] },
 } as const;
 export type ActivityActionGroup = keyof typeof ACTIVITY_ACTION_GROUPS;
 

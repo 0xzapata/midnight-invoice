@@ -166,8 +166,18 @@ export function createRepository(db: D1Database) {
       return { id, created_at: createdAt };
     },
 
+    /** The original workspace token, or an active per-device token of a signed-in browser (migration 0010). */
     async findWorkspaceByTokenHash(tokenHash: string): Promise<WorkspaceRow | null> {
-      return db.prepare('SELECT id, created_at FROM workspaces WHERE token_hash = ?').bind(tokenHash).first<WorkspaceRow>();
+      return db
+        .prepare(
+          `SELECT id, created_at FROM workspaces WHERE token_hash = ?1
+           UNION ALL
+           SELECT w.id, w.created_at FROM workspace_tokens t JOIN workspaces w ON w.id = t.workspace_id
+           WHERE t.token_hash = ?1 AND t.revoked_at IS NULL
+           LIMIT 1`,
+        )
+        .bind(tokenHash)
+        .first<WorkspaceRow>();
     },
 
     async findWorkspace(id: string): Promise<WorkspaceRow | null> {
@@ -185,6 +195,8 @@ export function createRepository(db: D1Database) {
         ...createOAuthRepository(db).workspaceDeletes(id),
         db.prepare('DELETE FROM agents WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agent_registrations WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM workspace_tokens WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM workspace_members WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM email_messages WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM email_confirmed_recipients WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM invoice_sender_review WHERE workspace_id = ?').bind(id),
