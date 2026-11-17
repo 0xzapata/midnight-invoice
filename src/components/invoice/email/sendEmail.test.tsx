@@ -15,6 +15,7 @@ import { SCOPE_INFO } from '@/components/agents/scopes';
 import { describeEntry, sentenceOf } from '@/components/activity/describe';
 import type { ActivityEntry } from '../../../../shared/activity';
 import { createFakeApi, FAKE_TOKEN, type FakeApi } from '@/test/fakeApi';
+import { fill } from '@/test/userInput';
 import type { Invoice } from '@/types/invoice';
 
 vi.mock('sonner', () => ({
@@ -84,7 +85,7 @@ describe('Send by email', () => {
     const local = { ...serverInvoice() };
     delete local.revision;
     useInvoiceStore.setState({ invoices: [local], _hasHydrated: true });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderView();
     const dialog = await openDialog(user);
     expect(within(dialog).getByText('Email sending needs cloud sync')).toBeInTheDocument();
@@ -97,7 +98,7 @@ describe('Send by email', () => {
     const local = { ...serverInvoice() };
     delete local.revision;
     useInvoiceStore.setState({ invoices: [local], _hasHydrated: true });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderView();
     const dialog = await openDialog(user);
     expect(within(dialog).getByText('Waiting for sync')).toBeInTheDocument();
@@ -107,7 +108,7 @@ describe('Send by email', () => {
   it('prefills the recipient, subject and message, previews the email, notes the draft → sent change, and sends', async () => {
     const inv = serverInvoice();
     useInvoiceStore.setState({ invoices: [inv], _hasHydrated: true });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderView();
     const dialog = await openDialog(user);
     const to = await within(dialog).findByLabelText('To');
@@ -139,19 +140,19 @@ describe('Send by email', () => {
   it('sends a custom subject/message and a changed recipient only when edited', async () => {
     const inv = serverInvoice({ status: 'sent', sentAt: '2026-11-10' } as Partial<Invoice>);
     useInvoiceStore.setState({ invoices: [inv], _hasHydrated: true });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderView();
     const dialog = await openDialog(user);
     const to = await within(dialog).findByLabelText('To');
     await user.clear(to);
-    await user.type(to, 'nope');
+    await fill(user, to, 'nope');
     await user.click(within(dialog).getByRole('button', { name: 'Send' }));
     expect(within(dialog).getByText('Enter a deliverable email address.')).toBeInTheDocument();
     await user.clear(to);
-    await user.type(to, 'ap@acme-client.io');
+    await fill(user, to, 'ap@acme-client.io');
     const subject = within(dialog).getByLabelText('Subject');
     await user.clear(subject);
-    await user.type(subject, 'Reminder: INV-0042');
+    await fill(user, subject, 'Reminder: INV-0042');
     await user.click(within(dialog).getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
     const sent = fake.requests.find((r) => r.method === 'POST' && r.path.endsWith('/send'))!;
@@ -161,7 +162,7 @@ describe('Send by email', () => {
   it('explains when the server has no email provider', async () => {
     fake.state.email.configured = false;
     useInvoiceStore.setState({ invoices: [serverInvoice()], _hasHydrated: true });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderView();
     const dialog = await openDialog(user);
     expect(await within(dialog).findByText('Email isn’t set up on this server')).toBeInTheDocument();
@@ -186,7 +187,7 @@ describe('Send by email', () => {
       },
     ]);
     useInvoiceStore.setState({ invoices: [inv], _hasHydrated: true });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderView();
     const history = await screen.findByRole('region', { name: 'Email history' });
     expect(history).toHaveTextContent('Not sent');
@@ -199,7 +200,7 @@ describe('Send by email', () => {
   it('is offered in the dashboard row menu', async () => {
     const inv = serverInvoice();
     useInvoiceStore.setState({ invoices: [inv], _hasHydrated: true });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>

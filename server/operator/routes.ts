@@ -484,6 +484,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
       },
       invoices: { total: counts.invoices.total ?? 0, recent: counts.invoices.recent ?? 0, byCreator: { user: by('user'), agent: by('agent') } },
       clients: { total: counts.clients.total ?? 0, recent: counts.clients.recent ?? 0 },
+      templates: { total: counts.templates.total ?? 0, recent: counts.templates.recent ?? 0 },
       agents: { active: counts.agents.active ?? 0, revoked: counts.agents.revoked ?? 0, pendingRegistrations: counts.pendingRegistrations },
       api: { last24h: stats(rows24), last7d: stats(rows) },
       requestsHourly: series(rows24, t - DAY + HOUR, t, HOUR),
@@ -620,7 +621,7 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const { confirm } = await body(c, z.object({ confirm: z.string() }));
     if (confirm !== id) throw OperatorError.validation('Type the workspace id to confirm deletion.', { field: 'confirm' });
     if (!(await odb.workspaceExists(id))) throw OperatorError.notFound('Workspace not found');
-    await repo.deleteWorkspace(id); // invoices, clients, settings, agents, registrations, activity log
+    await repo.deleteWorkspace(id); // invoices, clients, templates, settings, agents, registrations, activity log
     await odb.purgeWorkspaceOperatorRows(id);
     await audit(c, 'workspace.delete', id);
     settings.invalidate();

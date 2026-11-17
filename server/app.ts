@@ -15,7 +15,7 @@ import { ApiError, errors } from './errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, runInBackground } from './http';
 import { createMcpEndpoint } from './mcp';
 import { installOperator } from './operator';
-import { setTelemetryOutcome } from './operator/telemetry';
+import { setTelemetryDetail } from './operator/hooks';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
 import { registerInvoiceEmailRoutes } from './routes/invoiceEmail';
 import { buildOpenApiDocument } from './openapi';
@@ -24,6 +24,8 @@ import { LIMITS, listInvoicesQuerySchema, zodDetails } from './schemas';
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
 import { registerClientRoutes } from './routes/clients';
+import { registerTemplateRoutes } from './routes/templates';
+import { mcpAuth, registerOAuthRoutes } from './oauth/routes';
 import { registerActivityRoutes } from './routes/activity';
 import { noteRejectedAgentKey, parseBulkUploadHeader, type ActivityRequest } from './services/activity';
 import { downloadInvoicePdf } from './services/invoicePdf';
@@ -59,7 +61,7 @@ export function createApp(deps: AppDeps) {
     requestId: c.req.header('cf-ray') ?? crypto.randomUUID(),
     bulkUploadId: parseBulkUploadHeader(c.req.header('x-midnight-sync')),
     waitUntil: (promise) => runInBackground(c, promise),
-    telemetry: (outcome) => setTelemetryOutcome(c.req.raw, outcome),
+    telemetry: (detail) => setTelemetryDetail(c, detail),
   });
 
   /** Bearer auth for workspace tokens and agent keys. */
@@ -245,6 +247,8 @@ export function createApp(deps: AppDeps) {
   // --- Clients (server/routes/clients.ts) --------------------------------------
   registerClientRoutes(v1, auth, svc);
 
+  // --- Templates (server/routes/templates.ts) ----------------------------------
+  registerTemplateRoutes(v1, auth, svc);
   // --- Activity log (server/routes/activity.ts) --------------------------------
   registerActivityRoutes(v1, auth, svc);
 
@@ -255,10 +259,13 @@ export function createApp(deps: AppDeps) {
     return c.json(await putSettings(svc(c), await readJsonRequired(c, LIMITS.invoiceBodyBytes)));
   });
 
+  // --- OAuth for the MCP endpoint (server/oauth/routes.ts) ------------------------
+  const oauthRepo = registerOAuthRoutes(app, v1, auth, deps);
+
   app.route('/api/v1', v1);
 
   // --- MCP (Streamable HTTP, stateless, JSON responses) -------------------------
-  app.post('/api/mcp', auth, async (c) => {
+  app.post('/api/mcp', mcpAuth(deps, repo, oauthRepo, auth), async (c) => {
     const response = await mcp(c.req.raw, c.get('principal'), publicBaseUrl(c, deps.config.appUrl), activityOf(c, 'mcp'));
     return response;
   });

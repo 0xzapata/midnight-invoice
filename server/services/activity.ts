@@ -18,7 +18,6 @@
  * status transition, scopes, counts and a short label (invoice number,
  * client name, agent name).
  */
-import type { TelemetryOutcomeCode } from '../operator/telemetry';
 import { z } from 'zod';
 import {
   ACTIVITY_PAGE,
@@ -56,8 +55,8 @@ export interface ActivityRequest {
   bulkUploadId?: string;
   /** Keeps background work alive after the response (ExecutionContext.waitUntil). */
   waitUntil?: (promise: Promise<unknown>) => void;
-  /** Reports a failure that the transport answers with 200 (MCP tool errors) to request telemetry. */
-  telemetry?: (outcome: { status: number; code: TelemetryOutcomeCode }) => void;
+  /** Reports a failure the transport answers with 200 (MCP tool errors) to request telemetry (`setTelemetryDetail`). */
+  telemetry?: (detail: { status: number; errorCode: string }) => void;
 }
 
 /** What recording needs. `ServiceContext` (services/invoices.ts) satisfies it. */
@@ -226,7 +225,7 @@ export function changedFields(before: object | null | undefined, after: object, 
 const STATUS_FIELDS = ['status', 'sentAt', 'paidAt'];
 
 /** If a user's write belongs to a browser bulk upload, the summary entry that counts it. */
-function bulkUploadInput(ctx: ActivityContext, counter: 'invoices' | 'clients'): ActivityInput | null {
+function bulkUploadInput(ctx: ActivityContext, counter: 'invoices' | 'clients' | 'templates'): ActivityInput | null {
   const batch = ctx.activity?.bulkUploadId;
   if (!batch || ctx.principal?.type !== 'user') return null;
   return {
@@ -284,10 +283,29 @@ export function clientChangedInput(id: string, before: { name: string; archivedA
   return { action: 'client.updated', entity, changes: { fields } };
 }
 
+export function templateCreatedInput(ctx: ActivityContext, id: string, name: string): ActivityInput {
+  return bulkUploadInput(ctx, 'templates') ?? { action: 'template.created', entity: { type: 'template', id, label: name } };
+}
+
+/**
+ * template.updated / template.archived / template.unarchived, or null when
+ * nothing changed. Only field *names* are recorded (never line text or notes).
+ */
+export function templateChangedInput(id: string, before: { name: string; archivedAt?: string | null }, after: { name: string; archivedAt?: string | null }): ActivityInput | null {
+  const fields = changedFields(before, after);
+  if (fields.length === 0) return null;
+  const entity = { type: 'template', id, label: after.name };
+  if (fields.length === 1 && fields[0] === 'archivedAt') {
+    return { action: after.archivedAt ? 'template.archived' : 'template.unarchived', entity };
+  }
+  return { action: 'template.updated', entity, changes: { fields } };
+}
+
 /** SQL label of an entity the write is about to touch (e.g. a deleted invoice's number). */
 export const labelOf = {
   invoice: (workspaceId: string, id: string) => ({ sql: 'SELECT invoice_number FROM invoices WHERE workspace_id = ? AND id = ?', params: [workspaceId, id] }),
   client: (workspaceId: string, id: string) => ({ sql: 'SELECT name FROM clients WHERE workspace_id = ? AND id = ?', params: [workspaceId, id] }),
+  template: (workspaceId: string, id: string) => ({ sql: 'SELECT name FROM templates WHERE workspace_id = ? AND id = ?', params: [workspaceId, id] }),
   agent: (workspaceId: string, id: string) => ({ sql: 'SELECT name FROM agents WHERE workspace_id = ? AND id = ?', params: [workspaceId, id] }),
 };
 

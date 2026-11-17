@@ -13,6 +13,7 @@ import type { Actor, InvoiceFormData } from '../../shared/types/invoice';
 import type { DefaultSettings } from '../../shared/settings';
 import type { Scope } from '../../shared/api';
 import type { InvoiceStatusFields } from '../../shared/invoice-status';
+import { createOAuthRepository } from '../oauth/repository';
 
 /** D1's own clock, ISO-8601 with milliseconds. Used for all invoice timestamps. */
 const DB_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
@@ -179,7 +180,9 @@ export function createRepository(db: D1Database) {
         db.prepare('DELETE FROM activity WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM invoices WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM clients WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM templates WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM workspace_settings WHERE workspace_id = ?').bind(id),
+        ...createOAuthRepository(db).workspaceDeletes(id),
         db.prepare('DELETE FROM agents WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agent_registrations WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM email_messages WHERE workspace_id = ?').bind(id),

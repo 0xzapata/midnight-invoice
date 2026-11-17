@@ -174,6 +174,22 @@ export function createEmailRepository(db: D1Database) {
       return !!row;
     },
 
+    /**
+     * Payment details of a template the user saved last (null if the template
+     * is unknown or an agent wrote it last). Lets an agent send an invoice it
+     * created from the user's own template.
+     */
+    async userTemplatePaymentDetails(workspaceId: string, templateId: string): Promise<string | null> {
+      const row = await db
+        .prepare(
+          `SELECT coalesce(json_extract(data, '$.paymentDetails'), '') AS pd FROM templates
+           WHERE workspace_id = ? AND id = ? AND json_extract(updated_by, '$.type') = 'user'`,
+        )
+        .bind(workspaceId, templateId)
+        .first<{ pd: string }>();
+      return row ? row.pd : null;
+    },
+
     /** Set when an agent created the invoice or changed its sender details and the user has not saved it since (triggers, migration 0007). */
     async senderReviewFlag(workspaceId: string, invoiceId: string): Promise<{ agent_name: string | null; flagged_at: string } | null> {
       return db

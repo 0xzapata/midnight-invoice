@@ -177,6 +177,7 @@ export function groupOf(metric: string): { service: string; group: string; name:
   else if (path.startsWith('/invoices/:id/pdf')) group = 'PDF rendering';
   else if (path === '/invoices/summary' || /^\/invoices\/:id\/(mark-sent|mark-paid|void|reopen)$/.test(path)) group = 'Invoice status';
   else if (path.startsWith('/clients')) group = 'Clients';
+  else if (path.startsWith('/templates')) group = 'Templates';
   else if (path === '/activity' || /^\/agents\/[^/]+\/activity$/.test(path)) group = 'Activity log';
   else if (path.startsWith('/agents/register') || path.startsWith('/agents/token') || path.startsWith('/agents/registrations')) group = 'Agent registration';
   else if (path.startsWith('/agents')) group = 'Agents';
@@ -184,6 +185,7 @@ export function groupOf(metric: string): { service: string; group: string; name:
   else if (path.startsWith('/workspace')) group = 'Workspaces';
   else if (path.startsWith('/settings')) group = 'Settings';
   else if (path === '/health' || path === '/openapi.json') group = 'Meta';
+  else if (path.startsWith('/api/oauth/') || path.startsWith('/oauth/')) group = 'OAuth';
   return { service, group, name };
 }
 
@@ -239,27 +241,4 @@ export function series(rows: RollupRow[], from: number, to: number, step: number
     histOf(r).forEach((v, i) => (p.hist[i] += v));
   }
   return [...points.entries()].map(([t, p]) => ({ t, count: p.count, errors: p.errors, p95Ms: percentile(p.hist, 0.95) }));
-}
-
-// ---------------------------------------------------------------------------
-// Fixed-label outcomes for transports that answer 200 on failure
-// ---------------------------------------------------------------------------
-
-/** Fixed outcome codes a feature may attach to a request (no ids, no free text). */
-export type TelemetryOutcomeCode = 'email_send_failed' | 'email_not_configured' | 'rate_limited' | 'recipient_not_allowed' | 'invoice_needs_review' | 'client_error';
-
-const outcomes = new WeakMap<Request, { status: number; code: TelemetryOutcomeCode }>();
-
-/**
- * MCP tool errors are JSON-RPC results with HTTP 200, so the request hook
- * would count them as successes. A feature calls this (through
- * `ctx.activity.telemetry`) with the HTTP status the same failure has over
- * REST; the hook then records the request with that status and code.
- */
-export function setTelemetryOutcome(request: Request, outcome: { status: number; code: TelemetryOutcomeCode }): void {
-  outcomes.set(request, outcome);
-}
-
-export function telemetryOutcomeOf(request: Request): { status: number; code: TelemetryOutcomeCode } | undefined {
-  return outcomes.get(request);
 }

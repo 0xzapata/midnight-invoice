@@ -33,6 +33,7 @@ import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invo
 import { invoiceInputSchema, invoicePatchSchema, isoDateTime, LIMITS } from './schemas';
 import * as invoices from './services/invoices';
 import { registerClientTools } from './mcpClients';
+import { registerTemplateTools } from './mcpTemplates';
 import { registerStatusTools, statusListFilters } from './mcpStatusTools';
 import { registerEmailTools } from './mcpEmailTools';
 import { registerActivityTools } from './mcpActivity';
@@ -72,7 +73,7 @@ function describeShape<T extends z.ZodRawShape>(shape: T): T {
   ) as T;
 }
 
-const createInput = z.object(describeShape(invoiceInputSchema.omit({ createdAt: true, id: true }).shape));
+const createInput = z.object(describeShape(invoiceInputSchema.omit({ createdAt: true, id: true, templateId: true }).shape));
 const updateInput = z.object({
   id: z.string().describe('Invoice id (UUID).'),
   expected_revision: z
@@ -80,7 +81,7 @@ const updateInput = z.object({
     .int()
     .optional()
     .describe('Optional optimistic-concurrency check: fail if the invoice revision changed since you read it.'),
-  ...describeShape(invoicePatchSchema.omit({ id: true }).shape),
+  ...describeShape(invoicePatchSchema.omit({ id: true, templateId: true }).shape),
 });
 const idInput = z.object({ id: z.string().describe('Invoice id (UUID).') });
 const listInput = z.object({
@@ -126,6 +127,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
       'Midnight Invoice: create, read, update and delete invoices in the workspace that approved this agent. ' +
       'Amounts are numbers in the invoice currency; totals (subtotal, taxAmount, total) are computed by the server. ' +
       'To invoice a saved client, find it with list_clients and pass its id as clientId instead of typing its details. ' +
+      'When the user mentions an invoice template or a recurring invoice, find it with list_templates and use create_invoice_from_template. ' +
       'Only tools allowed by your scopes are listed.',
   });
 
@@ -276,7 +278,10 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
         content: [
           {
             type: 'text',
-            text: `PDF for ${invoice.invoiceNumber} (${bytes.length} bytes, ${pdfFilename(invoice.invoiceNumber)}). Download URL (requires the same Authorization header): ${url}`,
+            text:
+              principal.type === 'agent' && principal.credential === 'oauth'
+                ? `PDF for ${invoice.invoiceNumber} (${bytes.length} bytes, ${pdfFilename(invoice.invoiceNumber)}), embedded below. (The REST download URL ${url} needs an agent API key; OAuth tokens only work on this MCP endpoint.)`
+                : `PDF for ${invoice.invoiceNumber} (${bytes.length} bytes, ${pdfFilename(invoice.invoiceNumber)}). Download URL (requires the same Authorization header): ${url}`,
           },
           { type: 'resource', resource: { uri: url, mimeType: 'application/pdf', blob: btoa(binary) } },
         ],
@@ -285,6 +290,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
   );
 
   registerClientTools(tool, ctx);
+  registerTemplateTools(tool, ctx);
   registerStatusTools(tool, ctx);
   registerEmailTools(tool, ctx);
   registerActivityTools(tool, ctx);

@@ -44,6 +44,8 @@ export interface Invoice {
   createdAt: string;
   /** The saved client this invoice was billed to (to* fields are a snapshot; editing the client never changes them). */
   clientId?: string;
+  /** The template this invoice was created from (a reference only: the invoice is a snapshot, template edits never change it). */
+  templateId?: string;
 
   // --- Status (shared/invoice-status.ts). Absent on invoices saved before statuses existed = draft. ---
   status?: InvoiceStatus;
@@ -81,4 +83,6 @@ export interface InvoiceFormData {
   currency: string;
   /** See Invoice.clientId. */
   clientId?: string;
+  /** See Invoice.templateId. */
+  templateId?: string;
 }

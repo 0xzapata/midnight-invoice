@@ -15,12 +15,14 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - ⚙️ Comprehensive settings management
 - 📋 Duplicate invoices
 - ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip (works offline)
+- 🧩 Invoice templates: reusable blueprints (`/templates`) with line items, terms, notes and a default client; placeholders such as `{{month_name}}` and `{{prev_month_name}}` are filled in for each invoice's issue date; "New from template" on the dashboard, "From template" and "Save as template" in the invoice form and on the invoice page; invoices are independent copies
 - 👥 Saved clients: a client list (`/clients`) with default currency, tax rate and payment terms; pick a client on an invoice to fill Bill To, "Save as client" from an invoice, one-click import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
 - 🕵️ Activity log (with cloud sync): a timeline (`/activity`) of what you and each AI agent did — invoices and clients created, edited, deleted, status changes, PDF downloads through the API, agents approved, denied and revoked — with filters, per-agent views and a History section on each invoice
 - ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
 - 🤖 AI agents: approve an agent from the app (scopes you can narrow), see what it created or edited, revoke it any time (REST + remote MCP)
+- 🔐 Sign-in for MCP clients (OAuth 2.1): paste the MCP URL into a client that supports the MCP authorization flow, approve it in the app, done; no key to copy
 - 🧾 Server-side PDF rendering with the same PDF component as the app
 - ✉️ Send an invoice by email (with cloud sync): the client gets the PDF attached, a draft is marked sent, and the invoice page shows the email history; agents can send too with the separate `invoices:send` permission (only to the client email you entered). Needs an email provider configured by the site operator (see below)
 
@@ -342,9 +344,20 @@ also run `DELETE FROM operator_settings; DELETE FROM operator_state;`.
 AI agents (Claude, ChatGPT, scripts…) can work with your invoices after you
 approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`).
 
+**MCP clients with OAuth** (simplest): add `https://<your app>/api/mcp` as a
+remote MCP server. The client discovers the authorization server
+(`/.well-known/oauth-protected-resource/api/mcp`), registers itself (or uses
+a Client ID Metadata Document) and opens `/agents/authorize` in your browser,
+where you review and narrow the permissions and approve. It then gets
+short-lived, rotating tokens that only work on the MCP endpoint, and shows up
+on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
+
+**Other agents** use the device flow:
+
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
-   `settings:read`, `clients:read`, `clients:write`, `activity:read`, `invoices:send`) and shows you a code like
+   `settings:read`, `clients:read`, `clients:write`, `templates:read`,
+   `templates:write`, `activity:read`, `invoices:send`) and shows you a code like
    `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
@@ -363,18 +376,29 @@ invoice to the client on file on your behalf; it cannot choose another
 recipient, only addresses you entered yourself are allowed, and it has its own
 hourly and daily limits.
 
+With `templates:read` (and `invoices:write`) an agent can create invoices from
+your templates ("send the usual retainer": `list_templates` →
+`create_invoice_from_template`, or `POST /api/v1/templates/:id/instantiate`);
+explicit values win over the template, the template over the client's
+defaults, and those over your settings. The new invoice is a draft.
+`templates:write` lets it add, edit, archive and delete templates.
+
 ### Connecting an agent (as a user)
 
 1. In the app, open **Settings → Cloud sync & agents** and turn on cloud sync.
    Your invoices, saved clients and default settings are then stored on the server (in an
    anonymous workspace) so approved agents can work with them. The app keeps
    working offline; nothing leaves the browser until you turn this on.
-2. Open **Agents** (header) and copy the prompt under *Connect an agent* into
-   your AI tool (it tells the agent to read `/llms.txt` and register), or give
-   it the MCP endpoint `https://<your app>/api/mcp`.
-3. The agent shows you a code and a link to `/agents/approve?code=…`. Open it,
-   check that the code matches, untick any permission you do not want to give
-   and click **Approve**. Only approve requests you started yourself.
+2. Open **Agents** (header). Simplest: paste the MCP server URL
+   `https://<your app>/api/mcp` into an MCP client that supports OAuth; it
+   opens a page in this app where you review the app's name, where it sends
+   you back to and the permissions, untick what you do not want and click
+   **Approve**. Otherwise copy the prompt under *Connect an agent* into your AI
+   tool (it tells the agent to read `/llms.txt` and register).
+3. With the prompt, the agent shows you a code and a link to
+   `/agents/approve?code=…`. Open it, check that the code matches, untick any
+   permission you do not want to give and click **Approve**. Only approve
+   requests you started yourself.
 4. Invoices the agent creates or edits appear in your dashboard within ~15
    seconds, marked *by &lt;agent&gt;* / *edited by &lt;agent&gt;*. Revoke it on
    the Agents page.

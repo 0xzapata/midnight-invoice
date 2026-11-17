@@ -143,6 +143,34 @@ describe('Agents page', () => {
     expect(screen.getByText(/"Authorization": "Bearer <agent API key>"/)).toBeInTheDocument();
   });
 
+  it('marks agents connected with OAuth', async () => {
+    fake.state.agents.push({
+      id: 'agent-3',
+      name: 'Cursor',
+      description: null,
+      scopes: ['invoices:read'],
+      createdAt: '2026-11-12T10:00:00.000Z',
+      lastUsedAt: null,
+      revokedAt: null,
+      connection: 'oauth',
+    });
+    connect();
+    renderPage();
+    const list = await screen.findByRole('list', { name: 'Connected agents' });
+    const row = within(list).getByText('Cursor').closest('li')!;
+    expect(within(row).getByText('OAuth')).toBeInTheDocument();
+    expect(within(row).getByText(/Connected Nov 12, 2026 via OAuth · Last used never/)).toBeInTheDocument();
+    const other = within(list).getByText('Claude Desktop').closest('li')!;
+    expect(within(other).queryByText('OAuth')).toBeNull();
+  });
+
+  it('puts "paste this URL into your MCP client" first in the connection help', () => {
+    renderPage();
+    const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
+    expect(headings[0]).toBe('Simplest: paste this URL into your MCP client');
+    expect(screen.getByText(/open this app in your browser/)).toBeInTheDocument();
+  });
+
   it('asks to turn on cloud sync first when it is off, without calling the API', () => {
     renderPage();
     expect(screen.getByText(/Turn on cloud sync to connect one/)).toBeInTheDocument();

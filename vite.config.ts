@@ -99,12 +99,14 @@ export default defineConfig(({ command }) => ({
         globIgnores: ["**/node_modules/**/*", "**/assets/OperatorRoot-*"],
         // Never answer API calls (or llms.txt) with the cached SPA shell.
         // /operator: private console, always from the network (never the cached shell).
-        navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/llms\.txt$/, /^\/operator(?:\/|$)/],
+        // /.well-known: OAuth discovery documents for MCP clients (Worker).
+        navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/llms\.txt$/, /^\/operator(?:\/|$)/, /^\/\.well-known\//],
         runtimeCaching: [
           {
             // API responses carry invoices and are authorised by the workspace
             // token: never cache them (they are also sent with no-store).
-            urlPattern: ({ url }) => url.pathname === "/api" || url.pathname.startsWith("/api/"),
+            urlPattern: ({ url }) =>
+              url.pathname === "/api" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/.well-known/"),
             handler: "NetworkOnly",
           },
           {

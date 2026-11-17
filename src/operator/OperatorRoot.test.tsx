@@ -165,6 +165,7 @@ describe('operator console: dashboard', () => {
     workspaces: { total: 12, recent: 3, active7d: 5, suspended: 1 },
     invoices: { total: 40, recent: 7, byCreator: { user: { total: 30, recent: 5 }, agent: { total: 10, recent: 2 } } },
     clients: { total: 9, recent: 2 },
+    templates: { total: 4, recent: 1 },
     agents: { active: 4, revoked: 1, pendingRegistrations: 2 },
     api: {
       last24h: { requests: 1234, errors: 2, errorRate: 0.0016, p50Ms: 12, p95Ms: 80 },

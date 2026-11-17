@@ -11,6 +11,9 @@ import {
   type ClientInput,
   type ClientResponse,
   type ListClientsResponse,
+  type ListTemplatesResponse,
+  type TemplateInput,
+  type TemplateResponse,
   type ApiErrorBody,
   type ApproveAgentResponse,
   type CreateWorkspaceResponse,
@@ -28,6 +31,7 @@ import {
   type Scope,
   type SettingsResponse,
 } from '../../../shared/api';
+import type { OAuthDecisionResponse, OAuthRequestPreview } from '../../../shared/oauth';
 import { ApiError, NetworkError, parseRetryAfter } from './errors';
 
 export interface ApiClientOptions {
@@ -210,6 +214,23 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
     deleteClient: (id: string, pre?: WritePreconditions) =>
       request<void>('DELETE', `/clients/${encode(id)}`, { headers: preconditionHeaders(pre) }),
 
+    // Templates
+    listTemplates: (p: ListInvoicesParams & { q?: string } = {}) =>
+      request<ListTemplatesResponse>('GET', '/templates', {
+        query: {
+          q: p.q,
+          updated_since: p.updatedSince,
+          after_id: p.afterId,
+          include_deleted: p.includeDeleted ? 'true' : undefined,
+          limit: p.limit,
+        },
+      }),
+    getTemplate: (id: string) => request<TemplateResponse>('GET', `/templates/${encode(id)}`),
+    putTemplate: (id: string, body: TemplateInput, pre?: WritePreconditions) =>
+      request<TemplateResponse>('PUT', `/templates/${encode(id)}`, { body, headers: preconditionHeaders(pre) }),
+    deleteTemplate: (id: string, pre?: WritePreconditions) =>
+      request<void>('DELETE', `/templates/${encode(id)}`, { headers: preconditionHeaders(pre) }),
+
     // Settings
     getSettings: () => request<SettingsResponse>('GET', '/settings'),
     putSettings: (settings: PutSettingsRequest) => request<SettingsResponse>('PUT', '/settings', { body: settings }),
@@ -222,6 +243,11 @@ export function createApiClient({ getToken, onUnauthorized, fetchImpl }: ApiClie
     listAgents: () => request<ListAgentsResponse>('GET', '/agents'),
     revokeAgent: (id: string) => request<void>('DELETE', `/agents/${encode(id)}`),
 
+    // OAuth consent (MCP clients)
+    getOAuthRequest: (id: string) => request<OAuthRequestPreview>('GET', `/oauth/requests/${encode(id)}`),
+    approveOAuthRequest: (id: string, scopes: Scope[]) =>
+      request<OAuthDecisionResponse>('POST', `/oauth/requests/${encode(id)}/approve`, { body: { scopes } }),
+    denyOAuthRequest: (id: string) => request<OAuthDecisionResponse>('POST', `/oauth/requests/${encode(id)}/deny`),
     // Activity log
     listActivity: (p: ActivityParams = {}) => request<ListActivityResponse>('GET', '/activity', { query: activityQuery(p) }),
     listAgentActivity: (id: string, p: Omit<ActivityParams, 'agentId'> = {}) =>

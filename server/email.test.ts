@@ -15,6 +15,7 @@ import { composeInvoiceEmail, isDeliverableEmail } from '../shared/email-templat
 import { buildOperatorApp, completeSetup, fakeWorkos, routeFetch } from './test/operator';
 import { groupOf } from './operator/telemetry';
 import { telemetryOf } from './operator';
+import { connectOAuth } from './test/oauth';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
 beforeAll(async () => {
@@ -656,5 +657,101 @@ describe('telemetry', () => {
       .prepare(`SELECT SUM(count) AS count, SUM(errors) AS errors, SUM(client_errors) AS client_errors FROM telemetry_rollups WHERE granularity = 'm' AND metric = 'mcp|tool send_invoice_email'`)
       .first<{ count: number; errors: number; client_errors: number }>();
     expect(row).toEqual({ count: 2, errors: 1, client_errors: 1 });
+  });
+});
+
+describe('OAuth-connected agents (mi_at_ tokens, MCP only)', () => {
+  async function mcpWith(app: ReturnType<typeof createApp>, token: string) {
+    const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+      fetch: (input, init) => Promise.resolve(app.fetch(new Request(input, init))),
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+    });
+    const client = new Client({ name: 'oauth-email-test', version: '1.0.0' });
+    await client.connect(transport);
+    return client;
+  }
+  const parseTool = (result: { content?: unknown }) => JSON.parse((result.content as { type: string; text: string }[])[0].text);
+
+  it('advertises invoices:send and lets an OAuth agent send under the same rules, caps and attribution', async () => {
+    const s = await setup({ settings: { 'email.cooldownMinutes': 0, 'email.agentHourlyLimit': 2 } });
+    const meta = await s.client.get('/.well-known/oauth-authorization-server');
+    expect(meta.json.scopes_supported).toContain('invoices:send');
+
+    const inv = await s.invoice();
+    const { tokens } = await connectOAuth(s.app, s.client, s.ws.token, { scope: 'invoices:read invoices:write invoices:send' });
+    expect(tokens.access_token.startsWith('mi_at_')).toBe(true);
+    expect(tokens.scope.split(' ')).toContain('invoices:send');
+    const agent = await mcpWith(s.app, tokens.access_token);
+    expect((await agent.listTools()).tools.map((t) => t.name)).toContain('send_invoice_email');
+
+    const ok = parseTool(await agent.callTool({ name: 'send_invoice_email', arguments: { id: inv.id } }));
+    expect(ok).toMatchObject({ statusChanged: true, email: { status: 'sent', sentBy: { type: 'agent' } } });
+
+    // Same recipient rule: an address the OAuth agent wrote itself is refused.
+    const own = parseTool(await agent.callTool({ name: 'create_invoice', arguments: { toName: 'New', toEmail: 'x@fresh-client.io', lineItems: [{ description: 'Work', quantity: 1, price: 10 }] } })).invoice;
+    const refused = await agent.callTool({ name: 'send_invoice_email', arguments: { id: own.id } });
+    expect(parseTool(refused).error).toMatchObject({ code: 'recipient_not_allowed', details: { reason: 'address_not_confirmed_by_user' } });
+    // Same review rule.
+    await agent.callTool({ name: 'update_invoice', arguments: { id: inv.id, paymentDetails: 'IBAN XX00 ATTACKER' } });
+    expect(parseTool(await agent.callTool({ name: 'send_invoice_email', arguments: { id: inv.id } })).error.code).toBe('invoice_needs_review');
+    // Same per-agent cap (2/hour): one more send passes, the next is limited.
+    const inv2 = await s.invoice();
+    expect(parseTool(await agent.callTool({ name: 'send_invoice_email', arguments: { id: inv2.id } })).email.status).toBe('sent');
+    const inv3 = await s.invoice();
+    expect(parseTool(await agent.callTool({ name: 'send_invoice_email', arguments: { id: inv3.id } })).error.details.reason).toBe('agent_hourly_limit');
+    await agent.close();
+
+    // Activity attributes the sends and the blocked attempts to the OAuth agent.
+    await vi.waitFor(async () => {
+      const entries = (await s.client.get('/api/v1/activity?action=invoice.email', s.ws.token)).json.activity as { action: string; actor: { type: string; agentId?: string }; tool: string | null }[];
+      expect(entries.filter((e) => e.action === 'invoice.emailed')).toHaveLength(2);
+      expect(entries.filter((e) => e.action === 'invoice.email_blocked').length).toBeGreaterThanOrEqual(2);
+      for (const e of entries) expect(e).toMatchObject({ actor: { type: 'agent' }, tool: 'send_invoice_email' });
+      expect(new Set(entries.map((e) => e.actor.agentId)).size).toBe(1);
+    });
+  });
+
+  it('is not granted when the user unticks it on the consent screen', async () => {
+    const s = await setup();
+    const inv = await s.invoice();
+    const { tokens } = await connectOAuth(s.app, s.client, s.ws.token, { scope: 'invoices:read invoices:send', approve: ['invoices:read'] });
+    const agent = await mcpWith(s.app, tokens.access_token);
+    expect((await agent.listTools()).tools.map((t) => t.name)).not.toContain('send_invoice_email');
+    await agent.close();
+    expect((await s.send(inv.id, {}, tokens.access_token)).status).toBe(401); // mi_at_ tokens are MCP only
+  });
+});
+
+describe('invoices created from templates', () => {
+  it('passes the sender review with the user’s own template, but not with an agent-edited template', async () => {
+    const s = await setup({ settings: { 'email.cooldownMinutes': 0 } });
+    await s.client.post('/api/v1/clients', { name: 'Acme', email: CLIENT }, s.ws.token);
+    const { api_key } = await connectAgent(s.client, s.ws.token, ['invoices:write', 'invoices:send', 'templates:read', 'templates:write']);
+    const body = { lineItems: [{ description: 'Retainer', quantity: 1, price: 1000 }], toName: 'Acme', toEmail: CLIENT };
+
+    // A template with the workspace defaults (no payment details of its own).
+    const plain = (await s.client.post('/api/v1/templates', { name: 'Plain', lineItems: body.lineItems }, s.ws.token)).json.template;
+    const a = (await s.client.post(`/api/v1/templates/${plain.id}/instantiate`, { toName: 'Acme', toEmail: CLIENT }, api_key)).json.invoice;
+    expect((await s.send(a.id, {}, api_key)).status).toBe(200);
+
+    // The user's template with its own payment details: passes.
+    const mine = (await s.client.post('/api/v1/templates', { name: 'EU', lineItems: body.lineItems, paymentDetails: 'IBAN DE00 USER' }, s.ws.token)).json.template;
+    const b = (await s.client.post(`/api/v1/templates/${mine.id}/instantiate`, { toName: 'Acme', toEmail: CLIENT }, api_key)).json.invoice;
+    expect(b.paymentDetails).toBe('IBAN DE00 USER');
+    expect((await s.send(b.id, {}, api_key)).status).toBe(200);
+
+    // The agent rewrites that template's payment details: invoices from it need a review.
+    expect((await s.client.patch(`/api/v1/templates/${mine.id}`, { paymentDetails: 'IBAN XX00 ATTACKER' }, api_key)).status).toBe(200);
+    const c = (await s.client.post(`/api/v1/templates/${mine.id}/instantiate`, { toName: 'Acme', toEmail: CLIENT }, api_key)).json.invoice;
+    const refused = await s.send(c.id, {}, api_key);
+    expect(refused.json.error).toMatchObject({ code: 'invoice_needs_review', details: { fields: ['paymentDetails'] } });
+
+    // Overriding payment details at instantiation is the agent's own text: refused too.
+    const d = (await s.client.post(`/api/v1/templates/${plain.id}/instantiate`, { toName: 'Acme', toEmail: CLIENT, paymentDetails: 'IBAN XX00 OTHER' }, api_key)).json.invoice;
+    expect((await s.send(d.id, {}, api_key)).json.error.code).toBe('invoice_needs_review');
+
+    // The user saving the invoice clears it.
+    await s.client.patch(`/api/v1/invoices/${c.id}`, { notes: 'Checked' }, s.ws.token);
+    expect((await s.send(c.id, {}, api_key)).status).toBe(200);
   });
 });

@@ -116,7 +116,10 @@ const SENDER_FIELDS = ['fromName', 'fromEmail', 'paymentDetails'] as const;
  * Fraud guard for agents: an invoice whose sender details (name, email,
  * payment details) an agent wrote, and that the user has not saved since, is
  * only sent if those details equal the workspace defaults (settings, which
- * agents cannot change). Otherwise the user must review it in the app first.
+ * agents cannot change) — or, for payment details, those of the template the
+ * invoice was created from when the user saved that template last (an
+ * agent-edited template does not count). Otherwise the user must review it in
+ * the app first.
  */
 async function requireSenderReview(
   ctx: ServiceContext,
@@ -127,7 +130,13 @@ async function requireSenderReview(
   if (ctx.principal.type !== 'agent') return;
   const flag = await emails.senderReviewFlag(ctx.principal.workspaceId, invoice.id);
   if (!flag) return;
-  const differing = SENDER_FIELDS.filter((f) => (invoice[f] ?? '').trim() !== (settings?.[f] ?? '').trim());
+  // Payment details may also come from a template the user saved last (instantiated by the agent).
+  const templatePd = invoice.templateId ? await emails.userTemplatePaymentDetails(ctx.principal.workspaceId, invoice.templateId) : null;
+  const differing = SENDER_FIELDS.filter((f) => {
+    const value = (invoice[f] ?? '').trim();
+    if (value === (settings?.[f] ?? '').trim()) return false;
+    return !(f === 'paymentDetails' && templatePd !== null && templatePd.trim() !== '' && value === templatePd.trim());
+  });
   if (differing.length === 0) return;
   noteBlocked(ctx, invoice, invoice.toEmail, 'invoice_needs_review');
   throw new ApiError(
@@ -254,13 +263,8 @@ async function markDraftSent(ctx: ServiceContext, invoice: ApiInvoice, activity:
   }
 }
 
-const TELEMETRY_CODES: Record<string, 'email_send_failed' | 'email_not_configured' | 'rate_limited' | 'recipient_not_allowed' | 'invoice_needs_review'> = {
-  email_send_failed: 'email_send_failed',
-  email_not_configured: 'email_not_configured',
-  rate_limited: 'rate_limited',
-  recipient_not_allowed: 'recipient_not_allowed',
-  invoice_needs_review: 'invoice_needs_review',
-};
+/** Error codes reported to telemetry as-is; anything else is `client_error` (fixed labels only). */
+const TELEMETRY_CODES = new Set(['email_send_failed', 'email_not_configured', 'rate_limited', 'recipient_not_allowed', 'invoice_needs_review']);
 
 export async function sendInvoiceEmail(
   ctx: ServiceContext,
@@ -273,7 +277,7 @@ export async function sendInvoiceEmail(
   } catch (error) {
     // Over MCP a failure is a tool result with HTTP 200: report it so operator telemetry counts it like REST does.
     if (error instanceof ApiError && ctx.activity?.source === 'mcp') {
-      ctx.activity.telemetry?.({ status: error.status, code: TELEMETRY_CODES[error.code] ?? 'client_error' });
+      ctx.activity.telemetry?.({ status: error.status, errorCode: TELEMETRY_CODES.has(error.code) ? error.code : 'client_error' });
     }
     throw error;
   }

@@ -6,12 +6,13 @@
  * If-None-Match, 410 for deleted invoices and settings. Clients
  * (`/clients`) follow the same contract, and an invoice write that sets a
  * `clientId` the fake does not have (live) is rejected with 400, like the
- * real server. `GET /activity` and `GET /agents/:id/activity` serve
- * `state.activity` (seed it with `server.addActivity`) with the real filters.
+ * real server. Templates (`/templates`) follow the same contract (and the
+ * same rule for their `clientId`). `GET /activity` and `GET /agents/:id/activity`
+ * serve `state.activity` (seed it with `server.addActivity`) with the real filters.
  */
 import { vi } from 'vitest';
 import type { Actor } from '@/types/invoice';
-import type { AgentSummary, ApiClientRecord, ApiInvoice, ClientInput, InvoiceEmail, InvoiceInput, Scope, SendInvoiceEmailRequest } from '../../shared/api';
+import type { AgentSummary, ApiClientRecord, ApiInvoice, ApiTemplate, ClientInput, InvoiceEmail, InvoiceInput, Scope, SendInvoiceEmailRequest, TemplateInput } from '../../shared/api';
 import type { ActivityEntry } from '../../shared/activity';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
 import { daysOverdue, isOverdue, normalizeStatusFields, utcToday } from '../../shared/invoice-status';
@@ -38,6 +39,7 @@ export function createFakeApi() {
   const tick = () => new Date((now += 1000)).toISOString();
   const invoices = new Map<string, ApiInvoice>();
   const clients = new Map<string, ApiClientRecord>();
+  const templates = new Map<string, ApiTemplate>();
   const state = {
     token: FAKE_TOKEN,
     tokenValid: true,
@@ -85,6 +87,7 @@ export function createFakeApi() {
       paymentDetails: input.paymentDetails ?? state.settings.settings.paymentDetails,
       currency: input.currency ?? state.settings.settings.currency,
       ...(input.clientId ? { clientId: input.clientId } : {}),
+      ...(input.templateId ? { templateId: input.templateId } : {}),
       createdAt: existing?.createdAt ?? input.createdAt ?? at,
       updatedAt: at,
       deletedAt: null,
@@ -129,8 +132,32 @@ export function createFakeApi() {
     };
   }
 
+  function buildTemplate(id: string, input: TemplateInput, actor: Actor, existing?: ApiTemplate): ApiTemplate {
+    const at = tick();
+    return {
+      id,
+      name: input.name,
+      description: input.description ?? '',
+      clientId: input.clientId ?? null,
+      lineItems: (input.lineItems ?? []).map((li, i) => ({ id: li.id ?? `${id}-tl-${i}`, description: li.description, quantity: li.quantity, price: li.price })),
+      taxRate: input.taxRate ?? null,
+      currency: input.currency ?? null,
+      notes: input.notes ?? '',
+      paymentDetails: input.paymentDetails ?? '',
+      paymentTermsDays: input.paymentTermsDays ?? null,
+      invoiceNamePattern: input.invoiceNamePattern ?? '',
+      archivedAt: input.archivedAt ?? null,
+      createdAt: existing?.createdAt ?? input.createdAt ?? at,
+      updatedAt: at,
+      deletedAt: null,
+      revision: (existing?.revision ?? 0) + 1,
+      createdBy: existing?.createdBy ?? actor,
+      updatedBy: actor,
+    };
+  }
+
   /** The real server's rule: a newly set or changed clientId must name a live client. */
-  function validateClientRef(input: InvoiceInput, existing?: ApiInvoice): Response | undefined {
+  function validateClientRef(input: { clientId?: string | null }, existing?: { clientId?: string | null }): Response | undefined {
     if (!input.clientId || input.clientId === existing?.clientId) return undefined;
     const client = clients.get(input.clientId);
     if (!client) return apiError(400, 'validation_failed', 'Unknown client', [{ path: 'clientId', message: 'No client with this id exists in this workspace' }]);
@@ -372,6 +399,50 @@ export function createFakeApi() {
         return new Response(null, { status: 204 });
       }
     }
+    if (path === '/templates' && method === 'GET') {
+      const { page, syncedAt, hasMore, next } = feed(templates.values(), query);
+      return json(200, { templates: page, syncedAt, hasMore, next });
+    }
+    const templateMatch = /^\/templates\/([^/]+)$/.exec(path);
+    if (templateMatch) {
+      const id = templateMatch[1];
+      const existing = templates.get(id);
+      const ifMatch = ifMatchOf(headers);
+      if (method === 'GET') {
+        if (!existing) return apiError(404, 'not_found', 'Template not found');
+        if (existing.deletedAt) return apiError(410, 'gone', 'Template was deleted', { id, deletedAt: existing.deletedAt });
+        return json(200, { template: structuredClone(existing) }, { etag: `"${existing.revision}"` });
+      }
+      if (method === 'PUT') {
+        const input = body as TemplateInput;
+        if (existing && headers['if-none-match'] === '*') return apiError(412, 'precondition_failed', 'Template already exists', { id, currentRevision: existing.revision });
+        if (existing?.deletedAt) return apiError(410, 'gone', 'Template was deleted and cannot be recreated with the same id', { id });
+        if (!existing && ifMatch !== undefined) return apiError(412, 'precondition_failed', 'Template does not exist', { id });
+        if (existing && ifMatch !== undefined && ifMatch !== existing.revision) {
+          return apiError(412, 'precondition_failed', 'Revision mismatch', { id, currentRevision: existing.revision });
+        }
+        if (!input.name?.trim()) return apiError(400, 'validation_failed', 'Request validation failed', [{ path: 'name', message: 'Template name is required' }]);
+        const invalid = validateClientRef(input, existing);
+        if (invalid) return invalid;
+        const saved = buildTemplate(id, input, { type: 'user' }, existing);
+        templates.set(id, saved);
+        return json(existing ? 200 : 201, { template: structuredClone(saved) }, { etag: `"${saved.revision}"` });
+      }
+      if (method === 'DELETE') {
+        if (!existing) return apiError(404, 'not_found', 'Template not found');
+        if (existing.deletedAt) {
+          return ifMatch !== undefined
+            ? apiError(412, 'precondition_failed', 'Template was already deleted', { id, currentRevision: existing.revision })
+            : new Response(null, { status: 204 });
+        }
+        if (ifMatch !== undefined && ifMatch !== existing.revision) {
+          return apiError(412, 'precondition_failed', 'Revision mismatch', { id, currentRevision: existing.revision });
+        }
+        const at = tick();
+        templates.set(id, { ...existing, deletedAt: at, updatedAt: at, revision: existing.revision + 1, updatedBy: { type: 'user' } });
+        return new Response(null, { status: 204 });
+      }
+    }
     return apiError(404, 'not_found', `No route for ${method} ${path}`);
   }
 
@@ -434,6 +505,24 @@ export function createFakeApi() {
     },
     getClient: (id: string) => clients.get(id),
     allClients: () => [...clients.values()],
+    createTemplate(id: string, input: TemplateInput, actor: Actor = agentActor('Claude Desktop')): ApiTemplate {
+      const t = buildTemplate(id, input, actor);
+      templates.set(id, t);
+      return structuredClone(t);
+    },
+    updateTemplate(id: string, patch: Partial<TemplateInput>, actor: Actor = agentActor('Claude Desktop')): ApiTemplate {
+      const existing = templates.get(id)!;
+      const t = buildTemplate(id, { ...existing, ...patch } as TemplateInput, actor, existing);
+      templates.set(id, t);
+      return structuredClone(t);
+    },
+    removeTemplate(id: string, actor: Actor = agentActor('Claude Desktop')): void {
+      const existing = templates.get(id)!;
+      const at = tick();
+      templates.set(id, { ...existing, deletedAt: at, updatedAt: at, revision: existing.revision + 1, updatedBy: actor });
+    },
+    getTemplate: (id: string) => templates.get(id),
+    allTemplates: () => [...templates.values()],
     /** Email history per invoice (newest first), e.g. to seed a failed send. */
     emails,
     /** Appends an activity entry (ids increase with each call, so later = newer). */
@@ -474,4 +563,4 @@ export function createFakeApi() {
 
 export type FakeApi = ReturnType<typeof createFakeApi>;
 
-export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'activity:read', 'invoices:send'];
+export const ALL_SCOPES: Scope[] = ['invoices:read', 'invoices:write', 'invoices:delete', 'settings:read', 'clients:read', 'clients:write', 'templates:read', 'templates:write', 'activity:read', 'invoices:send'];

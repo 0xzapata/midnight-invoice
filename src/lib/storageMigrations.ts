@@ -1,6 +1,7 @@
 import type { Invoice } from '@/types/invoice';
 import type { DefaultSettings } from '../../shared/settings';
 import type { Client } from '../../shared/types/client';
+import type { InvoiceTemplate, TemplateLineItem } from '../../shared/types/template';
 import { isCollectionName, type CollectionName } from '@/lib/sync/collectionNames';
 import { localToday, normalizeStatusFields } from '../../shared/invoice-status';
 
@@ -298,4 +299,63 @@ export function migrateClientStore(persistedState: unknown, _version: number): C
         return [client];
     });
     return { clients };
+}
+
+/**
+ * Current schema version for the template store (`template-storage`).
+ * Increment this when making breaking changes to the InvoiceTemplate type.
+ */
+export const CURRENT_TEMPLATE_VERSION = 1;
+
+/** Template store persisted state shape. */
+export interface TemplatePersistedState {
+    templates: InvoiceTemplate[];
+}
+
+const finiteOrNull = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * Migrates the template store. Like migrateClientStore, every version is
+ * normalised entry by entry so a corrupt entry never breaks app start:
+ * entries without an id or name (and duplicate ids) are dropped, malformed
+ * line items are dropped, missing strings become "", malformed optional
+ * values become null. Sync metadata (revision, attribution) is kept.
+ */
+export function migrateTemplateStore(persistedState: unknown, _version: number): TemplatePersistedState {
+    const state = isRecord(persistedState) ? persistedState : {};
+    const raw = Array.isArray(state.templates) ? state.templates : [];
+    const seen = new Set<string>();
+    const templates = raw.flatMap((t): InvoiceTemplate[] => {
+        if (!isRecord(t) || typeof t.id !== 'string' || typeof t.name !== 'string' || seen.has(t.id)) return [];
+        seen.add(t.id);
+        const lineIds = new Set<string>();
+        const lineItems = (Array.isArray(t.lineItems) ? t.lineItems : []).flatMap((li): TemplateLineItem[] => {
+            if (!isRecord(li) || typeof li.description !== 'string') return [];
+            const id = typeof li.id === 'string' && !lineIds.has(li.id) ? li.id : crypto.randomUUID();
+            lineIds.add(id);
+            return [{ id, description: li.description, quantity: finiteOrNull(li.quantity) ?? 1, price: finiteOrNull(li.price) ?? 0 }];
+        });
+        const createdAt = optString(t.createdAt) ?? new Date(0).toISOString();
+        const template: InvoiceTemplate = {
+            id: t.id,
+            name: t.name,
+            description: optString(t.description) ?? '',
+            clientId: optString(t.clientId) ?? null,
+            lineItems,
+            taxRate: finiteOrNull(t.taxRate),
+            currency: optString(t.currency) || null,
+            notes: optString(t.notes) ?? '',
+            paymentDetails: optString(t.paymentDetails) ?? '',
+            paymentTermsDays: finiteOrNull(t.paymentTermsDays),
+            invoiceNamePattern: optString(t.invoiceNamePattern) ?? '',
+            createdAt,
+            updatedAt: optString(t.updatedAt) ?? createdAt,
+            archivedAt: optString(t.archivedAt) ?? null,
+        };
+        if (typeof t.revision === 'number') template.revision = t.revision;
+        if (isRecord(t.createdBy)) template.createdBy = t.createdBy as unknown as InvoiceTemplate['createdBy'];
+        if (isRecord(t.updatedBy)) template.updatedBy = t.updatedBy as unknown as InvoiceTemplate['updatedBy'];
+        return [template];
+    });
+    return { templates };
 }

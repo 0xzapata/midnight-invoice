@@ -27,6 +27,7 @@ export const CONTENT_FIELDS = [
   // merge never pairs one side's status with the other side's dates.
   'status',
   'clientId',
+  'templateId',
 ] as const;
 
 export type ContentField = (typeof CONTENT_FIELDS)[number];
@@ -49,6 +50,8 @@ export interface InvoiceContent {
   currency: string;
   /** "" = no saved client. */
   clientId: string;
+  /** "" = not created from a template. */
+  templateId: string;
   status: InvoiceStatus;
   sentAt: string | null;
   paidAt: string | null;
@@ -72,6 +75,7 @@ export const FIELD_LABELS: Record<ContentField, string> = {
   paymentDetails: 'payment details',
   currency: 'currency',
   clientId: 'saved client',
+  templateId: 'template',
   status: 'status',
 };
 
@@ -94,6 +98,7 @@ export function contentOf(invoice: Partial<Invoice>): InvoiceContent {
     paymentDetails: invoice.paymentDetails ?? '',
     currency: invoice.currency ?? 'USD',
     clientId: invoice.clientId ?? '',
+    templateId: invoice.templateId ?? '',
     status: statusOf(invoice),
     sentAt: invoice.sentAt || null,
     paidAt: invoice.paidAt || null,
@@ -108,6 +113,8 @@ export function fieldEquals(field: ContentField, a: InvoiceContent, b: InvoiceCo
   }
   // Bases persisted before saved clients existed have no clientId: they mean "no client".
   if (field === 'clientId') return (a.clientId || '') === (b.clientId || '');
+  // Bases persisted before templates existed have no templateId: they mean "no template".
+  if (field === 'templateId') return (a.templateId || '') === (b.templateId || '');
   return a[field] === b[field];
 }
 
@@ -161,6 +168,7 @@ export function toInvoiceInput(invoice: Invoice): InvoiceInput {
   const input: InvoiceInput = { ...c, createdAt: invoice.createdAt };
   if (!c.invoiceName) delete input.invoiceName;
   if (!c.clientId) delete input.clientId;
+  if (!c.templateId) delete input.templateId;
   return input;
 }
 

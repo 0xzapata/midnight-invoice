@@ -80,6 +80,17 @@ const clientIdRef = z
   .transform((v) => v.toLowerCase())
   .nullable();
 
+/**
+ * The template an invoice was created from (`null` = none). A reference only:
+ * it is never resolved or validated against the templates table (templates
+ * can be deleted while their invoices live on). See services/templates.ts.
+ */
+const templateIdRef = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Must be a template id (UUID)')
+  .transform((v) => v.toLowerCase())
+  .nullable();
+
 /** POST /invoices and PUT /invoices/:id body. Unknown keys (e.g. totals echoed back) are stripped. */
 export const invoiceInputSchema = z.object({
   invoiceNumber: invoiceFields.invoiceNumber.optional(),
@@ -103,6 +114,7 @@ export const invoiceInputSchema = z.object({
   createdAt: isoDateTime.optional(),
   id: z.string().optional(),
   clientId: clientIdRef.optional(),
+  templateId: templateIdRef.optional(),
 });
 export type InvoiceInputParsed = z.infer<typeof invoiceInputSchema>;
 
@@ -128,6 +140,7 @@ export const invoicePatchSchema = z.object({
   paidAt: invoiceFields.paidAt.optional(),
   id: z.string().optional(),
   clientId: clientIdRef.optional(),
+  templateId: templateIdRef.optional(),
 });
 export type InvoicePatchParsed = z.infer<typeof invoicePatchSchema>;
 

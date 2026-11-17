@@ -24,6 +24,11 @@ export const ACTIVITY_ACTIONS = [
   'client.archived',
   'client.unarchived',
   'client.deleted',
+  'template.created',
+  'template.updated',
+  'template.archived',
+  'template.unarchived',
+  'template.deleted',
   'settings.updated',
   'agent.approved',
   'agent.denied',
@@ -31,6 +36,12 @@ export const ACTIVITY_ACTIONS = [
   'agent.revoked',
   'agent.revoked_key_used',
   'sync.bulk_upload',
+  // OAuth (MCP clients)
+  'agent.oauth_authorized',
+  'agent.oauth_denied',
+  'agent.oauth_connected',
+  'agent.oauth_scopes_changed',
+  'agent.oauth_reuse_detected',
 ] as const;
 
 export type KnownActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -44,6 +55,7 @@ export const ACTIVITY_ACTION_GROUPS = {
   downloads: { label: 'PDF downloads', prefixes: ['invoice.pdf_downloaded'] },
   emails: { label: 'Emails', prefixes: ['invoice.email'] },
   clients: { label: 'Clients', prefixes: ['client.'] },
+  templates: { label: 'Templates', prefixes: ['template.'] },
   access: { label: 'Agent access', prefixes: ['agent.'] },
   settings: { label: 'Settings', prefixes: ['settings.'] },
   sync: { label: 'Sync uploads', prefixes: ['sync.'] },
@@ -51,7 +63,7 @@ export const ACTIVITY_ACTION_GROUPS = {
 export type ActivityActionGroup = keyof typeof ACTIVITY_ACTION_GROUPS;
 
 /** Kinds of things an entry can be about. Open for new features. */
-export type ActivityEntityType = 'invoice' | 'client' | 'settings' | 'agent' | 'agent_registration' | (string & {});
+export type ActivityEntityType = 'invoice' | 'client' | 'template' | 'settings' | 'agent' | 'agent_registration' | (string & {});
 
 export type ActivityActor =
   | { type: 'user' }
@@ -67,14 +79,22 @@ export interface ActivityChanges {
   fields?: string[];
   /** Status transition; `from` is null on create. */
   status?: { from: InvoiceStatus | null; to: InvoiceStatus };
-  /** Scopes requested / granted (agent.approved, agent.registered). */
+  /** Scopes requested / granted (agent.approved, agent.registered, agent.oauth_*). */
   scopes?: Scope[];
+  /** OAuth consent: what the client asked for (when `scopes` is narrower, the user unticked some). */
+  requestedScopes?: Scope[];
+  /** `agent.oauth_scopes_changed`: the agent's permissions before the re-authorisation. */
+  previousScopes?: Scope[];
+  /** `agent.oauth_reuse_detected`: which single-use credential was presented twice. */
+  credential?: 'refresh_token' | 'authorization_code';
   /** Per-collection counts of a summarised bulk upload (`sync.bulk_upload`). */
   counts?: Record<string, number>;
   /** `agent.registered`: the registration whose `agent.approved` / entry belongs to this agent. */
   registrationId?: string;
   /** PDF theme (`invoice.pdf_downloaded`). */
   theme?: string;
+  /** `invoice.created` from a template: which one (name snapshot taken at the time). */
+  template?: { id: string; label: string | null };
   /**
    * `invoice.emailed` / `invoice.email_failed` / `invoice.email_blocked`: the
    * recipient masked (`b•••@acme.io`), number of cc recipients, whether it was

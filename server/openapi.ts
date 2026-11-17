@@ -7,6 +7,8 @@ import { SCOPES, SCOPE_DESCRIPTIONS } from '../shared/api';
 import { INVOICE_STATUSES, STATUS_TRANSITIONS } from '../shared/invoice-status';
 import { LIMITS } from './schemas';
 import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
+import { templateOpenApiPaths, templateOpenApiSchemas } from './openapiTemplates';
+import { oauthOpenApiPaths, oauthOpenApiSchemas } from './openapiOAuth';
 import { emailOpenApiPaths, emailOpenApiSchemas } from './openapiEmail';
 import { activityOpenApiPaths, activityOpenApiSchemas } from './openapiActivity';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
@@ -84,6 +86,12 @@ const invoiceFields: Json = {
     description:
       'Saved client to bill (requires clients:read when set or changed; must be a live client of this workspace). Omitted to* fields are filled from the client; ' +
       'omitted currency/taxRate/dueDate from its defaults, then from settings. null = no client.',
+  },
+  templateId: {
+    type: ['string', 'null'],
+    format: 'uuid',
+    description:
+      'Template the invoice was created from: a reference only (set by POST /templates/{id}/instantiate, kept by sync; never applies a template or checks that it exists). null = none.',
   },
   status: {
     type: 'string',
@@ -176,6 +184,8 @@ export function buildOpenApiDocument(baseUrl: string) {
         Scope: { ...scopeSchema, description: Object.entries(SCOPE_DESCRIPTIONS).map(([k, v]) => `${k}: ${v}`).join('; ') },
         Actor: actor,
         ...clientOpenApiSchemas,
+        ...templateOpenApiSchemas,
+        ...oauthOpenApiSchemas,
         ...emailOpenApiSchemas,
         ...activityOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
@@ -284,6 +294,7 @@ export function buildOpenApiDocument(baseUrl: string) {
             createdAt: str({ format: 'date-time' }),
             lastUsedAt: { type: ['string', 'null'], format: 'date-time' },
             revokedAt: { type: ['string', 'null'], format: 'date-time' },
+            connection: { type: 'string', enum: ['api_key', 'oauth'], description: 'API key (device flow) or OAuth (MCP client)' },
           },
         },
       },
@@ -292,6 +303,8 @@ export function buildOpenApiDocument(baseUrl: string) {
       '/health': { get: { summary: 'Health check', security: [], responses: { 200: ok('OK', { type: 'object', properties: { status: { const: 'ok' }, time: str() } }) } } },
       '/openapi.json': { get: { summary: 'This document', security: [], responses: { 200: { description: 'OpenAPI 3.1 document' } } } },
       ...clientOpenApiPaths,
+      ...templateOpenApiPaths,
+      ...oauthOpenApiPaths,
       ...activityOpenApiPaths,
       '/workspaces': {
         post: {
@@ -508,6 +521,14 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
       },
     },
-    'x-mcp': { endpoint: `${baseUrl}/api/mcp`, transport: 'streamable-http (stateless, JSON responses)', auth: 'Same Bearer credentials' },
+    'x-mcp': {
+      endpoint: `${baseUrl}/api/mcp`,
+      transport: 'streamable-http (stateless, JSON responses)',
+      auth: 'Same Bearer credentials, or an OAuth 2.1 access token (MCP authorization; not accepted by this REST API)',
+    },
+    'x-oauth': {
+      protectedResourceMetadata: `${baseUrl}/.well-known/oauth-protected-resource/api/mcp`,
+      authorizationServerMetadata: `${baseUrl}/.well-known/oauth-authorization-server`,
+    },
   };
 }

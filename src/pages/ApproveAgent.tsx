@@ -37,7 +37,7 @@ function formatRemaining(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function StateCard({ icon, tone = 'neutral', title, children, actions }: {
+export function StateCard({ icon, tone = 'neutral', title, children, actions }: {
   icon: ReactNode;
   tone?: 'neutral' | 'success' | 'danger';
   title: string;
@@ -178,7 +178,7 @@ function ErrorState({ error, onReset }: { error: unknown; onReset: () => void })
   );
 }
 
-function ScopeChoice({ scope, checked, onChange }: { scope: Scope; checked: boolean; onChange: (checked: boolean) => void }) {
+export function ScopeChoice({ scope, checked, onChange }: { scope: Scope; checked: boolean; onChange: (checked: boolean) => void }) {
   const id = useId();
   const info = SCOPE_INFO[scope];
   return (
