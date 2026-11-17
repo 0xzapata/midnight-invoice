@@ -247,6 +247,14 @@
   }
 }
 
+/*
+  Code, secrets and URLs. ProtoMono (font-mono) only has capitals, which would
+  misrepresent case-sensitive values such as keys and URLs.
+*/
+@utility font-code {
+  font-family: 'Noto Sans Mono', ui-monospace, monospace;
+}
+
 /* Invoice preview specific font */
 .invoice-preview {
   font-family: 'Noto Sans Mono', monospace;

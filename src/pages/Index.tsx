@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
-import { Plus, FileText, Settings, Sparkles, Cloud, Users, FileStack, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Plus, FileText, Settings, Sparkles, Bot, Users, FileStack, RefreshCw, Mail, Paperclip, Lock, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,22 +14,34 @@ import { Invoice } from '@/types/invoice';
 import { Spinner } from '@/components/ui/spinner';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { env } from '@/env';
+import { SyncStatusIndicator } from '@/components/sync/SyncStatusIndicator';
+import { CloudSyncSettings } from '@/components/sync/CloudSyncSettings';
+import { useCloudEnabled } from '@/stores/useCloudStore';
+
+type Tab = 'invoices' | 'settings' | 'coming';
+const TABS: readonly Tab[] = ['invoices', 'settings', 'coming'];
 
 const Index = () => {
   const navigate = useNavigate();
   const { invoices, deleteInvoice, isLoading } = useInvoices();
-  const [activeTab, setActiveTab] = useState<'invoices' | 'settings' | 'coming'>('invoices');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as Tab | null;
+  // The tab lives in the URL (?tab=settings) so other screens can link to it.
+  const activeTab: Tab = tabParam && TABS.includes(tabParam) ? tabParam : 'invoices';
   const { settings, updateSettings } = useSettingsStore();
+  const cloudEnabled = useCloudEnabled();
 
   // Local state for settings form to avoid auto-saving on every keystroke
   const [localSettings, setLocalSettings] = useState<DefaultSettings>(settings);
-
-  const selectTab = (tab: typeof activeTab) => {
+  const [shownTab, setShownTab] = useState<Tab>(activeTab);
+  if (shownTab !== activeTab) {
     // Sync local state with the saved settings when switching to the settings tab
-    if (tab === 'settings') {
-      setLocalSettings(settings);
-    }
-    setActiveTab(tab);
+    setShownTab(activeTab);
+    if (activeTab === 'settings') setLocalSettings(settings);
+  }
+
+  const selectTab = (tab: Tab) => {
+    setSearchParams(tab === 'invoices' ? {} : { tab }, { replace: true });
   };
 
   const handleSaveSettings = () => {
@@ -81,7 +93,14 @@ const Index = () => {
               </div>
               <h1 className="text-sm font-semibold text-foreground">{env.VITE_APP_NAME}</h1>
             </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
+            <SyncStatusIndicator />
+            <Button variant="ghost" size="sm" asChild className="px-2 font-mono sm:px-3">
+              <Link to="/agents" viewTransition>
+                <Bot className="w-4 h-4" aria-hidden="true" />
+                <span className="sr-only sm:not-sr-only">Agents</span>
+              </Link>
+            </Button>
             <Button size="sm" onClick={() => navigate('/create', { viewTransition: true })}>
               <Plus className="w-4 h-4 mr-2" />
               New Invoice
@@ -94,7 +113,7 @@ const Index = () => {
       <main className="container py-8">
         <div className="max-w-3xl mx-auto">
           {/* Tabs */}
-          <div className="flex gap-4 mb-8 border-b border-border">
+          <div className="flex gap-2 sm:gap-4 mb-8 border-b border-border">
             <button
               onClick={() => selectTab('invoices')}
               className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
@@ -140,7 +159,7 @@ const Index = () => {
                 <p className="text-sm text-muted-foreground">
                   {invoices.length === 0
                     ? 'Create professional invoices in seconds'
-                    : `${invoices.length} invoice${invoices.length === 1 ? '' : 's'} saved locally`}
+                    : `${invoices.length} invoice${invoices.length === 1 ? '' : 's'} ${cloudEnabled ? 'synced to your cloud workspace' : 'saved locally'}`}
                 </p>
               </div>
 
@@ -283,6 +302,10 @@ const Index = () => {
                   </Button>
                 </div>
               </div>
+
+              <div className="mt-12 border-t border-border pt-8">
+                <CloudSyncSettings />
+              </div>
             </>
           )}
 
@@ -296,16 +319,6 @@ const Index = () => {
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
-                  <div className="w-10 h-10 rounded-md bg-blue-500/10 flex items-center justify-center">
-                    <Cloud className="w-5 h-5 text-blue-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">Cloud Sync</p>
-                    <p className="text-sm text-muted-foreground">Access your invoices from any device</p>
-                  </div>
-                </div>
-
                 <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
                   <div className="w-10 h-10 rounded-md bg-green-500/10 flex items-center justify-center">
                     <Users className="w-5 h-5 text-green-500" />

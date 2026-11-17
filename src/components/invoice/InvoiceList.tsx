@@ -15,6 +15,8 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { formatCurrency } from '@/lib/invoice-utils';
+import { AgentBadge } from '@/components/AgentBadge';
+import { useCloudStore } from '@/stores/useCloudStore';
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -26,6 +28,7 @@ interface InvoiceListProps {
 
 export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDelete }: InvoiceListProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<string | null>(null);
+  const syncErrors = useCloudStore((state) => state.syncErrors);
 
   if (invoices.length === 0) {
     return (
@@ -61,9 +64,20 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
                 <FileText className="w-5 h-5 text-muted-foreground" />
               </div>
               <div className="flex flex-col gap-1">
-                <p className="font-medium text-foreground">
-                  {invoice.invoiceName || 'Invoice'}
-                </p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="font-medium text-foreground">
+                    {invoice.invoiceName || 'Invoice'}
+                  </p>
+                  <AgentBadge invoice={invoice} />
+                  {syncErrors[invoice.id] && (
+                    <span
+                      className="border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-amber-600 dark:text-amber-400"
+                      title={`Not synced: ${syncErrors[invoice.id]}`}
+                    >
+                      Not synced
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   <span className="font-mono">{invoice.invoiceNumber}</span> · {invoice.toName || 'No client'} · {format(parseISO(invoice.createdAt), 'MMM dd, yyyy')}
                 </p>

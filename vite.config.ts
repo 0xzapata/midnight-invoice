@@ -67,6 +67,12 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/llms\.txt$/],
         runtimeCaching: [
           {
+            // API responses carry invoices and are authorised by the workspace
+            // token: never cache them (they are also sent with no-store).
+            urlPattern: ({ url }) => url.pathname === "/api" || url.pathname.startsWith("/api/"),
+            handler: "NetworkOnly",
+          },
+          {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: "CacheFirst",
             options: {

@@ -6,6 +6,9 @@ import Index from "./pages/Index";
 import CreateInvoice from "./pages/CreateInvoice";
 import ViewInvoice from "./pages/ViewInvoice";
 import NotFound from "./pages/NotFound";
+import Agents from "./pages/Agents";
+import ApproveAgent from "./pages/ApproveAgent";
+import { CloudSyncRuntime } from "@/components/sync/CloudSyncRuntime";
 import { Footer } from "@/components/Footer";
 
 import { useEffect } from "react";
@@ -27,12 +30,15 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Sonner />
+      <CloudSyncRuntime />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/create" element={<CreateInvoice />} />
           <Route path="/create/:id" element={<CreateInvoice />} />
           <Route path="/invoice/:id" element={<ViewInvoice />} />
+          <Route path="/agents" element={<Agents />} />
+          <Route path="/agents/approve" element={<ApproveAgent />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <Footer />
