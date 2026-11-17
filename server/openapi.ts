@@ -5,6 +5,7 @@
  */
 import { SCOPES, SCOPE_DESCRIPTIONS } from '../shared/api';
 import { LIMITS } from './schemas';
+import { clientOpenApiPaths, clientOpenApiSchemas } from './openapiClients';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 
 type Json = Record<string, unknown>;
@@ -74,6 +75,13 @@ const invoiceFields: Json = {
   notes: str({ maxLength: LIMITS.longText }),
   paymentDetails: str({ maxLength: LIMITS.longText, description: 'Defaults to settings.paymentDetails' }),
   currency: str({ description: 'ISO 4217 code; defaults to settings.currency' }),
+  clientId: {
+    type: ['string', 'null'],
+    format: 'uuid',
+    description:
+      'Saved client to bill (requires clients:read when set or changed; must be a live client of this workspace). Omitted to* fields are filled from the client; ' +
+      'omitted currency/taxRate/dueDate from its defaults, then from settings. null = no client.',
+  },
 };
 
 const actor = {
@@ -115,6 +123,7 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
         Scope: { ...scopeSchema, description: Object.entries(SCOPE_DESCRIPTIONS).map(([k, v]) => `${k}: ${v}`).join('; ') },
         Actor: actor,
+        ...clientOpenApiSchemas,
         Workspace: { type: 'object', required: ['id', 'createdAt'], properties: { id: str(), createdAt: str({ format: 'date-time' }) } },
         LineItem: {
           type: 'object',
@@ -133,7 +142,8 @@ export function buildOpenApiDocument(baseUrl: string) {
         },
         InvoiceInput: {
           type: 'object',
-          required: ['toName', 'lineItems'],
+          required: ['lineItems'],
+          description: 'toName is required unless clientId is given',
           properties: { ...invoiceFields, createdAt: str({ format: 'date-time', description: 'PUT only: kept when the PUT creates the invoice' }) },
         },
         InvoicePatch: { type: 'object', properties: invoiceFields, description: 'Any subset; lineItems replaces the list' },
@@ -186,6 +196,7 @@ export function buildOpenApiDocument(baseUrl: string) {
     paths: {
       '/health': { get: { summary: 'Health check', security: [], responses: { 200: ok('OK', { type: 'object', properties: { status: { const: 'ok' }, time: str() } }) } } },
       '/openapi.json': { get: { summary: 'This document', security: [], responses: { 200: { description: 'OpenAPI 3.1 document' } } } },
+      ...clientOpenApiPaths,
       '/workspaces': {
         post: {
           summary: 'Create an anonymous workspace',

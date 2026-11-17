@@ -32,6 +32,7 @@ import { renderInvoicePdf, pdfFilename } from './pdf/render';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
 import { invoiceInputSchema, invoicePatchSchema, isoDateTime, LIMITS } from './schemas';
 import * as invoices from './services/invoices';
+import { registerClientTools } from './mcpClients';
 
 export const MCP_SERVER_INFO = { name: 'midnight-invoice', version: '1.0.0' };
 
@@ -43,14 +44,18 @@ const FIELD_DOCS: Record<string, string> = {
   fromName: 'Sender name/company. Defaults to workspace settings.',
   fromAddress: 'Sender address (multi-line allowed). Defaults to workspace settings.',
   fromEmail: 'Sender email. Defaults to workspace settings.',
-  toName: 'Client name/company.',
-  toAddress: 'Client address (multi-line allowed).',
-  toEmail: 'Client email.',
+  toName: 'Client name/company. Omit when clientId is given to use the saved client’s name.',
+  toAddress: 'Client address (multi-line allowed). Omit when clientId is given to use the saved client’s address.',
+  toEmail: 'Client email. Omit when clientId is given to use the saved client’s email.',
   lineItems: `Line items (1-${LIMITS.maxLineItems}). Each: description, quantity >= 0, unit price >= 0; id is generated if omitted.`,
   taxRate: 'Tax rate in percent (0-100). Defaults to workspace settings.',
   notes: 'Free-text notes printed on the invoice.',
   paymentDetails: 'Payment instructions (bank, IBAN, …). Defaults to workspace settings.',
   currency: 'ISO 4217 currency code, e.g. USD or EUR. Defaults to workspace settings.',
+  clientId:
+    'Id of a saved client to bill (from list_clients / get_client; requires clients:read). Look the client up first — never invent an address. ' +
+    'Omitted toName/toAddress/toEmail are filled from the client, and omitted currency/taxRate/dueDate from its defaults before the workspace settings. ' +
+    'null unlinks (update only).',
 };
 
 function describeShape<T extends z.ZodRawShape>(shape: T): T {
@@ -103,6 +108,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
     instructions:
       'Midnight Invoice: create, read, update and delete invoices in the workspace that approved this agent. ' +
       'Amounts are numbers in the invoice currency; totals (subtotal, taxAmount, total) are computed by the server. ' +
+      'To invoice a saved client, find it with list_clients and pass its id as clientId instead of typing its details. ' +
       'Only tools allowed by your scopes are listed.',
   });
 
@@ -165,7 +171,8 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
     {
       title: 'Create invoice',
       description:
-        'Create an invoice. Only toName and lineItems are required: sender fields, currency, tax rate and payment details default to the workspace settings, issueDate to today, and the invoice number is allocated automatically when omitted.',
+        'Create an invoice. Only lineItems and the client are required: pass clientId of a saved client (look it up with list_clients first; do not invent an address) or toName. ' +
+        'Sender fields, currency, tax rate and payment details default to the client’s defaults and then the workspace settings, issueDate to today, and the invoice number is allocated automatically when omitted.',
       inputSchema: createInput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
@@ -178,7 +185,7 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
     {
       title: 'Update invoice',
       description:
-        'Update some fields of an invoice; fields you omit are kept. lineItems, if given, replaces the whole list. Pass expected_revision to avoid overwriting concurrent changes.',
+        'Update some fields of an invoice; fields you omit are kept. lineItems, if given, replaces the whole list. Setting clientId to another saved client (look it up first) also refills toName/toAddress/toEmail you omit. Pass expected_revision to avoid overwriting concurrent changes.',
       inputSchema: updateInput,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
@@ -257,6 +264,8 @@ function buildServer(deps: AppDeps, repo: Repository, env: McpRequestEnv): McpSe
       };
     },
   );
+
+  registerClientTools(tool, ctx);
 
   return server;
 }

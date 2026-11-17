@@ -1,5 +1,6 @@
 /**
- * Data-access layer: every SQL statement of the API lives in this file.
+ * Data-access layer: every SQL statement of the API lives in this file, or
+ * in the per-collection files next to it (clientRepository.ts).
  *
  * Rules:
  * - All statements are parameterised (`?` placeholders, `.bind()`).
@@ -94,6 +95,7 @@ export function createRepository(db: D1Database) {
     async deleteWorkspace(id: string): Promise<void> {
       await db.batch([
         db.prepare('DELETE FROM invoices WHERE workspace_id = ?').bind(id),
+        db.prepare('DELETE FROM clients WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM workspace_settings WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agents WHERE workspace_id = ?').bind(id),
         db.prepare('DELETE FROM agent_registrations WHERE workspace_id = ?').bind(id),

@@ -69,6 +69,13 @@ const invoiceFields = {
   currency: currencyCode,
 };
 
+/** Reference to a saved client (`null` = no client). See server/services/invoiceClients.ts. */
+const clientIdRef = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Must be a client id (UUID)')
+  .transform((v) => v.toLowerCase())
+  .nullable();
+
 /** POST /invoices and PUT /invoices/:id body. Unknown keys (e.g. totals echoed back) are stripped. */
 export const invoiceInputSchema = z.object({
   invoiceNumber: invoiceFields.invoiceNumber.optional(),
@@ -78,7 +85,7 @@ export const invoiceInputSchema = z.object({
   fromName: invoiceFields.fromName.optional(),
   fromAddress: invoiceFields.fromAddress.optional(),
   fromEmail: invoiceFields.fromEmail.optional(),
-  toName: invoiceFields.toName,
+  toName: invoiceFields.toName.optional(),
   toAddress: invoiceFields.toAddress.optional(),
   toEmail: invoiceFields.toEmail.optional(),
   lineItems: invoiceFields.lineItems,
@@ -88,6 +95,7 @@ export const invoiceInputSchema = z.object({
   currency: invoiceFields.currency.optional(),
   createdAt: isoDateTime.optional(),
   id: z.string().optional(),
+  clientId: clientIdRef.optional(),
 });
 export type InvoiceInputParsed = z.infer<typeof invoiceInputSchema>;
 
@@ -109,6 +117,7 @@ export const invoicePatchSchema = z.object({
   paymentDetails: invoiceFields.paymentDetails.optional(),
   currency: invoiceFields.currency.optional(),
   id: z.string().optional(),
+  clientId: clientIdRef.optional(),
 });
 export type InvoicePatchParsed = z.infer<typeof invoicePatchSchema>;
 
