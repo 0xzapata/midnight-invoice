@@ -24,6 +24,15 @@ Replace `https://invoices.example.com` below with the deployment's URL
 All three are 256-bit random secrets (base64url), returned **once**, stored
 only as SHA-256 hashes. Send them as `Authorization: Bearer <secret>`.
 
+A workspace can have more than one workspace token: when the site has optional
+user accounts, every signed-in browser gets its own `mi_ws_` token for the
+account's workspace, revocable on its own, besides the original token (the
+recovery key, which the owner may rotate or turn off). They are
+indistinguishable to the API and grant the same. Signing in, devices and
+recovery-key management are browser-only, cookie-authenticated endpoints under
+`/api/account` that are **not** part of this API; agents never need them and
+must never ask a user for a workspace token.
+
 ### Scopes
 
 | Scope | Allows |
@@ -434,7 +443,7 @@ tool results with `isError: true` and the REST error body as text.
 |---|---|
 | 400 | `validation_failed` (`details: [{path, message}]`), `invalid_json`, `bad_request`, `invalid_scope`, device-flow codes |
 | 401 | `unauthorized` (+ `WWW-Authenticate: Bearer realm="midnight-invoice", error="invalid_token"`) |
-| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off) |
+| 403 | `insufficient_scope` (`details.requiredScope`, `WWW-Authenticate … error="insufficient_scope"`), `forbidden` (wrong credential type), `workspace_suspended` (the site operator suspended this workspace; applies to its token and all its agents), `registration_closed` (new workspaces / agent registrations are switched off), `account_required` (`POST /workspaces` only: the site requires a signed-in account for new workspaces) |
 | 404 | `not_found` |
 | 405 | `method_not_allowed` |
 | 409 | `conflict` (registration already decided; rare concurrent-write retry exhaustion), `invalid_status_transition` |
