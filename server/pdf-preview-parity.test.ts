@@ -30,9 +30,10 @@ describe('PDF palette', () => {
     for (const [token, value] of Object.entries(INVOICE_CSS_TOKENS.dark)) expect(dark[token], `dark --${token}`).toBe(value);
   });
 
-  it('defaults to the theme the app ships with (<body class="dark">)', () => {
+  it('defaults to the theme the app ships with (<html class="dark">, kept unless "light" is stored)', () => {
     expect(DEFAULT_INVOICE_THEME).toBe('dark');
-    expect(html).toMatch(/<body[^>]*class="[^"]*\bdark\b/);
+    expect(html).toMatch(/<html[^>]*class="[^"]*\bdark\b/);
+    expect(html).toMatch(/localStorage\.getItem\('theme'\) === 'light'\) document\.documentElement\.classList\.remove\('dark'\)/);
   });
 });
 

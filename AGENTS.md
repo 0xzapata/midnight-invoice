@@ -40,6 +40,9 @@ State is managed using Zustand stores located in `src/stores/`.
 - Agent-facing UI: `/agents/approve` (consent screen, never auto-approves; agent-supplied text is rendered as plain text) and `/agents` (list/revoke, connection help). Server state there uses react-query (`['agents']`, `['agent-registration', code]`).
 - Tests use `src/test/fakeApi.ts` (an in-memory implementation of the API) with `vi.stubGlobal('fetch', fake.fetch)`.
 
+### Theme
+Light/dark is the `dark` class on `<html>`, stored in `localStorage['theme']` (`src/lib/theme.ts`). `index.html` applies it before the first paint (dark when nothing is stored); `AppThemeProvider` (next-themes, mounted at the root of `App.tsx`) takes over, and `ThemeToggle` / the toaster read it with `useTheme()`. Do not toggle classes by hand. The PDF follows the preview via `resolveDocumentInvoiceTheme`.
+
 ### Routing
 Routes are defined in `src/App.tsx`.
 - `/`: Dashboard (`src/pages/Index.tsx`)

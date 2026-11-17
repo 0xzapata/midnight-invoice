@@ -18,6 +18,7 @@ import { exportInvoicePdf, unsupportedCharactersWarning } from '@/components/inv
 import { useInvoices } from '@/hooks/useInvoices';
 import { InvoiceAttribution } from '@/components/AgentBadge';
 import { SyncIssueNotice } from '@/components/sync/SyncIssueNotice';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { toast } from 'sonner';
 
 export default function ViewInvoice() {
@@ -183,6 +184,7 @@ export default function ViewInvoice() {
               <Download className="w-4 h-4 mr-2" />
               Download PDF
             </Button>
+            <ThemeToggle />
           </div>
         </div>
       </header>

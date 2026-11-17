@@ -10,6 +10,7 @@ import Agents from "./pages/Agents";
 import ApproveAgent from "./pages/ApproveAgent";
 import { CloudSyncRuntime } from "@/components/sync/CloudSyncRuntime";
 import { Footer } from "@/components/Footer";
+import { AppThemeProvider } from "@/components/AppThemeProvider";
 
 import { useEffect } from "react";
 import { env } from "@/env";
@@ -27,6 +28,7 @@ const App = () => {
   }, []);
 
   return (
+    <AppThemeProvider>
     <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Sonner />
@@ -45,6 +47,7 @@ const App = () => {
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
+    </AppThemeProvider>
   );
 };
 

@@ -6,6 +6,7 @@ import { InvoiceForm, type InvoiceFormHandle } from '@/components/invoice/Invoic
 import { InvoicePreview } from '@/components/invoice/InvoicePreview';
 import { exportInvoicePdf, unsupportedCharactersWarning } from '@/components/invoice/exportInvoicePdf';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { useInvoices } from '@/hooks/useInvoices';
 import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
 import { InvoiceFormData } from '@/types/invoice';
@@ -184,6 +185,7 @@ export default function CreateInvoice() {
               <Save className="w-4 h-4 mr-2" />
               Save Invoice
             </Button>
+            <ThemeToggle />
           </div>
         </div>
       </header>
