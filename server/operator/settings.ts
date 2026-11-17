@@ -278,6 +278,15 @@ export function createSettingsProvider(opts: SettingsOptions): SettingsProvider 
           updated_by: actor.email ?? actor.type,
         }).run();
       }
+      // A new GitHub API URL must not receive the token stored for the old one: it is cleared (re-enter it).
+      const clearsToken = key === 'github.apiUrl' && existing?.value != null && JSON.parse(existing.value) !== parsed.data;
+      const firstApiUrl = key === 'github.apiUrl' && !existing && parsed.data !== definitionOf('github.apiUrl').default;
+      if (clearsToken || firstApiUrl) {
+        await odb.raw.batch([
+          odb.deleteSettingStatement('github.token'),
+          odb.auditStatement({ at: now, actorType: actor.type, actorId: actor.id, actorEmail: actor.email, action: 'settings.reset', target: 'github.token', detail: { reason: 'github.apiUrl changed' }, ip: actor.ip }),
+        ]);
+      }
       if (!def.internal) {
         await odb.raw.batch([
           odb.auditStatement({
@@ -302,6 +311,8 @@ export function createSettingsProvider(opts: SettingsOptions): SettingsProvider 
       const now = clock().getTime();
       await odb.raw.batch([
         odb.deleteSettingStatement(key),
+        // Back to https://api.github.com: the token stored for the old URL is cleared too.
+        ...(key === 'github.apiUrl' && (await odb.getSetting(key)) ? [odb.deleteSettingStatement('github.token')] : []),
         odb.auditStatement({ at: now, actorType: actor.type, actorId: actor.id, actorEmail: actor.email, action: 'settings.reset', target: key, ip: actor.ip }),
         odb.bumpConfigVersionStatement(),
       ]);

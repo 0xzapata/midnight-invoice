@@ -236,6 +236,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       break;
     case 'recurring.paused':
       parts = ['paused the recurring invoice ', { target: true }];
+      if (c.reason === 'agent_revoked') details.push('Because the agent that set it up or last changed it was disconnected');
       break;
     case 'recurring.resumed':
       parts = ['resumed the recurring invoice ', { target: true }];

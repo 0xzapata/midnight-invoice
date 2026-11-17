@@ -165,7 +165,7 @@ function ScheduleRow({ schedule, onEdit }: { schedule: RecurringSchedule; onEdit
                   )}
                 </>
               ) : (
-                `Could not create the invoice${err.period ? ` for ${formatRunDate(err.period)}` : ''}`
+                err.code === 'agent_revoked' ? 'Paused: the agent that set it up was disconnected' : `Could not create the invoice${err.period ? ` for ${formatRunDate(err.period)}` : ''}`
               )}
             </p>
             <p className="break-words text-muted-foreground">{err.message}</p>

@@ -387,3 +387,42 @@ describe('M3: telemetry labels come from fixed vocabularies', () => {
     expect(written).toContainEqual(expect.objectContaining({ metric: 'rest|(other)' }));
   });
 });
+
+describe('Informational: a revoked agent’s schedules stop with it', () => {
+  it('pauses the schedules the agent created or changed last, with a visible reason and an activity entry', async () => {
+    const s = await setup();
+    const t = (await s.client.post('/api/v1/templates', { name: 'T', clientId: s.globex.id, lineItems: [{ description: 'R', quantity: 1, price: 1 }] }, s.token)).json.template;
+    const body = { templateId: t.id, frequency: 'monthly', startDate: '2026-12-05', timezone: 'UTC' };
+    const byAgent = (await s.client.post('/api/v1/recurring', { name: 'Agent made', ...body }, s.key)).json.recurring;
+    const mine = (await s.client.post('/api/v1/recurring', { name: 'User made', ...body }, s.token)).json.recurring;
+    const changed = (await s.client.post('/api/v1/recurring', { name: 'Agent changed', ...body }, s.token)).json.recurring;
+    expect((await s.client.patch(`/api/v1/recurring/${changed.id}`, { name: 'Agent changed it' }, s.key)).status).toBe(200);
+    expect((await s.client.del(`/api/v1/agents/${s.agent.agent.id}`, s.token)).status).toBe(204);
+    const get = async (id: string) => (await s.client.get(`/api/v1/recurring/${id}`, s.token)).json.recurring;
+    for (const id of [byAgent.id, changed.id]) {
+      expect(await get(id)).toMatchObject({ status: 'paused', lastError: { code: 'agent_revoked', message: expect.stringMatching(/Test Agent.*disconnected/) } });
+    }
+    expect((await get(mine.id)).status).toBe('active');
+    const log = (await s.client.get('/api/v1/activity?action=recurring.paused', s.token)).json.activity;
+    expect(log).toHaveLength(2);
+    expect(log[0]).toMatchObject({ actor: { type: 'system' }, changes: { reason: 'agent_revoked' } });
+    // The user resumes it: the reason is cleared.
+    expect((await s.client.post(`/api/v1/recurring/${byAgent.id}/resume`, undefined, s.token)).json.recurring).toMatchObject({ status: 'active', lastError: null });
+  });
+});
+
+describe('Informational: per-workspace storage limits', () => {
+  it('refuses creating past the operator limit with 409 limit_reached (deleted rows do not count)', async () => {
+    const s = await setup({ 'limits.maxClientsPerWorkspace': 10, 'limits.maxTemplatesPerWorkspace': 10 });
+    // setup() already made one client.
+    for (let i = 0; i < 9; i++) expect((await s.client.post('/api/v1/clients', { name: `C${i}` }, s.token)).status).toBe(201);
+    const full = await s.client.post('/api/v1/clients', { name: 'One too many' }, s.key);
+    expect(full.status).toBe(409);
+    expect(full.json.error).toMatchObject({ code: 'limit_reached', details: { max: 10, kind: 'clients' } });
+    expect((await s.client.put(`/api/v1/clients/${crypto.randomUUID()}`, { name: 'Via sync' }, s.token)).status).toBe(409);
+    expect((await s.client.del(`/api/v1/clients/${s.globex.id}`, s.token)).status).toBe(204);
+    expect((await s.client.post('/api/v1/clients', { name: 'Fits again' }, s.token)).status).toBe(201);
+    for (let i = 0; i < 10; i++) expect((await s.client.post('/api/v1/templates', { name: `T${i}`, lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.token)).status).toBe(201);
+    expect((await s.client.post('/api/v1/templates', { name: 'T10', lineItems: [{ description: 'x', quantity: 1, price: 1 }] }, s.token)).json.error.code).toBe('limit_reached');
+  });
+});

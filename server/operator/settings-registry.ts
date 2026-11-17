@@ -118,6 +118,32 @@ export const SETTINGS = {
     default: true,
   }),
 
+  // --- Storage limits (workspaces can be anonymous) --------------------------
+  'limits.maxInvoicesPerWorkspace': setting.integer({
+    group: 'Storage limits',
+    label: 'Max invoices per workspace',
+    description: 'Creating more invoices than this (deleted ones do not count) is refused with 409 limit_reached. Workspaces can be created anonymously, so this bounds what one of them can store.',
+    default: 50_000,
+    min: 100,
+    max: 1_000_000,
+  }),
+  'limits.maxClientsPerWorkspace': setting.integer({
+    group: 'Storage limits',
+    label: 'Max clients per workspace',
+    description: 'Creating more saved clients than this (deleted ones do not count) is refused with 409 limit_reached.',
+    default: 10_000,
+    min: 10,
+    max: 1_000_000,
+  }),
+  'limits.maxTemplatesPerWorkspace': setting.integer({
+    group: 'Storage limits',
+    label: 'Max templates per workspace',
+    description: 'Creating more invoice templates than this (deleted ones do not count) is refused with 409 limit_reached.',
+    default: 2_000,
+    min: 10,
+    max: 100_000,
+  }),
+
   // --- Agents --------------------------------------------------------------
   'agents.registrationTtlSeconds': setting.integer({
     group: 'Agents',
@@ -356,12 +382,25 @@ export const SETTINGS = {
     maxLength: 200,
     pattern: /^[A-Za-z0-9_./-]+$/,
   }),
-  'github.apiUrl': setting.url({
-    group: 'Deployments',
-    label: 'GitHub API URL',
-    description: 'https://api.github.com, or a GitHub Enterprise API URL.',
-    default: 'https://api.github.com',
-  }),
+  // The GitHub token is sent to this URL: only GitHub or a GitHub Enterprise Server API (https://<host>/api/v3),
+  // never an arbitrary host; changing it clears the stored token (settings.ts), so it must be entered again.
+  'github.apiUrl': {
+    ...setting.url({
+      group: 'Deployments',
+      label: 'GitHub API URL',
+      description: 'https://api.github.com, or a GitHub Enterprise Server API URL (https://<host>/api/v3). Changing it clears the GitHub token: enter it again.',
+      default: 'https://api.github.com',
+    }),
+    schema: z
+      .string()
+      .trim()
+      .max(2048)
+      .transform((v) => v.replace(/\/+$/, ''))
+      .refine(
+        (v) => v === 'https://api.github.com' || /^https:\/\/(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}\/api\/v3$/.test(v),
+        'Must be https://api.github.com or a GitHub Enterprise Server API URL like https://github.example.com/api/v3',
+      ) as unknown as z.ZodType<string>,
+  },
 
   // --- Email (sending invoices, server/email) ------------------------------
   'email.enabled': setting.boolean({

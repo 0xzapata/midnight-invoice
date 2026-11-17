@@ -376,6 +376,13 @@ export function createRepository(db: D1Database) {
       return row.revoked_at === revokedAt ? 'revoked' : 'already_revoked';
     },
 
+    /** Live (not deleted) rows of a synced collection in a workspace, for the per-workspace storage limits. */
+    async countLive(table: 'invoices' | 'clients' | 'templates', workspaceId: string): Promise<number> {
+      const sql = { invoices: 'invoices', clients: 'clients', templates: 'templates' }[table];
+      const row = await db.prepare(`SELECT COUNT(*) AS n FROM ${sql} WHERE workspace_id = ? AND deleted_at IS NULL`).bind(workspaceId).first<{ n: number }>();
+      return row?.n ?? 0;
+    },
+
     async touchAgentLastUsed(workspaceId: string, agentId: string, at: string, throttleBefore: string): Promise<void> {
       await db
         .prepare(

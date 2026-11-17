@@ -16,6 +16,7 @@
  * `clients:read`; an unchanged reference is never re-checked, so a template
  * stays editable after its client is deleted.
  */
+import { requireCapacity } from './storageLimits';
 import type { ApiTemplate, InstantiateTemplateResponse, ListTemplatesResponse } from '../../shared/api';
 import type { Actor } from '../../shared/types/invoice';
 import { invoiceFieldsFromTemplate } from '../../shared/types/template';
@@ -176,6 +177,7 @@ export async function createTemplate(ctx: ServiceContext, body: unknown): Promis
   const input = parseOrThrow(templateInputSchema, body);
   await checkClientRef(ctx, input.clientId, undefined);
   const id = ctx.deps.ids.uuid();
+  await requireCapacity(ctx, 'templates');
   const row = await templateRepo(ctx).insertTemplate({
     workspaceId: ctx.principal.workspaceId,
     id,
@@ -215,6 +217,7 @@ export async function putTemplate(
 
   if (!existing) {
     if (pre.ifMatch !== undefined) throw errors.preconditionFailed('Template does not exist', { id });
+    await requireCapacity(ctx, 'templates');
     const row = await repo.insertTemplate({
       workspaceId: ctx.principal.workspaceId,
       id,

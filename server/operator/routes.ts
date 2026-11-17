@@ -53,6 +53,7 @@ import { SNAPSHOT_TTL_MS, type Actor } from './settings';
 import { SETTINGS } from './settings-registry';
 import { groupOf, series, summarize } from './telemetry';
 import { createWorkosClient, pkcePair } from './workos';
+import { pauseSchedulesOfRevokedAgent } from '../recurring/generate';
 
 type OpEnv = { Variables: { session: OperatorSession } };
 
@@ -658,7 +659,10 @@ export function createOperatorRoutes(deps: AppDeps, repo: Repository, odb: Opera
     const agent = await odb.findAgent(c.req.param('id'));
     if (!agent) throw OperatorError.notFound('Agent not found');
     const result = await repo.revokeAgent(agent.workspace_id, agent.id, new Date(now()).toISOString());
-    if (result === 'revoked') await audit(c, 'agent.revoke', agent.id, { workspaceId: agent.workspace_id });
+    if (result === 'revoked') {
+      await audit(c, 'agent.revoke', agent.id, { workspaceId: agent.workspace_id });
+      await pauseSchedulesOfRevokedAgent(deps, agent.workspace_id, { id: agent.id, name: agent.name });
+    }
     settings.invalidate();
     return c.json({ result });
   });

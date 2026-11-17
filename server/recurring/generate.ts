@@ -310,6 +310,38 @@ export async function recordFailure(
   }
 }
 
+/**
+ * A revoked agent's schedules stop (security review): the active schedules it
+ * created or changed last are paused with a visible reason (last_error
+ * `agent_revoked`) and one `recurring.paused` entry each (actor system,
+ * reason agent_revoked). The user reviews and resumes them. Never throws.
+ */
+export async function pauseSchedulesOfRevokedAgent(deps: AppDeps, workspaceId: string, agent: { id: string; name: string | null }): Promise<number> {
+  try {
+    const repo = recurringRepo(deps);
+    const at = deps.clock().toISOString();
+    const paused = await repo.pauseSchedulesOfAgent(workspaceId, agent.id, {
+      code: 'agent_revoked',
+      message: `Paused because the agent${agent.name ? ` “${agent.name}”` : ''} that set up or last changed this schedule was disconnected. Check it, then resume it if it should keep running.`,
+      at,
+      period: null,
+      attempts: 0,
+    });
+    if (paused.length) {
+      const ctx = { deps, principal: systemContext(deps, workspaceId).principal };
+      await repo.batch(
+        paused.flatMap(
+          (s) => activityWrite(ctx, { actor: { type: 'system' }, action: 'recurring.paused', entity: { type: 'recurring', id: s.id, label: s.name }, changes: { reason: 'agent_revoked' } }, { when: { sql: '1', params: [] } }).statements,
+        ),
+      );
+    }
+    return paused.length;
+  } catch (error) {
+    deps.logError?.('Could not pause the schedules of a revoked agent', error);
+    return 0;
+  }
+}
+
 /** Ends an active schedule whose end date passed or whose occurrences are used up. */
 export async function endSchedule(deps: AppDeps, row: Pick<ScheduleRow, 'workspace_id' | 'id' | 'name' | 'next_run_date'>): Promise<void> {
   const repo = recurringRepo(deps);

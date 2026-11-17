@@ -418,6 +418,20 @@ describe('deployments', () => {
     expect((await b.get('/api/operator/audit?action=deploy')).json.entries[0]).toMatchObject({ action: 'deploy.redeploy', target: 'acme/midnight-invoice:deploy.yml@release' });
   });
 
+  it('sends the GitHub token only to GitHub or a GHES API, and clears it when the URL changes (security review)', async () => {
+    const { b } = await signedIn();
+    await configured(b);
+    const tokenSet = async () => (await b.get('/api/operator/settings')).json.settings.find((s: { key: string }) => s.key === 'github.token').isSet;
+    expect(await tokenSet()).toBe(true);
+    for (const bad of ['https://evil.example/collect', 'http://localhost:9999', 'http://127.0.0.1/api/v3', 'https://evil.example', 'https://ghe.example.com/api/v3/../x']) {
+      expect((await b.put('/api/operator/settings/github.apiUrl', { value: bad })).status, bad).toBe(400);
+    }
+    expect(await tokenSet()).toBe(true);
+    expect((await b.put('/api/operator/settings/github.apiUrl', { value: 'https://ghe.example.com/api/v3/' })).status).toBe(200);
+    expect(await tokenSet()).toBe(false);
+    expect((await b.post('/api/operator/deployments/redeploy')).status).not.toBe(200);
+  });
+
   it('supports a custom API URL and surfaces GitHub errors', async () => {
     const { b } = await signedIn();
     await configured(b);

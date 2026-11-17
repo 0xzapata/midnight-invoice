@@ -164,6 +164,24 @@ export function createRecurringRepository(db: D1Database) {
       return firstWith<ScheduleRow>(db, stmt, attachment);
     },
 
+    /**
+     * Pauses the active schedules an agent created or changed last (the agent
+     * was revoked), with a visible reason in last_error. Returns them.
+     */
+    async pauseSchedulesOfAgent(workspaceId: string, agentId: string, error: object): Promise<{ id: string; name: string }[]> {
+      const { results } = await db
+        .prepare(
+          `UPDATE recurring_schedules
+              SET status = 'paused', last_error = ?3, retry_at = NULL, revision = revision + 1, updated_at = ${DB_NOW}
+            WHERE workspace_id = ?1 AND deleted_at IS NULL AND status = 'active'
+              AND (json_extract(created_by, '$.agentId') = ?2 OR json_extract(updated_by, '$.agentId') = ?2)
+        RETURNING id, name`,
+        )
+        .bind(workspaceId, agentId, JSON.stringify(error))
+        .all<{ id: string; name: string }>();
+      return results;
+    },
+
     /** "Re-approve" automatic emailing (user only): approves the content as it is now. Null if the schedule is gone. */
     async approveEmail(workspaceId: string, id: string, also?: WriteAttachment): Promise<ScheduleRow | null> {
       const stmt = db

@@ -18,6 +18,7 @@ import { ApiError, errors } from '../errors';
 import { approveAgentSchema, registerAgentSchema, tokenRequestSchema, zodDetails } from '../schemas';
 import { createOAuthRepository } from '../oauth/repository';
 import { activityWrite, labelOf, type ActivityRequest } from './activity';
+import { pauseSchedulesOfRevokedAgent } from '../recurring/generate';
 
 interface Ctx {
   repo: Repository;
@@ -292,4 +293,9 @@ export async function revokeAgent(ctx: Ctx, principal: Principal, agentId: strin
     ),
   );
   if (result === 'not_found') throw errors.notFound('Agent not found');
+  if (result === 'revoked') {
+    // Its recurring schedules stop with it (security review): paused with a visible reason for the user to review.
+    const name = (await ctx.repo.listAgents(principal.workspaceId)).find((a) => a.id === agentId)?.name ?? null;
+    await pauseSchedulesOfRevokedAgent(ctx.deps, principal.workspaceId, { id: agentId, name });
+  }
 }

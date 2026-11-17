@@ -9,6 +9,7 @@
  * touches invoices, and an update can already blank every field, so a
  * separate delete scope would not protect anything).
  */
+import { requireCapacity } from './storageLimits';
 import type { ApiClientRecord, ListClientsResponse } from '../../shared/api';
 import type { Actor } from '../../shared/types/invoice';
 import { actorOf, hasScope, requireScope } from '../auth';
@@ -145,6 +146,7 @@ export async function createClient(ctx: ServiceContext, body: unknown): Promise<
   requireScope(ctx.principal, 'clients:write');
   const input = parseOrThrow(clientInputSchema, body);
   const id = ctx.deps.ids.uuid();
+  await requireCapacity(ctx, 'clients');
   const row = await clientRepo(ctx).insertClient({
     workspaceId: ctx.principal.workspaceId,
     id,
@@ -182,6 +184,7 @@ export async function putClient(
 
   if (!existing) {
     if (pre.ifMatch !== undefined) throw errors.preconditionFailed('Client does not exist', { id });
+    await requireCapacity(ctx, 'clients');
     const row = await repo.insertClient({
       workspaceId: ctx.principal.workspaceId,
       id,

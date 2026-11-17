@@ -2,6 +2,7 @@
  * Invoice use-cases shared by the REST routes and the MCP tools.
  * Sync semantics are documented in AGENT_API.md ("Sync semantics").
  */
+import { requireCapacity } from './storageLimits';
 import type { ApiInvoice, ListInvoicesResponse } from '../../shared/api';
 import type { ActivityActor, ActivityChanges } from '../../shared/activity';
 import type { Actor, InvoiceFormData } from '../../shared/types/invoice';
@@ -263,6 +264,7 @@ async function insertNew(ctx: ServiceContext, id: string, data: StoredInvoiceDat
     if (origin.activityChanges) input.changes = { ...input.changes, ...origin.activityChanges };
     if (origin.activityActor) input.actor = origin.activityActor;
   }
+  await requireCapacity(ctx, 'invoices');
   const activity = activityWrite(ctx, input, { labelSql: labelOf.invoice(ctx.principal.workspaceId, id) });
   if (origin.also?.length) activity.statements.push(...origin.also);
   return ctx.repo.insertInvoice({
