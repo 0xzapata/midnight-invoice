@@ -36,7 +36,7 @@ export function SyncIssueNotice({ invoice }: { invoice: Invoice }) {
           ))}
         </ul>
       </div>
-      <Button asChild size="sm" variant="outline" className="shrink-0 self-start">
+      <Button asChild size="sm" variant="outline" className="shrink-0 self-start font-mono">
         <Link to={`/create/${invoice.id}`} viewTransition>
           <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
           Edit to fix

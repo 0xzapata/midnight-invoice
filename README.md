@@ -1,198 +1,259 @@
 # Midnight Invoice
 
-A modern, dark-themed invoice generator built with React 19, TypeScript, and Tailwind CSS.
+A modern, dark-themed invoice generator built with React 19, TypeScript, and
+Tailwind CSS. It works entirely in your browser; optionally it syncs to a
+Cloudflare-hosted backend that also lets approved AI agents work with your
+invoices.
 
 ![Midnight Invoice](https://img.shields.io/badge/React-19-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Contents
+
+- [Features](#features)
+- [Tech stack](#tech-stack)
+- [Local development](#local-development)
+- [Deploy to Cloudflare](#deploy-to-cloudflare)
+- [Configuration reference](#configuration-reference) (bindings, vars and secrets · operator settings · scheduled jobs)
+- [Operator console](#operator-console-operator)
+- [User accounts (optional)](#user-accounts-optional)
+- [Agent API](#agent-api)
+- [Invoice status](#invoice-status)
+- [Security model and known limitations](#security-model-and-known-limitations)
+- [Development](#development) (tests, checks, CI, project structure, scripts)
+- [Contributing](#contributing) · [License](#license)
+
 ## Features
 
-- 📝 Create and edit professional invoices
-- 💾 Auto-save drafts to localStorage
-- 📄 Export to PDF that looks exactly like the on-screen preview (same fonts, light/dark colours and layout), with clean page breaks on long invoices
+Works without any server (everything stays in the browser):
+
+- 📝 Create, edit and duplicate invoices; drafts are auto-saved
+- ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip
+- 👥 Saved clients (`/clients`) with default currency, tax rate and payment terms; a client picker on Bill To, "Save as client", import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
+- 🧩 Templates (`/templates`): reusable invoices with line items, terms, notes and a default client; placeholders such as `{{month_name}}` and `{{prev_month_name}}` are filled in for each invoice's issue date; "New from template", "From template" and "Save as template"
+- 📄 PDF export that looks exactly like the on-screen preview (same fonts, light/dark colours and layout), with clean page breaks on long invoices
 - 🌐 Non-Latin text in PDFs: Chinese, Japanese, Korean, Arabic, Hebrew, Thai, Hindi (Devanagari) and emoji, with fonts downloaded only for invoices that use them
-- 🌙 Dark mode design
-- 💱 Multi-currency support (All currencies)
-- ⚙️ Comprehensive settings management
-- 📋 Duplicate invoices
-- ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip (works offline)
-- 🧩 Invoice templates: reusable blueprints (`/templates`) with line items, terms, notes and a default client; placeholders such as `{{month_name}}` and `{{prev_month_name}}` are filled in for each invoice's issue date; "New from template" on the dashboard, "From template" and "Save as template" in the invoice form and on the invoice page; invoices are independent copies
-- 🔁 Recurring invoices (with cloud sync): schedules (`/recurring`) that create an invoice from a template every week, two weeks, month, quarter or year, in your time zone, even when the app is closed — as a draft (default) or marked as sent; plain-language summary ("Every month on the 1st, starting 1 Dec 2026 — next: …"), upcoming dates and a preview of the next invoice; pause, resume, "Run now", end date or number of invoices; "Make recurring" from a template or an invoice; generated invoices carry a *Recurring* badge and a dashboard filter
-- 👥 Saved clients: a client list (`/clients`) with default currency, tax rate and payment terms; pick a client on an invoice to fill Bill To, "Save as client" from an invoice, one-click import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
-- 📱 Responsive layout
-- ⚡ Installable PWA with offline support
-- 🕵️ Activity log (with cloud sync): a timeline (`/activity`) of what you and each AI agent did — invoices and clients created, edited, deleted, status changes, PDF downloads through the API, agents approved, denied and revoked — with filters, per-agent views and a History section on each invoice
-- ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
+- 💱 Every ISO 4217 currency · 🌙 dark and light themes · 📱 responsive down to 320 px · ⚡ installable PWA with offline support
+
+With the optional backend (opt-in per browser, *Settings → Cloud sync & agents*):
+
+- ☁️ Cloud sync: offline-first sync of invoices, clients, templates and settings across browsers and devices, in an anonymous workspace with a recovery key
 - 👤 Optional accounts (when the operator enables them): sign in with WorkOS AuthKit to reach your workspace from any browser, with per-device keys you can revoke
-- 🤖 AI agents: approve an agent from the app (scopes you can narrow), see what it created or edited, revoke it any time (REST + remote MCP)
-- 🔐 Sign-in for MCP clients (OAuth 2.1): paste the MCP URL into a client that supports the MCP authorization flow, approve it in the app, done; no key to copy
-- 🧾 Server-side PDF rendering with the same PDF component as the app
-- ✉️ Send an invoice by email (with cloud sync): the client gets the PDF attached, a draft is marked sent, and the invoice page shows the email history; agents can send too with the separate `invoices:send` permission (only to the client email you entered). Needs an email provider configured by the site operator (see below)
+- 🔁 Recurring invoices (`/recurring`): an invoice from a template every week, two weeks, month, quarter or year, in your time zone, even when the app is closed; as a draft, marked sent or emailed to the client
+- ✉️ Send an invoice by email with the PDF attached (needs an email provider set up by the site operator)
+- 🕵️ Activity log (`/activity`): what you, each AI agent and your recurring schedules did, with filters, per-agent views and a History section on each invoice
+- 🤖 AI agents: approve an agent from the app (permissions you can narrow), see what it created or edited, revoke it any time; REST API and remote MCP server, with OAuth sign-in for MCP clients ("paste the URL, approve, done")
+- 🛠️ A private operator console (`/operator`) for the site owner: telemetry, workspaces, settings, encryption of secrets, maintenance mode, redeploys
 
-## Tech Stack
+## Tech stack
 
-- **Framework**: React 19 with TypeScript 6
-- **Build Tool**: Vite 8
-- **Routing**: React Router 8 (declarative mode)
-- **Styling**: Tailwind CSS 4 (CSS-first config in `src/index.css`)
-- **UI Components**: shadcn/ui (Radix UI) + lucide-react icons
-- **State Management**: Zustand with persist middleware
-- **Form Handling**: TanStack Form with Zod 4 validation
-- **PDF Generation**: @react-pdf/renderer
-- **Notifications**: Sonner
+- **Framework**: React 19 with TypeScript 6, Vite 8, React Router 8 (declarative mode)
+- **Styling**: Tailwind CSS 4 (CSS-first config in `src/index.css`), shadcn/ui (Radix UI), lucide-react icons, Sonner
+- **State**: Zustand with persist middleware; TanStack Form + Zod 4; react-query for server state
+- **PDF**: @react-pdf/renderer (same component in the browser and in the Worker)
 - **PWA**: vite-plugin-pwa
-- **Hosting**: Cloudflare Workers (static assets + API in one Worker) via `@cloudflare/vite-plugin`
-- **API**: Hono on Workers, Cloudflare D1 (SQLite), MCP TypeScript SDK v2 (`@modelcontextprotocol/server`)
-- **Testing**: Vitest + React Testing Library; API and Worker tests run against workerd + local D1
+- **Hosting**: one Cloudflare Worker (static assets + API) via `@cloudflare/vite-plugin`
+- **API**: Hono, Cloudflare D1 (SQLite), MCP TypeScript SDK v2 (`@modelcontextprotocol/server`)
+- **Testing**: Vitest + React Testing Library; API and Worker tests run in workerd against a local D1
 - **Linting**: ESLint 10 + typescript-eslint
 
-## Getting Started
+## Local development
 
-### Prerequisites
-
-- [Bun](https://bun.sh/) 1.4+ (package manager and script runner)
-- [Node.js](https://nodejs.org/) 22.22+ (Vite, Vitest and React Router run on Node)
-
-### Installation
+Prerequisites: [Bun](https://bun.sh/) 1.4+ (package manager and script
+runner) and [Node.js](https://nodejs.org/) 22.22+ (Vite, Vitest and React
+Router run on Node).
 
 ```bash
-# Clone the repository
 git clone https://github.com/0xzapata/midnight-invoice.git
 cd midnight-invoice
-
-# Install dependencies
 bun install
+bun run db:migrate:local      # once, and after pulling new migrations
+bun run dev                   # http://localhost:8080
 ```
 
-### Development
+`bun run dev` runs the SPA, the API Worker and a local D1 database together in
+workerd (Cloudflare's runtime). Everything except the operator console and
+user accounts works with no configuration.
+
+To work on the operator console or user accounts, run the same server under
+the official WorkOS CLI's local emulator instead:
 
 ```bash
-# Start the development server
-bun run dev
+cp .dev.vars.example .dev.vars          # sets a local INITIAL_PASSWORD
+bun run dev:operator                    # extra args go to vite, e.g. -- --port 8104
 ```
 
-The app will be available at `http://localhost:8080`. `bun run dev` runs the
-SPA, the API Worker and a local D1 database together in workerd (Cloudflare's
-runtime). Before the first run, create the local database schema:
+`bun run dev:operator` runs `bunx workos@0.24.0 dev` (emulator on
+`http://localhost:4100`, seeded from `dev/workos-emulate.yaml`; add
+`--port <n>` after `dev` in the script if 4100 is taken) and then the dev
+server with `WORKOS_API_BASE_URL` pointing at it. Open `/operator`, use API key
+`sk_test_default` and client ID `client_emulated` in the wizard and
+`operator@example.com` as the email. The emulator signs in the user named by
+`login_hint` without a login page; it also seeds `alice@example.com`,
+`bob@example.com` and an unverified user for user accounts.
 
-```bash
-bun run db:migrate:local
-```
+To try sending email locally, run a fake Resend server and start the dev
+server with `RESEND_API_BASE_URL=http://127.0.0.1:<port>` in its environment.
+`WORKOS_API_BASE_URL` and `RESEND_API_BASE_URL` are honoured only by the Vite
+dev server and compiled out of every build. Scheduled jobs can be triggered
+locally with
+`curl "http://127.0.0.1:8080/cdn-cgi/handler/scheduled?cron=7+*+*+*+*"`.
 
-### Environment Variables
-
-No `.env` file is required. To override the defaults, copy `.env.example` to
-`.env.local`:
+Optional build-time variables for the browser app (copy `.env.example` to
+`.env.local`; no `.env` is required):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VITE_APP_NAME` | `Midnight Invoice` | Name shown in the header |
-| `VITE_APP_ENV` | `DEVELOPMENT` | `DEVELOPMENT`, `STAGING`, `PREVIEW` or `PRODUCTION`; `DEVELOPMENT` shows the dev banner and favicon |
+| `VITE_APP_ENV` | `DEVELOPMENT` under `bun run dev`, `PRODUCTION` in builds | `DEVELOPMENT`, `STAGING`, `PREVIEW` or `PRODUCTION`; `DEVELOPMENT` shows the dev banner and favicon |
 
-Worker (API) variables are set in `wrangler.jsonc` under `vars`, and locally in
-`.dev.vars` (see `.dev.vars.example`):
+Worker variables for local runs go in `.dev.vars` (see `.dev.vars.example`);
+the full list is in [Configuration reference](#configuration-reference).
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_URL` | `""` (request origin) | Public base URL used in agent verification links (can be overridden at runtime in the operator console) |
-| `INITIAL_PASSWORD` (secret) | unset (console disabled) | Enables the operator console and is the root of its encryption at rest; see [Operator console](#operator-console-operator) |
-| `ENCRYPTION_KEY` (secret) | unset | Optional hardened encryption mode for the operator console |
-
-### Building for Production
-
-```bash
-# Create production build
-bun run build
-
-# Preview the production build in workerd (same as deployed)
-bun run preview
-```
-
-## Deploying to Cloudflare
+## Deploy to Cloudflare
 
 The app is one Cloudflare Worker with static assets: the SPA is served from
 `dist/client` (unknown paths fall back to `index.html`, so deep links work),
-and `/api/*` always goes to the Worker (`worker/index.ts`). Configuration lives
-in `wrangler.jsonc`.
+and `/api/*` plus the OAuth discovery documents always go to the Worker
+(`worker/index.ts`). Configuration lives in `wrangler.jsonc`. The Workers
+**Paid** plan is recommended: server-side PDF rendering (PDF downloads by
+agents, emailed invoices) and the operator console's key derivation need more
+CPU time per request than the Free plan allows (see
+[limitations](#security-model-and-known-limitations)).
 
-One-time setup (needs a Cloudflare account):
+Steps 1–6 make the app and the agent API work; the rest is optional.
 
-```bash
-bunx wrangler login
-# 1. Create the D1 database and copy the printed database_id
-bunx wrangler d1 create midnight-invoice
-# 2. Replace the placeholder "database_id" (all zeros) in wrangler.jsonc with it
-# 3. Create the tables
-bun run db:migrate:remote
-# 4. Optionally set "APP_URL" in wrangler.jsonc to your public URL
-#    (e.g. https://invoices.example.com); otherwise links use the request origin.
-#    The rate-limit "namespace_id"s in wrangler.jsonc can be any integers unique
-#    in your account.
-```
+1. **Log in and create the database**
+   ```bash
+   bunx wrangler login
+   bunx wrangler d1 create midnight-invoice
+   ```
+2. **Configure `wrangler.jsonc`**: replace the placeholder `database_id`
+   (all zeros) with the printed id. Optionally set `vars.APP_URL` to your
+   public URL (e.g. `https://invoices.example.com`; empty = the request
+   origin, can also be changed later in the operator console). The
+   rate-limit `namespace_id`s can be any integers unique in your account.
+3. **Set the operator secret** (enables the operator console; also the root
+   of its encryption at rest, so keep it set afterwards):
+   ```bash
+   openssl rand -base64 32 | bunx wrangler secret put INITIAL_PASSWORD
+   ```
+   Without it the app and API work, but `/operator` and user accounts are
+   unavailable (`503`).
+4. **Create the tables**: `bun run db:migrate:remote`. Run it again whenever
+   new files appear in `migrations/`, before deploying code that needs them.
+5. **Deploy**: `bun run deploy` (= `bun run build && wrangler deploy`).
+6. **Run the operator wizard**: open `https://<your-site>/operator`, sign in
+   with `INITIAL_PASSWORD`, create the master key and save the recovery key
+   (`mi_mk_…`, shown once), enter your WorkOS credentials and create your
+   operator account (details in [Operator console](#operator-console-operator)).
+   In the [WorkOS dashboard](https://dashboard.workos.com) first create an
+   environment, enable AuthKit (Email + Password and/or Passkeys) and add
+   **both** redirect URIs under *Redirects*:
+   - `https://<your-site>/api/operator/auth/callback` (operators)
+   - `https://<your-site>/api/account/auth/callback` (user accounts, if you
+     will enable them; AuthKit must allow sign-ups and require email
+     verification)
+7. **Optional: user accounts**: *Settings → Accounts → User accounts* in the
+   console ([details](#user-accounts-optional)).
+8. **Optional: email**: in [Resend](https://resend.com) add and verify a
+   sending domain and create an API key, then set *Settings → Email* in the
+   console ([details](#email-sending-invoices)).
+9. **Optional: redeploys from the console**: set *Settings → Deployments*
+   (`github.token`, a fine-grained token with *Actions: read and write* on
+   this repository only, and `github.repository`), and set up the deploy
+   workflow (step 11).
+10. **Optional: hardened encryption**: put the recovery key in a second secret
+    (`bunx wrangler secret put ENCRYPTION_KEY`), redeploy, then click
+    *Enable hardened mode* under *Operators & security* ([details](#encryption-at-rest)).
+11. **Optional: continuous deployment**: `.github/workflows/deploy.yml` runs
+    the CI checks, applies remote D1 migrations and deploys on every push to
+    `main` and on manual dispatch, but stays skipped until you opt in:
+    - commit the real `database_id` (the workflow refuses the placeholder);
+    - create a Cloudflare API token (*My Profile → API Tokens → Custom token*)
+      with the account permissions **Workers Scripts: Edit**, **D1: Edit** and
+      **Account Settings: Read** (plus the zone permission **Workers Routes:
+      Edit** if you serve the app on your own domain through a route);
+    - in GitHub → *Settings → Secrets and variables → Actions* add the secrets
+      `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and the variable
+      `CLOUDFLARE_DEPLOY` = `true`;
+    - optionally add protection rules to the `production` environment.
 
-Deploy:
+    Alternatively connect the repository in the Cloudflare dashboard (*Workers
+    & Pages → your Worker → Settings → Builds*, build command `bun run build`,
+    deploy command `bunx wrangler deploy`) and leave `CLOUDFLARE_DEPLOY` unset.
 
-```bash
-bun run deploy          # = bun run build && wrangler deploy
-```
-
-New migrations (`migrations/NNNN_*.sql`) are applied with
-`bun run db:migrate:remote` before deploying code that needs them. After
-changing bindings in `wrangler.jsonc`, regenerate types with
+After changing bindings in `wrangler.jsonc`, regenerate types with
 `bun run cf-typegen`.
 
-### Continuous deployment (GitHub Actions)
+## Configuration reference
 
-`.github/workflows/deploy.yml` deploys on every push to `main` (after the same
-lint, typecheck, test and build steps as CI) and on demand from the Actions
-tab ("Deploy" → *Run workflow*). It applies remote D1 migrations
-(`wrangler d1 migrations apply DB --remote`) and then runs `wrangler deploy`.
-Deploys never overlap (a newer push waits for the running one).
+### Bindings, vars and secrets (`wrangler.jsonc`)
 
-It is **off until you opt in**: without the variable below the job is skipped
-(grey, not a failure). One-time setup:
+| Name | Kind | Required | Purpose |
+|------|------|----------|---------|
+| `DB` | D1 binding | yes | All server data (`migrations/0001`–`0010`) |
+| `ASSETS` | static assets binding | yes | SPA files; the Worker reads the PDF fonts through it |
+| `RATE_LIMIT_CREATE` | rate-limit binding | yes | Workspace creation, agent registration, OAuth client registration: 10 / 60 s per IP |
+| `RATE_LIMIT_POLL` | rate-limit binding | yes | Token polling, user-code lookups, OAuth endpoints: 30 / 60 s per IP |
+| `CF_VERSION_METADATA` | version metadata binding | yes | Running version shown in the operator console |
+| `triggers.crons` | Cron Triggers | yes | `17 * * * *`, `43 3 * * *`, `7 * * * *` ([jobs](#scheduled-jobs)) |
+| `APP_URL` | var | no | Public base URL for links (empty = request origin); the operator setting `app.url` wins |
+| `INITIAL_PASSWORD` | secret | for the console | Unlocks the first-run wizard; root of the default encryption mode |
+| `ENCRYPTION_KEY` | secret | no | Hardened encryption mode (the master/recovery key `mi_mk_…`) |
+| `RESEND_API_KEY` | secret | no | Fallback for the operator setting `resend.apiKey` |
+| `EMAIL_FROM_ADDRESS` | var | no | Fallback for the operator setting `email.fromAddress` |
+| `WORKOS_API_BASE_URL`, `RESEND_API_BASE_URL` | env (dev only) | no | Local emulators; ignored outside `bun run dev` |
 
-1. Do the one-time Cloudflare setup above, and commit the real `database_id`
-   in `wrangler.jsonc` (the workflow refuses the all-zeros placeholder).
-2. Create an API token (Cloudflare dashboard → My Profile → API Tokens →
-   *Create Token* → *Custom token*) with these **account** permissions for
-   your account: **Workers Scripts: Edit** (deploy the Worker and its static
-   assets), **D1: Edit** (apply migrations) and **Account Settings: Read**.
-   If you serve the app on your own domain through a route, also add the
-   zone permission **Workers Routes: Edit**.
-3. In the GitHub repository → Settings → Secrets and variables → Actions:
-   - secret `CLOUDFLARE_API_TOKEN`: the token from step 2;
-   - secret `CLOUDFLARE_ACCOUNT_ID`: your account id (dashboard → Workers &
-     Pages → *Account ID*);
-   - variable `CLOUDFLARE_DEPLOY` = `true` to turn deploys on (any other value,
-     or none, keeps the job skipped).
-4. Optional: add protection rules to the `production` environment the job uses
-   (Settings → Environments), e.g. required reviewers.
+GitHub Actions (deploy workflow only): secrets `CLOUDFLARE_API_TOKEN`,
+`CLOUDFLARE_ACCOUNT_ID`, variable `CLOUDFLARE_DEPLOY`.
 
-Alternatively, connect the repository in the Cloudflare dashboard (Workers &
-Pages → your Worker → Settings → Builds) with build command `bun run build`
-and deploy command `bunx wrangler deploy`, and leave `CLOUDFLARE_DEPLOY` unset.
+### Operator settings
+
+Runtime settings live in D1 and are edited in `/operator` → *Settings* (every
+isolate picks up a change within 5 s, every change is audited; secrets are
+stored encrypted and never shown again). Resolution: D1 value → wrangler var
+(where one is listed above) → default.
+
+| Group | Settings |
+|-------|----------|
+| General | `app.url`, maintenance mode and message, workspace and agent registration open/closed |
+| Agents | device-flow registration lifetime (600 s), poll interval (5 s), user-code failure limit, last-used throttle |
+| OAuth (MCP clients) | dynamic client registration and Client ID Metadata Documents on/off, access-token (60 min) and refresh-token (30 days) lifetimes, unused-registration lifetime (24 h) |
+| Telemetry | on/off, minute and hour rollup retention |
+| Activity log | retention days (365) and entries per workspace (10,000) |
+| Recurring invoices | on/off, schedules per workspace, invoices generated per run |
+| Operator console | session idle and absolute timeouts |
+| WorkOS | client ID, API key (secret) — used by operators and user accounts |
+| Accounts | user accounts on/off, require an account for new workspaces, session idle (14 days) and absolute (30 days) timeouts |
+| Deployments | GitHub token (secret), repository, workflow file (`deploy.yml`), ref (`main`), API URL |
+| Email | on/off, provider (Resend), Resend API key (secret), From address and name, Reply-To policy, PDF theme (light), cooldown (10 min), workspace / agent hourly and daily limits (20/50, 5/20), site daily cap (500) |
+
+### Scheduled jobs
+
+Registered in `server/scheduled.ts`; each cron must also be in
+`wrangler.jsonc` `triggers.crons` (tested). All jobs are idempotent.
+
+| Cron (UTC) | Job | Does |
+|------------|-----|------|
+| `17 * * * *` | `operator.maintenance` | Telemetry retention, expired operator sessions |
+| `17 * * * *` | `oauth.prune` | Expired OAuth requests, codes and tokens, unused client registrations, dead grants |
+| `17 * * * *` | `accounts.cleanup` | Expired sign-in states, ended sessions, device keys revoked over 30 days ago |
+| `7 * * * *` | `recurring.generate` | Generates due recurring invoices (and retries failed generations and emails) |
+| `43 3 * * *` | `activity.retention` | Prunes the activity log per the retention settings |
 
 ## Operator console (`/operator`)
 
-A private back-office for the site owner (the "operator", distinct from the
-anonymous workspaces that use the app): headline stats, telemetry per part of
-the service, workspaces and agents (metadata only), runtime settings and
-secrets, restart/redeploy, audit log, operators, sessions and encryption keys.
-It is never linked from the app, sends `noindex`, and its code is a separate
-lazily loaded bundle that regular users never download or precache.
+A private back-office for the site owner (the "operator"): headline stats,
+telemetry per part of the service, workspaces, agents and accounts (metadata
+only), runtime settings and secrets, restart/redeploy, audit log, operators,
+sessions and encryption keys. It is never linked from the app, sends
+`noindex`, and its code is a separate lazily loaded bundle that regular users
+never download or precache.
 
-### Setup (production)
+### First-run wizard
 
-The only secret the deployment needs is `INITIAL_PASSWORD`. Without it the
-console and `/api/operator/*` answer `503 operator console not configured`.
-
-```bash
-bun run db:migrate:remote                                 # includes 0004_operator.sql
-openssl rand -base64 32 | bunx wrangler secret put INITIAL_PASSWORD
-bun run deploy
-```
-
-Then open `https://<your-site>/operator`:
+Without `INITIAL_PASSWORD` the console and `/api/operator/*` answer
+`503 operator console not configured`. With it, open `/operator`:
 
 1. **Bootstrap login** with `INITIAL_PASSWORD`. This gives a 30-minute
    *setup-only* session (it can do nothing but the wizard). Failed attempts are
@@ -200,12 +261,10 @@ Then open `https://<your-site>/operator`:
 2. **Encryption key**: generate a random 256-bit master key (recommended) or
    derive one from a strong passphrase. The **recovery key** (`mi_mk_…`) is
    shown exactly once; download or copy it and confirm you saved it.
-3. **WorkOS**: in the [WorkOS dashboard](https://dashboard.workos.com) create an
-   environment, enable AuthKit with Email + Password and/or **Passkeys**, add the
-   redirect URI the wizard shows (`https://<your-site>/api/operator/auth/callback`)
-   under *Redirects*, then paste the API key (`sk_…`) and client ID
-   (`client_…`). They are checked against WorkOS before they are stored
-   (encrypted).
+3. **WorkOS**: paste the API key (`sk_…`) and client ID (`client_…`) of the
+   AuthKit environment whose redirect URIs you added (see
+   [Deploy](#deploy-to-cloudflare), step 6). They are checked against WorkOS
+   before they are stored (encrypted).
 4. **Operator account**: you are sent to AuthKit to sign up and set your final
    password and/or passkey. On return that WorkOS user is bound as the operator
    and the bootstrap login is **permanently disabled** (server-side state in D1).
@@ -214,19 +273,17 @@ From then on, sign in at `/operator` with *Continue with WorkOS*. Add teammates
 under *Operators & security* by email; they become operators the first time
 they sign in with that verified email. The last operator cannot be removed.
 
-`INITIAL_PASSWORD` must **stay set** after setup: in the default encryption mode
-it is the root that unwraps the master key (it no longer logs anyone in).
-
 ### Encryption at rest
 
-Secret settings (WorkOS API key, GitHub token, Resend key, the session signing
-key) are envelope-encrypted with Web Crypto:
+Secret settings (WorkOS API key, GitHub token, Resend key, session signing
+keys) are envelope-encrypted with Web Crypto:
 
 - master key (256-bit) → wraps the data key (DEK) → AES-256-GCM per value
   (random 96-bit IV per write, AAD binds setting key + version + DEK version);
 - **default mode**: the master key is stored in D1 wrapped (AES-256-GCM) under a
   KEK = PBKDF2-SHA-256(`INITIAL_PASSWORD`, random salt, 100,000 iterations;
-  ~14 ms in workerd, derived once per isolate and only for console requests);
+  ~14 ms in workerd, derived once per isolate and only for console and account
+  requests);
 - **hardened mode** (optional, *Operators & security*): set the recovery key as
   a second Worker secret, `bunx wrangler secret put ENCRYPTION_KEY`, redeploy,
   and click *Enable hardened mode*. The server verifies it against the stored
@@ -242,33 +299,22 @@ that step (or `ENCRYPTION_KEY` is missing/wrong), the console **fails closed**:
 nothing is decrypted or rewritten, sign-in is blocked, and the sign-in page
 offers *Restore access* with the recovery key (or the passphrase).
 
-Threat model: this protects D1 exports and backups, Time Travel restores and
-casual database access. It does **not** protect against someone who has both
-the database and the Worker's secrets (or can run code in the Worker).
-
-### Runtime settings, restart and redeploy
-
-Worker env vars cannot change at runtime, so the console's *Settings* are
-stored in D1 and read in preference to `wrangler.jsonc` vars (`APP_URL`,
-agent-flow timings, maintenance mode and message, registration open/closed,
-telemetry retention, session timeouts, WorkOS, GitHub deploy settings, Resend).
-Every Worker isolate picks a change up within 5 seconds; every change is in the
-audit log (never the value of a secret).
+### Restart and redeploy
 
 - **Restart** = *Reload runtime configuration*: Workers have no process to
   restart; this bumps a config version so every isolate drops its cached
   settings, keys and suspension list.
-- **Redeploy** dispatches the repository's `.github/workflows/deploy.yml`
-  (`workflow_dispatch`) through the GitHub REST API. Set `github.token` (a
-  fine-grained token with *Actions: read and write* on this repository only),
-  `github.repository`, and optionally the workflow file and ref.
+- **Redeploy** dispatches `.github/workflows/deploy.yml` (`workflow_dispatch`)
+  through the GitHub REST API with the *Deployments* settings, and lists the
+  workflow's recent runs.
 
 ### Email (sending invoices)
 
 Sending invoices by email (`POST /api/v1/invoices/:id/send`, the app's
-**Send by email**, MCP `send_invoice_email`) uses [Resend](https://resend.com).
-Until it is configured, the feature answers `503 email_not_configured`, the
-app explains it, and *Settings → Email* shows "Email: not configured".
+**Send by email**, MCP `send_invoice_email`, recurring schedules that email)
+uses [Resend](https://resend.com). Until it is configured, the feature answers
+`503 email_not_configured`, the app explains it, and *Settings → Email* shows
+"Email: not configured".
 
 1. Create a Resend account and **add and verify a sending domain** (Resend →
    Domains: add the SPF/DKIM DNS records it shows; a subdomain such as
@@ -282,48 +328,24 @@ app explains it, and *Settings → Email* shows "Email: not configured".
    is needed.
 4. Optionally adjust the *From name* (recipients see "<sender> via <From
    name>"), *Reply-To* (default: the invoice's From email), the attached PDF's
-   theme (default light) and the limits: resend cooldown per invoice (10 min),
-   sends per workspace per hour/day (20/50), per agent per hour/day (5/20) and
-   for the whole site per day (500). *Send invoices by email* turns the feature
-   off without removing the key.
+   theme and the limits ([settings](#operator-settings)). *Send invoices by
+   email* turns the feature off without removing the key.
 
-Users never choose the From address: it is always the configured one, with
-the invoice sender's name as display name and their email as Reply-To.
-Agents need the `invoices:send` scope (never granted to existing agents) and
-can only email the invoice's client address when the user entered it
-themselves, and cannot send an invoice whose sender or payment details an
-agent changed until the user has reviewed (saved) it. Every attempt is logged
-per workspace (`email_messages`, no message bodies) and appears in the
-activity log (recipient masked). Bounce/complaint webhooks are not handled yet; watch the
-Resend dashboard. In development, point the Worker at a local fake with
-`RESEND_API_BASE_URL=http://127.0.0.1:<port>` in the environment of
-`bun run dev` (honoured only by the Vite dev server, compiled out of builds).
+Users never choose the From address. Agents need the `invoices:send` scope
+(never granted to existing agents), can only email the invoice's client
+address when the user entered it themselves, and cannot send an invoice whose
+sender or payment details an agent changed until the user has saved it. Every
+attempt is logged per workspace (`email_messages`, no message bodies) and
+appears in the activity log (recipient masked).
 
 ### Privacy boundary
 
 The console shows metadata only: workspace ids, timestamps and counts, agent
-names and scopes, and for optional user accounts their sign-in email. There is no endpoint that returns invoice contents, client
-data, workspace settings or tokens (recurring schedules appear as counts only). Telemetry stores route templates, status
-classes, durations and `cf-ray`; never ids in paths, bodies, tokens or IPs.
-
-### Local development with `workos dev`
-
-`bun run dev:operator` runs the official WorkOS CLI's `workos dev`
-(`bunx workos@0.24.0`), which starts the WorkOS API emulator on
-`http://localhost:4100` (seeded from `dev/workos-emulate.yaml`) and then the
-normal dev server with `WORKOS_API_BASE_URL` set. That URL is honoured only by
-the Vite dev server; builds compile it out.
-
-```bash
-cp .dev.vars.example .dev.vars          # sets a local INITIAL_PASSWORD
-bun run db:migrate:local
-bun run dev:operator                    # extra args go to vite, e.g. -- --port 8104
-```
-
-In the wizard use API key `sk_test_default` and client ID `client_emulated`,
-and `operator@example.com` as the email (the emulator signs in the user named
-by `login_hint` without a login page). Tests never use the network: WorkOS and
-GitHub are faked at the fetch boundary (`server/test/operator.ts`).
+names and scopes, and for user accounts their sign-in email. There is no
+endpoint that returns invoice contents, client data, workspace settings or
+tokens (templates and recurring schedules appear as counts only). Telemetry
+stores route templates, status classes, durations and `cf-ray`; never ids in
+paths, bodies, tokens or IPs.
 
 ### Break-glass reset
 
@@ -349,28 +371,25 @@ another device. When the operator turns on accounts, users can also **sign in
 with WorkOS AuthKit** (email + password, passkeys or social logins, whatever
 the AuthKit environment allows) and reach their workspace from any browser.
 Accounts are additive: the app still works fully local, and anonymous
-workspaces and recovery keys keep working exactly as before.
+workspaces and recovery keys keep working.
 
 ### Enabling accounts (operator)
 
-Accounts reuse the operator console's WorkOS integration and credentials (same
-API key and client ID, same AuthKit environment), so the console must be set up
-first.
+Accounts reuse the operator console's WorkOS credentials and AuthKit
+environment, so the console must be set up first.
 
-1. In the WorkOS dashboard, under *Redirects*, add a second redirect URI:
-   `https://<your-site>/api/account/auth/callback` (exactly; the operator's
-   `/api/operator/auth/callback` stays). Make sure AuthKit **allows sign-ups**
-   and requires **email verification** (the server refuses unverified emails in
-   any case).
-2. In the console: *Settings → Accounts → User accounts* on. Optionally *Require
-   an account for new workspaces* (anonymous `POST /api/v1/workspaces` then
-   answers `403 account_required`; existing workspaces are unaffected) and the
-   account-session timeouts (idle 14 days, absolute 30 days by default).
+1. In the WorkOS dashboard, add the redirect URI
+   `https://<your-site>/api/account/auth/callback` (next to the operator's
+   `/api/operator/auth/callback`). AuthKit must **allow sign-ups** and require
+   **email verification** (the server refuses unverified emails in any case).
+2. In the console: *Settings → Accounts → User accounts* on. Optionally
+   *Require an account for new workspaces* (anonymous `POST /api/v1/workspaces`
+   then answers `403 account_required`; existing workspaces are unaffected) and
+   the account-session timeouts.
 3. *Users → Accounts* lists accounts (email, verified, created, last sign-in,
    linked workspace id, device count), searchable by email; *Disable* refuses
    sign-in and revokes every session and device key of that account. The
-   privacy boundary is unchanged (no invoice or client data). The *Telemetry*
-   page has an *Account sign-in* group (successful and failed sign-ins).
+   *Telemetry* page has *Account sign-in* and *Accounts* groups.
 
 Turning accounts off later does not lock anyone out: browsers that are
 already signed in keep syncing with their own keys, but nobody can sign in,
@@ -384,40 +403,39 @@ and neither session is ever accepted by the other side.
 
 ### What users see
 
-- Settings → *Cloud sync & agents* (and the agents screen) show **Sign in** /
-  **Create account** next to *Turn on cloud sync*; the agent approval and
-  OAuth consent screens offer **Sign in** first and come back to the same
-  request afterwards. Signing in
+- Settings → *Cloud sync & agents* shows **Sign in** / **Create account** next
+  to *Turn on cloud sync*; the agent approval and OAuth consent screens offer
+  **Sign in** first and come back to the same request afterwards. Signing in
   with no workspace turns cloud sync on with a workspace owned by the account.
 - A browser that already syncs anonymously and signs in **claims** that
   workspace for the account. Its recovery key keeps working until the owner
   rotates or turns it off on the *Account* page.
 - On a **new browser**, signing in connects the account's workspace and pulls
-  everything, no recovery key needed. If that browser already has invoices that
-  are not in the account, or syncs with a different workspace, the app **asks**:
-  upload/copy them into the account's workspace, or cancel (nothing changes and
-  the browser is signed out). Local invoices are never discarded and two cloud
-  workspaces are never merged.
-- *Account* (`/account`): email, sign out, devices with revoke, *sign out other
-  devices*, *sign out everywhere*, recovery key (rotate / create / turn off) and
-  *delete account* (optionally with the workspace; if kept, the browser
-  continues anonymously with a fresh recovery key). One account has one
-  workspace. Devices show when they last synced.
-- Signing a device out (or "sign out everywhere") never disconnects your
-  agents or OAuth-connected apps; manage those on the *Agents* page.
-- Account events (signing in on a device, signing devices out, recovery key
-  changes, deleting the account) appear in the workspace's *Activity* log.
-- A browser that was signed out from another device, or whose account the
-  operator disabled, says so in Settings and keeps its local invoices.
-
-Locally, `bun run dev:operator` seeds `alice@example.com` and `bob@example.com`
-(and an unverified user) in the WorkOS emulator; it signs in the user named by
-the `loginHint` sent to `POST /api/account/auth/start`, or the first seeded user.
+  everything, no recovery key needed. If that browser already has local data
+  that is not in the account, or syncs with a different workspace, the app
+  **asks**: upload/copy it into the account's workspace, or cancel. Local
+  invoices are never discarded and two cloud workspaces are never merged.
+- *Account* (`/account`): email, sign out, devices (last synced, revoke),
+  *sign out other devices*, *sign out everywhere*, recovery key (rotate /
+  create / turn off) and *delete account* (optionally with the workspace; if
+  kept, the browser continues anonymously with a fresh recovery key). One
+  account has one workspace.
+- Signing a device out never disconnects agents or OAuth-connected apps; manage
+  those on the *Agents* page. A browser that was signed out elsewhere, or whose
+  account the operator disabled, says so in Settings and keeps its local data.
+- Account events appear in the workspace's *Activity* log.
 
 ## Agent API
 
 AI agents (Claude, ChatGPT, scripts…) can work with your invoices after you
-approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`).
+approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`). Full
+contract, sync semantics, curl examples and MCP configuration:
+[AGENT_API.md](AGENT_API.md); OpenAPI 3.1 at `/api/v1/openapi.json`; a short
+pointer for agents at `/llms.txt`.
+
+The browser app owns a **workspace** (`POST /api/v1/workspaces`, anonymous, or
+created through a user account) whose token is the user's credential; agents
+never get it. They connect in one of two ways:
 
 **MCP clients with OAuth** (simplest): add `https://<your app>/api/mcp` as a
 remote MCP server. The client discovers the authorization server
@@ -425,7 +443,7 @@ remote MCP server. The client discovers the authorization server
 a Client ID Metadata Document) and opens `/agents/authorize` in your browser,
 where you review and narrow the permissions and approve. It then gets
 short-lived, rotating tokens that only work on the MCP endpoint, and shows up
-on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
+on the Agents page marked *OAuth*.
 
 **Other agents** use the device flow:
 
@@ -433,80 +451,56 @@ on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
    `settings:read`, `clients:read`, `clients:write`, `templates:read`,
    `templates:write`, `activity:read`, `invoices:send`, `recurring:read`,
-   `recurring:write`) and shows you a code like
-   `WDJB-MJHT`.
+   `recurring:write`) and shows you a code like `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
 3. The agent polls `POST /api/v1/agents/token` and receives its API key once.
    Every change it makes is attributed to it (`createdBy` / `updatedBy`), and
    you can revoke it at any time.
 
-With `clients:read` an agent can look up your saved clients and bill one by
-id ("invoice Globex for 10 hours": `list_clients` → `create_invoice` with
-`clientId`); the server fills the client's name, address, email and default
-terms. `clients:write` lets it add, edit, archive and delete clients.
-`activity:read` lets an agent read its *own* entries of the activity log
-(`get_my_activity`), e.g. to check whether it already sent this month's invoice.
+What the scopes allow, in short: `clients:read` lets an agent look up your
+saved clients and bill one by id (the server fills the client's details and
+default terms); `templates:read` with `invoices:write` lets it create invoices
+from your templates (explicit values win over the template, the template over
+the client's defaults, and those over your settings); `recurring:write` (plus
+`invoices:write` and `templates:read`) lets it set up, pause, resume and run
+recurring schedules, but **only you** can make a schedule email each invoice
+automatically; `activity:read` lets it read its *own* activity entries;
 `invoices:send` (marked as sensitive on the approval screen) lets it email an
-invoice to the client on file on your behalf; it cannot choose another
-recipient, only addresses you entered yourself are allowed, and it has its own
-hourly and daily limits.
-
-With `templates:read` (and `invoices:write`) an agent can create invoices from
-your templates ("send the usual retainer": `list_templates` →
-`create_invoice_from_template`, or `POST /api/v1/templates/:id/instantiate`);
-explicit values win over the template, the template over the client's
-defaults, and those over your settings. The new invoice is a draft.
-`templates:write` lets it add, edit, archive and delete templates.
-
-With `recurring:write` (plus `invoices:write` and `templates:read`) an agent
-can set up recurring invoices ("bill Globex the retainer on the 1st of every
-month": `create_recurring`, or `POST /api/v1/recurring`), pause, resume and
-run them; `recurring:read` lets it list them. The server generates each
-period's invoice exactly once (hourly job, run dates in the schedule's time
-zone; only the most recent missed period is caught up after downtime or a
-pause). Generated invoices are drafts or marked sent; **only you** can make a
-schedule email each invoice automatically (with email set up on the server),
-never an agent — and an automatic email only goes to a client address you
-entered, and waits for your review if an agent changed the template's payment
-details. See AGENT_API.md,
-*Recurring invoices*.
+invoice to the client address you entered yourself, with its own hourly and
+daily limits. New scopes are never added to agents approved earlier.
 
 ### Connecting an agent (as a user)
 
-1. In the app, open **Settings → Cloud sync & agents** and turn on cloud sync.
-   Your invoices, saved clients and default settings are then stored on the server (in an
-   anonymous workspace) so approved agents can work with them. The app keeps
-   working offline; nothing leaves the browser until you turn this on.
+1. In the app, open **Settings → Cloud sync & agents** and turn on cloud sync
+   (or sign in, if the site offers accounts). Your invoices, clients, templates
+   and default settings are then stored on the server so approved agents can
+   work with them. Nothing leaves the browser until you turn this on.
 2. Open **Agents** (header). Simplest: paste the MCP server URL
    `https://<your app>/api/mcp` into an MCP client that supports OAuth; it
    opens a page in this app where you review the app's name, where it sends
    you back to and the permissions, untick what you do not want and click
    **Approve**. Otherwise copy the prompt under *Connect an agent* into your AI
-   tool (it tells the agent to read `/llms.txt` and register).
-3. With the prompt, the agent shows you a code and a link to
-   `/agents/approve?code=…`. Open it, check that the code matches, untick any
-   permission you do not want to give and click **Approve**. Only approve
-   requests you started yourself.
-4. Invoices the agent creates or edits appear in your dashboard within ~15
+   tool (it tells the agent to read `/llms.txt` and register), then open the
+   link it shows, check that the code matches, untick any permission you do
+   not want to give and click **Approve**. Only approve requests you started
+   yourself.
+3. Invoices the agent creates or edits appear in your dashboard within ~15
    seconds, marked *by &lt;agent&gt;* / *edited by &lt;agent&gt;*. Revoke it on
    the Agents page.
-5. See what each agent did on **Activity** (linked from the Agents page and
-   Settings → Cloud sync & agents): a day-by-day timeline ("Billing Assistant
-   marked INV-0007 as paid"), filterable by agent, kind of action and dates;
-   each agent row on the Agents page shows its latest actions, and each invoice
-   page has a *History* section. Activity is recorded by the server, so only
-   changes made while cloud sync is on are logged (and PDFs you download in
-   the browser are generated locally and not logged). Entries list which
-   fields changed, never their contents, and are kept for 365 days (at most
-   10,000 per workspace; operators can change both in the operator console).
+4. See what each agent did on **Activity** (header): a day-by-day timeline
+   ("Billing Assistant marked INV-0007 as paid"), filterable by agent, kind of
+   action and dates; each invoice page has a *History* section. Activity is
+   recorded by the server, so only changes made while cloud sync is on are
+   logged (PDFs you download in the browser are generated locally and not
+   logged). Entries list which fields changed, never their contents.
 
-To use the same workspace in another browser or device, reveal the
+To use the same workspace in another browser without an account, reveal the
 **recovery key** in Settings → Cloud sync & agents → *Link another browser or
 device* and paste it under *Connect existing workspace* there. Keep it secret
 (it is the workspace's only credential) and never give it to an agent.
 
-### Invoice status
+## Invoice status
 
 Every invoice has a status: **draft**, **sent**, **paid** or **void**.
 *Overdue* is not stored: an invoice is overdue when it is *sent* and its due
@@ -518,146 +512,128 @@ them; filter chips show All / Draft / Outstanding / Overdue / Paid with
 counts, and the totals strip shows Outstanding, Overdue and Paid this month
 per currency (never added across currencies).
 
-Invoices saved before statuses existed are shown as **drafts**: the app
-cannot know whether they were sent or paid, and calling them "sent" would
-flag every old invoice with a past due date as overdue. Mark them sent or
-paid as needed. Allowed changes: draft → sent | void, sent → paid | void |
-draft, paid → sent (undo payment) | void, void → draft | sent (reopen).
-Agents use the same rules (`/invoices/:id/mark-sent` … and the
-`set_invoice_status` MCP tool) and can ask "what is unpaid?" with
-`GET /invoices/summary` or `get_invoice_summary`.
+Invoices saved before statuses existed (1.x) are shown as **drafts**: the app
+cannot know whether they were sent or paid. Allowed changes: draft → sent |
+void, sent → paid | void | draft, paid → sent (undo payment) | void, void →
+draft | sent (reopen). Agents use the same rules.
 
-### How the API works
+## Security model and known limitations
 
-There are no accounts: the browser creates an anonymous workspace
-(`POST /api/v1/workspaces`) whose token is the user credential. Full contract,
-sync semantics, curl examples and the MCP client configuration:
-[AGENT_API.md](AGENT_API.md); OpenAPI 3.1 at `/api/v1/openapi.json`; a short
-pointer for agents at `/llms.txt`.
+What is protected, and how:
 
-### Testing
+- **Local first**: with cloud sync off the app makes no API requests (one
+  exception: the screens that offer turning sync on read the public
+  `GET /api/account/config` flag). Data in the browser is as safe as the
+  browser profile.
+- **Credentials**: every token and key is a 256-bit random secret stored only
+  as a SHA-256 hash and sent only in the `Authorization` header. The workspace
+  token (recovery key) grants everything in its workspace; agents get their
+  own keys with only the approved scopes; OAuth access tokens only work on
+  `/api/mcp`. Account and operator sessions are HttpOnly, `SameSite=Strict`
+  cookies scoped to `/api/account` and `/api/operator`, with CSRF tokens; the
+  invoice API never reads cookies.
+- **Consent**: agents are never approved automatically; agent-supplied text is
+  rendered as plain text; pages cannot be framed.
+- **Email**: agents can only email a client address the user entered, not
+  after an agent changed the sender or payment details, within cooldowns and
+  caps; the From address is fixed by the operator.
+- **Operator secrets** are encrypted at rest; the console sees metadata only;
+  this protects D1 exports, backups and casual database access, **not**
+  someone who has both the database and the Worker's secrets.
+
+Known limitations and caveats:
+
+- **Not verified against the real services**: Cloudflare (deploy, Cron
+  Triggers, rate limiting, D1 limits), WorkOS AuthKit, Resend and the GitHub
+  Actions API are exercised only against local emulators and fakes in this
+  repository (workerd + local D1, `workos dev`, fetch-level fakes).
+- **Workers Free plan CPU limit** (10 ms per request): server-side PDF
+  rendering (PDF downloads by agents, emails with the attached PDF) and the
+  PBKDF2 key derivation of the operator console and accounts (~14 ms, once per
+  isolate) are expected to exceed it; use the Paid plan.
+- **Rate limits are approximate**: Workers Rate Limiting is per Cloudflare
+  location and eventually consistent; user-code lookups and email caps are
+  counted in D1 (consistent).
+- **D1 triggers**: "address entered by the user" and "needs sender review" are
+  maintained by SQLite triggers in migration `0007`; tested locally, not on
+  production D1.
+- **Email**: no bounce or complaint handling (no Resend webhooks); watch the
+  Resend dashboard.
+- **OAuth**: public clients only; reusing a rotated refresh token revokes the
+  whole grant immediately, with no grace window (a client that retries a
+  refresh after a network error is disconnected); access tokens are not
+  accepted by the REST API.
+- **No CORS** on `/api/v1` and `/api/mcp`: browser-based MCP clients on other
+  origins cannot connect; agents call the API server-to-server.
+- **Recurring invoices**: only the most recent missed period is generated after
+  downtime; daily or custom cadences are not supported.
+- **Accounts**: one account owns at most one workspace; no team members yet.
+- The operator console's telemetry durations measure I/O wait, not CPU time.
+
+Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
+## Development
+
+### Tests and checks
 
 ```bash
-# Run tests in watch mode
-bun run test
-
-# Run tests once
-bun run test:run
-
-# Run tests with coverage
-bun run test:coverage
-```
-
-### Linting and Type Checking
-
-```bash
-bun run lint
-bun run typecheck
+bun run test            # watch mode
+bun run test:run        # once
+bun run test:coverage   # with coverage
+bun run lint && bun run typecheck && bun run test:run && bun run build   # same as CI
 ```
 
 Tests are split into three Vitest projects: `web` (components, jsdom),
 `server` (the Hono API via `app.request()` against a real local D1 in workerd)
 and `workerd` (builds the app and runs the production bundle in workerd: SPA
-routing, API, MCP and PDF rendering).
+routing, API, MCP and PDF rendering). They never use the network: WorkOS,
+Resend and GitHub are faked at the fetch boundary.
 
 CI (`.github/workflows/ci.yml`) runs install, a generated-types check, lint,
 typecheck, tests, build and `wrangler deploy --dry-run` on every push and pull
-request. Deploying is a separate, opt-in workflow (see "Continuous deployment").
+request. Deploying is the separate, opt-in workflow described in
+[Deploy to Cloudflare](#deploy-to-cloudflare).
 
-## Project Structure
+### Project structure
 
 ```
-worker/
-└── index.ts                 # Cloudflare Worker entry (thin: builds deps, mounts the API)
+worker/index.ts              # Worker entry (thin: builds deps, mounts the API, runs scheduled jobs)
 server/                      # API (Hono), testable via createApp(deps)
-├── app.ts                   # Routes
-├── auth.ts                  # Bearer auth, scopes, principals
-├── db/repository.ts         # SQL (D1), scoped by workspace
-├── db/clientRepository.ts   # SQL for saved clients
-├── routes/clients.ts        # /api/v1/clients routes
-├── routes/activity.ts       # /api/v1/activity routes
-├── services/activity.ts     # Activity log: recordActivity / activityWrite, change summaries, reads
-├── db/activityRepository.ts # SQL for the activity log
-├── services/                # Invoice, client and agent use-cases (shared by REST and MCP)
-├── mcp.ts, mcpClients.ts    # Remote MCP server (official SDK v2) and its client tools
-├── openapi.ts               # OpenAPI 3.1 document (+ openapiClients.ts)
-├── pdf/                     # Server-side PDF + Vite plugin for react-pdf in workerd
+├── app.ts, deps.ts, auth.ts # Routes, injectable dependencies, bearer auth and scopes
+├── db/                      # SQL for the public API (D1), scoped by workspace
+├── routes/, services/       # REST routes and use-cases shared by REST and MCP
+├── mcp*.ts                  # Remote MCP server and its tools
+├── openapi*.ts              # OpenAPI 3.1 document
+├── oauth/                   # OAuth authorization server for MCP clients
+├── email/                   # Email provider (Resend) and configuration
+├── recurring/               # Recurring schedules: service, generation, job, routes, MCP
+├── accounts/                # Optional user accounts (cookie-authenticated /api/account)
 ├── operator/                # Operator console API, settings registry, encryption, telemetry
+├── pdf/                     # Server-side PDF + Vite plugin for react-pdf in workerd
 └── scheduled.ts             # Cron Trigger job registry
-shared/                      # Types and helpers used by both the app and the API
-├── api.ts                   # API contract types
-├── types/invoice.ts         # Invoice types (re-exported from src/types)
-├── types/client.ts          # Saved-client types and helpers
-├── activity.ts              # Activity log contract (action codes, entry shape)
-├── settings.ts
-├── user-code.ts             # Agent user-code normalisation (app + API)
-├── operator.ts              # Operator console API types (private)
-└── invoice-totals.ts
-migrations/                  # D1 migrations (wrangler d1 migrations)
-wrangler.jsonc               # Worker, assets, D1 and rate-limit configuration
+shared/                      # Types and rules used by both the app and the API
+                             # (api, activity, invoice-status, recurring, template placeholders, …)
+migrations/                  # D1 migrations 0001–0010
 src/
-├── App.tsx                  # Providers and routes
-├── main.tsx                 # Entry point
-├── index.css                # Tailwind 4 theme, design tokens, global styles
-├── env.ts                   # Typed environment variables
-├── operator/                # Operator console SPA (lazy-loaded for /operator only)
-├── components/
-│   ├── invoice/             # Invoice components
-│   │   ├── InvoiceForm.tsx
-│   │   ├── InvoicePreview.tsx
-│   │   ├── InvoicePDF.tsx   # @react-pdf/renderer document (also rendered by the API)
-│   │   ├── pdfFonts.ts      # PDF font registry shared by browser and Worker
-│   │   ├── invoiceTheme.ts  # Light/dark invoice palette shared by preview and PDF
-│   │   └── InvoiceList.tsx
-│   ├── icons/               # Custom icons
-│   ├── ui/                  # shadcn/ui components + CurrencySelector
-│   ├── agents/scopes.ts     # Plain-language scope descriptions
-│   ├── clients/             # Client form dialog, Bill To client picker, fill rules
-│   ├── sync/                # Cloud sync settings, header status, runtime (polling/focus/online)
-│   ├── AgentBadge.tsx       # "by <agent>" attribution
-│   ├── CopyButton.tsx
-│   ├── PageHeader.tsx
-│   ├── Footer.tsx
-│   ├── SettingsDrawer.tsx
-│   └── ThemeToggle.tsx
-├── hooks/
-│   └── useInvoices.ts       # Invoice management hook
-├── lib/
-│   ├── api/                 # Typed API client (errors, 401/429/offline handling)
-│   ├── sync/                # Generic sync engine, per-collection descriptors (collections/), merge rules, workspace join/leave
-│   ├── currencies.ts        # Currency list
-│   ├── invoice-utils.ts     # Currency/date formatting
-│   ├── sanitize.ts          # Input sanitization
-│   ├── storageMigrations.ts # localStorage schema migrations
-│   ├── validation.ts        # Zod schemas
-│   └── utils.ts             # General utilities
-├── pages/
-│   ├── Index.tsx            # Dashboard
-│   ├── CreateInvoice.tsx    # Create/edit invoice
-│   ├── ViewInvoice.tsx      # View saved invoice
-│   ├── Clients.tsx          # Saved clients (/clients)
-│   ├── Activity.tsx         # Activity log timeline (/activity)
-│   ├── Agents.tsx           # Connected agents, revoke, how to connect one
-│   ├── ApproveAgent.tsx     # Agent consent screen (/agents/approve?code=…)
-│   └── NotFound.tsx
-├── stores/
-│   ├── useInvoiceStore.ts   # Invoices and drafts (Zustand)
-│   ├── useSettingsStore.ts  # Default settings (Zustand)
-│   ├── useClientStore.ts    # Saved clients (Zustand)
-│   └── useCloudStore.ts     # Cloud sync: workspace, token, cursors, queue (Zustand)
-├── test/
-│   ├── setup.ts             # Test configuration
-│   └── fakeApi.ts           # In-memory fake of the API for jsdom tests
-└── types/
-    └── invoice.ts           # TypeScript interfaces
+├── App.tsx, main.tsx        # Providers and routes; /operator/* loads src/operator/
+├── pages/                   # Dashboard, editor, invoice, clients, templates, recurring,
+│                            # agents, approve / authorize (oauth/), activity
+├── components/              # invoice/ (form, preview, PDF, status, email), clients/,
+│                            # templates/, activity/, agents/, sync/, ui/ (shadcn)
+├── accounts/                # User accounts: API client, sign-in, /account pages
+├── recurring/               # Recurring schedule dialog, badge, react-query API
+├── operator/                # Operator console SPA (lazy-loaded)
+├── stores/                  # Zustand stores: invoices, settings, clients, templates, cloud sync
+├── lib/                     # api/ (typed client), sync/ (sync engine), helpers
+└── test/                    # Test setup and in-memory API fakes
 ```
 
-## Scripts
+### Scripts
 
 | Script | Description |
 |--------|-------------|
 | `bun run dev` | Start the app + API Worker + local D1 (workerd) |
-| `bun run dev:operator` | Same, under `workos dev` (local WorkOS emulator for the operator console) |
+| `bun run dev:operator` | Same, under `workos dev` (local WorkOS emulator for the operator console and accounts) |
 | `bun run build` | Build the SPA and the Worker |
 | `bun run preview` | Run the production build locally in workerd |
 | `bun run deploy` | Build and `wrangler deploy` |
@@ -666,37 +642,10 @@ src/
 | `bun run db:migrate:remote` | Apply D1 migrations to the Cloudflare database |
 | `bun run lint` | Run ESLint |
 | `bun run typecheck` | Type-check with TypeScript |
-| `bun run test` | Run tests in watch mode |
-| `bun run test:run` | Run tests once |
-| `bun run test:coverage` | Run tests with coverage report |
+| `bun run test` / `test:run` / `test:coverage` | Tests in watch mode / once / with coverage |
 
-## State Management
-
-The app uses [Zustand](https://github.com/pmndrs/zustand) for state management with the `persist` middleware for automatic localStorage synchronization.
-
-```typescript
-// Access the store directly
-import { useInvoiceStore } from '@/stores/useInvoiceStore';
-
-const invoices = useInvoiceStore((state) => state.invoices);
-const saveInvoice = useInvoiceStore((state) => state.saveInvoice);
-
-// Or use the hook wrapper for backwards compatibility
-import { useInvoices } from '@/hooks/useInvoices';
-
-const { invoices, saveInvoice, deleteInvoice } = useInvoices();
-```
-
-## Security
-
-All user input is sanitized before rendering to prevent XSS attacks:
-
-```typescript
-import { sanitizeInvoiceData } from '@/lib/sanitize';
-
-// Sanitize all invoice fields before rendering
-const safeData = sanitizeInvoiceData(formData);
-```
+Architecture notes for contributors (and AI coding agents) are in
+[AGENTS.md](AGENTS.md); release notes in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

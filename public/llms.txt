@@ -1,9 +1,10 @@
 # Midnight Invoice
 
 > Invoice generator with an agent API. AI agents can connect to a user's
-> workspace (after the user approves them) and create, read, update and
-> delete invoices and saved clients, read default sender settings and
-> download PDFs. To invoice a saved client, look it up (GET
+> workspace (after the user approves them) and, with the permissions the user
+> grants, work with invoices (including status and PDFs), saved clients,
+> templates and recurring schedules, read default sender settings, email
+> invoices to clients and read their own activity. To invoice a saved client, look it up (GET
 > /api/v1/clients?q=… or MCP list_clients) and pass its id as `clientId`;
 > the server fills its name, address, email and default terms. When the
 > user mentions a template or a recurring invoice, find it (GET

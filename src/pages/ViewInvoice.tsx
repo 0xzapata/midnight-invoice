@@ -29,6 +29,7 @@ import { InvoiceHistory } from '@/components/activity/InvoiceHistory';
 import { RecurringOrigin } from '@/recurring/RecurringBadge';
 import { useMakeRecurring } from '@/recurring/useMakeRecurring';
 import { toast } from 'sonner';
+import { duplicateInvoiceData } from '@/lib/duplicateInvoice';
 
 export default function ViewInvoice() {
   const { id } = useParams<{ id: string }>();
@@ -85,24 +86,9 @@ export default function ViewInvoice() {
 
   const handleDuplicate = () => {
     if (!invoice) return;
-    
-    // Generate new ID for the duplicated invoice
+    // Save the copy as a draft under a new id before opening it in the editor.
     const newId = crypto.randomUUID();
-    
-    // Extract invoice data (excluding id, createdAt, invoiceNumber)
-    const { id, createdAt, invoiceNumber, ...invoiceData } = invoice;
-    
-    // Create duplicate data with reset dates and new invoice number
-    const duplicateData = {
-      ...invoiceData,
-      invoiceNumber: getNextInvoiceNumber, // Generate new invoice number
-      issueDate: new Date().toISOString().split('T')[0], // Set to today
-      dueDate: '', // Clear due date
-    };
-    
-    // Save as draft with new ID before navigating
-    saveDraft(newId, duplicateData);
-    
+    saveDraft(newId, duplicateInvoiceData(invoice, getNextInvoiceNumber));
     toast.success('Invoice duplicated');
     navigate(`/create/${newId}`, { viewTransition: true });
   };

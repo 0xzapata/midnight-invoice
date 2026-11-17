@@ -271,6 +271,17 @@ describe('Recurring page', () => {
     await waitFor(() => expect(within(screen.getByTestId('recurring-row')).queryByRole('alert')).not.toBeInTheDocument());
   });
 
+  it('"Run now" on a schedule that emails says the client gets the email now', async () => {
+    connect();
+    const s = recurring.add({ name: 'Globex retainer', templateId: T1, frequency: 'monthly', startDate: '2026-12-01', timezone: 'UTC', autoAction: 'send_email' });
+    const user = userEvent.setup({ delay: null });
+    renderAt('/recurring');
+    await user.click(within(await screen.findByTestId('recurring-row')).getByRole('button', { name: `Run ${s.name} now` }));
+    const confirm = await screen.findByRole('alertdialog', { name: 'Create and email the 1 Dec 2026 invoice now?' });
+    expect(confirm).toHaveTextContent('created right away (dated 1 Dec 2026) and emailed to the client now');
+    expect(within(confirm).getByRole('button', { name: 'Create and email' })).toBeInTheDocument();
+  });
+
   it('"Make recurring" from a template opens the dialog prefilled', async () => {
     connect();
     const user = userEvent.setup({ delay: null });

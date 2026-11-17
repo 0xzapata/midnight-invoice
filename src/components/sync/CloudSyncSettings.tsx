@@ -124,7 +124,7 @@ export function EnableCloudSyncCard({
     setPending(true);
     try {
       await enableCloudSync();
-      toast.success('Cloud sync is on', { description: 'Your invoices and default settings are being uploaded.' });
+      toast.success('Cloud sync is on', { description: 'Your invoices, clients, templates and default settings are being uploaded.' });
       onEnabled?.();
     } catch (err) {
       toast.error('Could not turn on cloud sync', { description: describeError(err) });
@@ -153,8 +153,8 @@ export function EnableCloudSyncCard({
         <div className="space-y-2 text-sm">
           {reason && <p className="font-medium text-foreground">{reason}</p>}
           <p className="text-muted-foreground">
-            Right now your invoices are stored only in this browser. When you turn on cloud sync, your invoices and default
-            settings are <strong className="font-medium text-foreground">uploaded to and stored on this app’s server</strong> in
+            Right now your invoices are stored only in this browser. When you turn on cloud sync, your invoices, clients,
+            templates and default settings are <strong className="font-medium text-foreground">uploaded to and stored on this app’s server</strong> in
             an anonymous workspace (no account, no email), so you can open them on your other devices and so AI agents{' '}
             <em>you approve</em> can read and create invoices for you.
           </p>
@@ -316,7 +316,7 @@ function ConnectedPanel() {
           <div className="min-w-0 space-y-1 text-sm">
             <p className="font-medium text-foreground">Cloud sync is on</p>
             <p className="text-muted-foreground">
-              Invoices and default settings are stored on this app’s server so your devices and approved agents can use them.
+              Invoices, clients, templates and default settings are stored on this app’s server so your devices and approved agents can use them.
               Drafts stay in this browser.
             </p>
             <p className="text-muted-foreground" aria-live="polite">

@@ -325,6 +325,7 @@ export function createFakeApi() {
         const to = req.to ?? existing.toEmail;
         const at = tick();
         const statusChanged = existing.status === 'draft';
+        const emailedBefore = (emails.get(id) ?? []).some((e) => e.status === 'sent');
         const invoice = statusChanged
           ? { ...existing, status: 'sent' as const, sentAt: at.slice(0, 10), revision: existing.revision + 1, updatedAt: at }
           : existing;
@@ -350,7 +351,7 @@ export function createFakeApi() {
           action: 'invoice.emailed',
           entity: { type: 'invoice', id, label: existing.invoiceNumber },
           changes: {
-            email: { to: `${to[0]}•••${to.slice(to.lastIndexOf('@'))}`, cc: email.cc.length, resend: !statusChanged },
+            email: { to: `${to[0]}•••${to.slice(to.lastIndexOf('@'))}`, cc: email.cc.length, resend: emailedBefore },
             ...(statusChanged ? { status: { from: 'draft' as const, to: 'sent' as const } } : {}),
           },
           source: 'rest',

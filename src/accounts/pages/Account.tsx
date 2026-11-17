@@ -433,7 +433,7 @@ export default function Account() {
                 </p>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                   {!thisBrowserLinked && (
-                    <Button size="sm" asChild>
+                    <Button size="sm" asChild className="font-mono">
                       <Link to="/account/connect?return_to=%2Faccount">Connect this browser</Link>
                     </Button>
                   )}

@@ -2,98 +2,176 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2.0.0] - 2026-11-17
 
-### Added
-- **Optional user accounts** (sign in with WorkOS AuthKit; off by default, operator setting *Settings → Accounts*): sign up / sign in from Settings → Cloud sync & agents and the approve-agent screens; claiming the browser's anonymous workspace; connecting new browsers without a recovery key, with an explicit choice when a browser already has local-only invoices or a different workspace (upload/copy or cancel; nothing is discarded or merged on the server); an Account page (`/account`) with devices and revoke, sign out other devices / everywhere, recovery key rotate / create / turn off, and account deletion (keeping or deleting the workspace). Per-device workspace tokens (`mi_ws_…`, individually revocable) keep the sync engine, agents and MCP unchanged; account management uses a separate HttpOnly session cookie under `/api/account` with CSRF protection. Operator console: *Users → Accounts* (search by email, disable / enable), *Require an account for new workspaces*, account-session timeouts, and an *Account sign-in* telemetry group. Migration `0010_accounts.sql`; seed users in `dev/workos-emulate.yaml`.
-- Account events in the activity log (`account.*` codes: workspace created/claimed, device signed in/revoked, signed out other devices/everywhere, recovery key created/rotated/turned off, account deleted, account disabled by the operator); devices show when they last synced; an hourly `accounts.cleanup` job prunes expired sign-ins, ended sessions and long-revoked device keys; signed-out browsers explain why (signed out elsewhere / account disabled); with accounts turned off, signed-in devices keep syncing and the operator sees a warning.
-- Accounts × OAuth: the OAuth consent screen and the agent approval page offer **Sign in** first when the browser has no workspace and return to the same pending request; signing devices out never disconnects agents or OAuth grants (they belong to the workspace).
-- Accounts × templates and email: "upload and merge" / "switch and copy" carry invoice templates (with their client) as well; signed-in devices count as the user for email recipient confirmation, sender review and sending.
-- Public API error code `account_required` (403 on `POST /api/v1/workspaces` when the site requires an account).
-- **Recurring invoices** (replaces the "Recurring Invoices" teaser in Coming Soon): schedules that generate an invoice from a template every week, two weeks, month, quarter or year. Calendar rules shared by app and server (`shared/recurring.ts`): the start date is the anchor, the 31st falls back to the last day of shorter months (29 Feb → 28 Feb), run dates are calendar dates in the schedule's IANA time zone (DST never skips or repeats one). An hourly `recurring.generate` job (cron `7 * * * *`) generates each period exactly once (invoice id derived from schedule + period, a unique run row and a compare-and-set advance in one D1 batch); after downtime or a pause only the most recent missed period is generated and older ones are recorded as skipped; failures (template or client deleted, invalid invoice, suspended workspace, maintenance) are shown on the schedule and retried with backoff; end date or number of invoices. Generated invoices are ordinary drafts (or marked sent) with `recurringId` + `templateId` and `createdBy: {type: "system", recurringName}`.
-- **Recurring API**: migration `0009_recurring.sql`; `GET/POST /api/v1/recurring`, `GET/PUT/PATCH/DELETE /api/v1/recurring/:id` (ETags, If-Match), `POST …/pause`, `…/resume`, `…/run-now` (idempotent per period), `GET …/preview`; `GET /api/v1/invoices?recurring_id=`; scopes `recurring:read` and `recurring:write` (writes that activate a schedule also need `invoices:write` + `templates:read`); only the workspace owner can enable automatic emailing (`send_email`, an integration point for the email feature); MCP tools `list_recurring`, `get_recurring`, `create_recurring`, `update_recurring`, `pause_recurring`, `resume_recurring`, `delete_recurring`, `preview_recurring`, `run_recurring_now`; activity entries `recurring.created|updated|paused|resumed|ended|deleted|run_failed`, and generated invoices' `invoice.created` names the schedule and template.
-- **Recurring invoices × email**: `autoAction: send_email` (user only, needs email set up and a client address the user entered) generates the invoice and emails it with the PDF through the email feature's send; unattended sends follow the agent rules (confirmed address, sender review: a template whose payment details an agent changed last is held as "needs your review"), count against the workspace's own caps and the site cap, use the idempotency key `recurring/<schedule>/<period>`, and mark the invoice sent only when the email went out. A failed or held email leaves a draft, shows on the schedule ("Created, but not emailed", link to the invoice) and is retried on its own with backoff. Coming Soon now only lists File Attachments.
-- **Recurring page** (`/recurring`, in the header Pages menu): schedules with status, next date, last invoice and errors; pause/resume/run now/edit/delete; a create/edit dialog with template and client pickers, cadence, time zone, end condition, what happens on generation, a live plain-language summary, upcoming dates and the next invoice. "Make recurring" on templates and invoices (saves the invoice as a template first, after confirmation); *Recurring* badge, provenance line on the invoice page and a dashboard filter. Needs cloud sync (explained on the page; no requests while sync is off).
-- **Operator**: settings `recurring.enabled`, `recurring.maxSchedulesPerWorkspace`, `recurring.maxGeneratedPerRun`; a "Recurring" telemetry group; schedule counts (and invoices generated by schedules) on the overview, counts only.
-- **Invoice templates** (replaces the "Invoice Templates" teaser in Coming Soon): a Templates page (`/templates`, linked from the dashboard header) to list, search, add, edit, archive and delete templates with a line-item editor and a placeholder helper with live preview. Placeholders (`{{month}}`, `{{month_name}}`, `{{prev_month_name}}`, `{{prev_month_year}}`, `{{year}}`, `{{quarter}}`, `{{client_name}}`, `{{invoice_number}}`) are resolved for the invoice's issue date by one shared, whitelisted function (`shared/template-placeholders.ts`); unknown ones stay visible and are flagged. "New from template" on the dashboard, "From template" in the invoice form (asks before touching anything typed: add to the invoice or replace) and "Save as template" in the form and on the invoice page. Invoices made from a template are independent drafts that record `templateId`. Local-first (`template-storage`) and synced as a third collection (clients → templates → invoices).
-- **Template activity**: template writes are logged (`template.created|updated|archived|unarchived|deleted`, field names only); an invoice created from a template logs one `invoice.created` naming the template (snapshot); "enable cloud sync" summaries count templates; the Activity page describes these entries and links them to `/templates` (deleted ones are marked).
-- **Templates API**: migration `0005_templates.sql`; `GET /api/v1/templates` (`q`, sync feed), `POST`, `GET/PUT/PATCH/DELETE /api/v1/templates/:id` with revisions/ETags and soft deletes; `POST /api/v1/templates/:id/instantiate` creates a draft invoice (explicit values > template > client defaults > settings) and reports unknown/unresolved placeholders; scopes `templates:read` and `templates:write` (existing agents keep exactly their scopes); invoices accept an optional `templateId` reference; MCP tools `list_templates`, `get_template`, `create_template`, `update_template`, `delete_template`, `create_invoice_from_template`.
-- **OAuth for the MCP endpoint** (MCP authorization spec 2026-07-28): paste `https://<app>/api/mcp` into an MCP client that supports OAuth, approve in the app, and it is connected. Protected-resource metadata (`/.well-known/oauth-protected-resource[/api/mcp]`, `resource_metadata` on every `401`), authorization-server metadata (`/.well-known/oauth-authorization-server`), `/api/oauth/authorize` (authorization code, PKCE S256 only, `resource` required, `iss` in responses), `/api/oauth/token` (1-hour access tokens, 30-day rotating refresh tokens with reuse detection), dynamic client registration `/api/oauth/register` (public clients, strict redirect URIs, unused registrations expire after 24 h), Client ID Metadata Documents (SSRF-restricted fetch, cached) and `/api/oauth/revoke`. Migration `0008_oauth.sql`. OAuth access tokens are only accepted by the MCP endpoint; static agent keys and the device flow are unchanged.
-- **Consent screen for MCP clients** (`/agents/authorize`): the app's name and redirect target as untrusted text (with a warning for local redirects), per-permission checkboxes that only narrow, "only approve if you started this", deny returns `access_denied`; offers to turn on cloud sync first. Consent API `GET /api/v1/oauth/requests/:id`, `POST …/approve`, `POST …/deny` (workspace token only). Approved clients are agents (`connection: "oauth"`, marked *OAuth* on `/agents`); revoking one kills its tokens immediately; re-authorizing updates the same agent.
-- The *Connect an agent* help on `/agents` starts with "paste this URL into your MCP client".
-- App pages are sent with `X-Frame-Options: DENY` / `frame-ancestors 'none'` (`public/_headers`).
-- **OAuth in the activity log**: `agent.oauth_authorized` (with requested vs granted permissions), `agent.oauth_denied`, `agent.oauth_connected`, `agent.oauth_scopes_changed` and the security entry `agent.oauth_reuse_detected`, with sentences on the Activity page and in each agent's activity; MCP tool calls with OAuth tokens are attributed to the agent like key agents.
-- **OAuth × operator console**: suspended workspaces' OAuth access tokens, refreshes and code exchanges are refused (`403`); maintenance mode answers the OAuth endpoints with `503 temporarily_unavailable` (discovery stays up); runtime settings `oauth.registrationEnabled`, `oauth.metadataDocumentsEnabled`, `oauth.accessTokenMinutes`, `oauth.refreshTokenDays`, `oauth.unusedClientHours`; an "OAuth" telemetry group (grant types, authorize outcomes, OAuth error codes; no ids); hourly `oauth.prune` scheduled job.
-- **Activity log**: a per-workspace audit trail of what the user's browsers and approved agents did. Migration `0006_activity.sql` (append-only `activity` table); one recording API in `server/services/activity.ts` (`activityWrite` commits the entry in the same D1 batch as invoice, client, settings and agent-access writes; `recordActivity` records PDF downloads and revoked-key attempts in the background; a logging failure never fails the request). Entries carry actor, stable action codes (`invoice.status_changed`, `agent.revoked`, …), entity + label snapshot, changed field names / status from→to (never bodies or secrets), source (`rest` or `mcp` + tool) and request id. No-op writes are not logged; a browser's initial upload is one `sync.bulk_upload` entry (`X-Midnight-Sync` header); repeated PDF downloads and revoked-key attempts are collapsed. Retention by a daily scheduled job (`activity.retention`), 365 days / 10,000 entries per workspace by default, configurable as operator settings `activity.retentionDays` / `activity.maxRowsPerWorkspace`; deleted with the workspace (also from the operator console, whose workspace list shows only an activity count). An agent's view includes the user's approval of it; agent chips link to that agent's activity, including revoked agents.
-- **Activity API**: `GET /api/v1/activity` (filters `actor`, `agent_id`, `action` prefixes, `entity_type`, `entity_id`, `since`, `until`; newest-first cursor paging) and `GET /api/v1/agents/:id/activity`; new scope `activity:read` lets an agent read only its own entries, also as MCP tool `get_my_activity`.
-- **Activity page** (`/activity`, linked from Agents and Settings → Cloud sync & agents): day-grouped timeline with "You" / agent chips, plain-language sentences, changed fields, links to invoices and clients (deleted ones marked), filters for agent, kind of action and date range, "Load older activity". The Agents page shows each agent's latest actions with "View activity"; the invoice page has a History section. With cloud sync off, the page explains that activity is recorded once sync is on.
-- **Send invoices by email**: "Send by email" on the invoice page and in the dashboard row menu opens a dialog with the recipient (prefilled from the invoice, editable), "Send me a copy", subject and message with templated defaults (invoice number, sender, total, due date), a preview of the email, and a clear note that a draft will be marked sent; the invoice page shows the email history (sent, failed with the reason, retry). Needs cloud sync; without it, or while the invoice is not uploaded yet, the dialog explains the next step.
-- **Email API**: migration `0007_email.sql` (`email_messages` log, `email_counters`); `POST /api/v1/invoices/:id/send` (new scope `invoices:send`, never added to existing agents; `Idempotency-Key`; 503 `email_not_configured`, 403 `recipient_not_allowed`, 409 `idempotency_conflict`, 429 cooldown/caps, 502 `email_send_failed`) and `GET /api/v1/invoices/:id/emails`; MCP tool `send_invoice_email`. The PDF is attached (light theme by default). From is always the operator-configured address ("<sender> via Midnight Invoice"), Reply-To the sender. Agents can only email the invoice's client address, and only one the user entered; cc only the workspace's own email. Per-invoice cooldown, per-workspace and per-agent hourly/daily limits and a site-wide daily cap.
-- **Email activity and safeguards**: sends, failures and refused agent attempts appear in the activity log and the invoice History (`invoice.emailed` with the draft → sent change folded in, `invoice.email_failed`, `invoice.email_blocked`; recipients masked). "Entered by the user" is tracked per address (`email_confirmed_recipients`, kept by triggers on the user's writes), so an agent editing another field never un-confirms an address and an agent-written address needs a user save. Agents cannot send an invoice whose sender or payment details an agent changed until the user saves it (403 `invoice_needs_review`); payment details from the user's own template pass, an agent-edited template's do not. OAuth-connected agents get `invoices:send` only through the consent screen (marked "Sends email") and follow the same rules and caps. Email failures over MCP now count as errors in operator telemetry.
-- **Email provider** behind an `EmailSender` interface (`server/email/`), with a Resend adapter (REST via `fetch`, provider idempotency keys). Operator settings group *Email* (provider, Resend API key as an encrypted secret or `RESEND_API_KEY`, From address/name, Reply-To policy, PDF theme, cooldown and caps, on/off), an "Email: not configured" hint in Settings, and an *Email* telemetry group. The approval and Agents pages describe `invoices:send` as sensitive ("Sends email").
-- **Saved clients** (replaces the "Client Management" teaser in Coming Soon): a Clients page (`/clients`, linked from the dashboard header) to list, search, add, edit, archive and delete clients (with confirmation), with default currency, tax rate and payment terms per client, private notes, invoice counts and "New invoice" for a client; one-click import from existing invoices (deduplicated by normalised name + email). In the invoice form, a client picker on Bill To fills name, address and email plus the client's defaults (never overwriting currency, tax rate or due date you already changed), and "Save as client" / "Update client" / "Link client" keep the list current. Invoices keep their own copy of the client's details and an optional `clientId`; editing a client never changes past invoices. Works offline and without cloud sync (`client-storage`), and syncs like invoices when cloud sync is on.
-- **Clients API**: migration `0003_clients.sql`; `GET /api/v1/clients` (search with `q`, sync feed), `POST`, `GET/PUT/PATCH/DELETE /api/v1/clients/:id` with revisions/ETags and soft deletes; scopes `clients:read` and `clients:write` (existing agents keep exactly their scopes); invoices accept `clientId` and fill omitted to-fields and terms from the client (client defaults before workspace settings); MCP tools `list_clients`, `get_client`, `create_client`, `update_client`, `delete_client`; `GET /api/v1/invoices?client_id=` and `list_invoices {client_id}` list a client’s invoices (combinable with the status filters). The approval and Agents pages describe the new permissions.
+A major release: the app moves from Vercel to a single Cloudflare Worker and
+gains an optional backend (cloud sync, an API and MCP server for AI agents,
+email, recurring invoices, optional accounts and a private operator console).
+With cloud sync off the app still works entirely in the browser, as before.
 
-### Changed
-- **Sync engine** generalised to synced collections (`src/lib/sync/collection.ts`, `collections/`): invoices and clients share pull/push, queue, backoff, tombstones and the three-way merge; uploads of referenced clients go before the invoices that reference them. The cloud store moves to version 2 (per-collection cursors and queue entries; version 1 data is migrated).
-- Invoice `toName` may be omitted on `POST`/`PUT /api/v1/invoices` when `clientId` is given (OpenAPI `InvoiceInput.required` is now `["lineItems"]`).
-- The dashboard's "New Invoice" button is icon-only on small screens.
-- Dashboard header: Clients, Templates and Agents are separate links from `sm` (labels from `lg`) and one "Pages" menu on phones (`src/components/HeaderNav.tsx`), so the header fits at 320 px with sync status and New Invoice. On the invoice page "Save as template" sits in the "More actions" menu below `lg`. Saving a template from an invoice offers "View templates" in the toast. The operator console counts templates (counts only), groups template routes under "Templates" in telemetry and treats `GET /templates?include_deleted=true` as sync.
+Upgrading from 1.x: local data (invoices, drafts, settings) is migrated in
+place; invoices saved before statuses existed become **drafts**. Hosting needs
+the Cloudflare setup in the README ("Deploy to Cloudflare"); the Vercel
+configuration is gone.
 
-### Changed
-- **Dependencies**: Upgraded to current major versions: React 19.3, React Router 8 (replaces `react-router-dom` 6), Tailwind CSS 4, Vite 8, Vitest 5, TypeScript 6.0, ESLint 10, Zod 4, date-fns 4, lucide-react 1, Sonner 2, tailwind-merge 3, next-themes 0.4, vite-plugin-pwa 2, jsdom 31 and more.
-- **Tailwind CSS 4**: CSS-first configuration in `src/index.css` via `@tailwindcss/vite`; removed `tailwind.config.ts`, `postcss.config.js` and autoprefixer; `tailwindcss-animate` replaced by `tw-animate-css`. Compatibility rules keep the UI visually unchanged.
-- **Tooling**: Switched to `@vitejs/plugin-react`; lockfile migrated to the text `bun.lock`; husky is now a dev dependency; Node.js 22.22+ is required.
-- **Environment**: No `.env` file is needed; `VITE_APP_NAME` defaults to "Midnight Invoice". `.env.example` documents both variables.
+### Invoices
+- **Status and due dates**: draft / sent / paid / void with `sentAt` / `paidAt`
+  and a derived *overdue* (sent and past its due date: local date in the app,
+  UTC in the API), one set of transition rules for app and API
+  (`shared/invoice-status.ts`). Status badges ("N days overdue"), quick actions
+  in the row menu and on the invoice page (mark sent, mark paid, void, reopen),
+  filter chips with counts, a per-currency totals strip, and **Save & mark
+  sent** in the editor.
+- **Saved clients** (`/clients`): list, search, add, edit, archive and delete,
+  with default currency, tax rate and payment terms and private notes; a client
+  picker on Bill To (fills the client's details and defaults without
+  overwriting what you changed), "Save as client" / "Update client" / "Link
+  client", one-click import from existing invoices. Invoices keep their own copy
+  of the client's details plus an optional `clientId`.
+- **Templates** (`/templates`): reusable invoices with line items, terms, notes
+  and a default client; whitelisted placeholders (`{{month}}`,
+  `{{month_name}}`, `{{prev_month_name}}`, `{{prev_month_year}}`, `{{year}}`,
+  `{{quarter}}`, `{{client_name}}`, `{{invoice_number}}`) resolved for each
+  invoice's issue date; "New from template" on the dashboard, "From template"
+  (asks before replacing anything typed) and "Save as template" in the editor
+  and on the invoice page. Invoices made from a template are independent drafts
+  that record `templateId`.
+- **Recurring invoices** (`/recurring`, needs cloud sync): schedules that create
+  an invoice from a template every week, two weeks, month, quarter or year in
+  your time zone, even when the browser is closed; as a draft, marked sent, or
+  emailed to the client (user-only choice). Month-end clamping, DST-safe local
+  run dates, exactly one invoice per period, catch-up of only the most recent
+  missed period, failures shown on the schedule and retried with backoff, end
+  date or number of invoices, pause / resume / run now, plain-language summary,
+  upcoming dates and a preview of the next invoice; "Make recurring" from a
+  template or an invoice; a *Recurring* badge and dashboard filter.
+- **Send by email** (needs cloud sync and an email provider set up by the site
+  operator): a dialog with recipient, "Send me a copy", subject and message,
+  a preview, and the PDF attached; a draft is marked sent; the invoice page
+  shows the email history.
+- **Validation on save**: Save, Save & mark sent and Download PDF check the same
+  rules as the API, show field errors and focus the first one; invoices stored
+  invalid say exactly what to fix.
+- Invoice names print under the invoice number; the playful dashboard label of
+  unnamed invoices is derived from the id and never printed.
+- Fixed: the dashboard's **Duplicate** opened an empty editor; every Duplicate
+  now copies the invoice as a new draft (no status, sync data or template /
+  schedule provenance).
+- Fixed: an infinite render loop that left the create page blank.
 
-### Added
-- **Operator console** (`/operator`, private): first-run wizard unlocked by the `INITIAL_PASSWORD` secret (encryption master key with a one-time recovery key, WorkOS credentials, operator account via WorkOS AuthKit with password and/or passkey), after which the bootstrap login is permanently disabled; AuthKit sign-in with an operator allowlist, cookie sessions with CSRF protection, idle/absolute timeouts and revocation; overview stats and charts; telemetry per part of the service (REST route groups, MCP tools, agent-registration funnel, sync, PDF, rate limits, auth failures, D1 health) from D1 rollups; workspaces and agents (metadata only) with suspend, delete and force-revoke; runtime settings registry stored in D1 with envelope encryption for secrets (AES-256-GCM, optional hardened `ENCRYPTION_KEY` mode, key rotation and recovery); maintenance mode and registration toggles; restart (reload runtime configuration) and redeploy (GitHub Actions `workflow_dispatch`); audit log. Cron Trigger job registry (`server/scheduled.ts`) with hourly telemetry retention. `bun run dev:operator` runs it locally against the WorkOS emulator (`workos dev`). Migration `0004_operator.sql`.
-- Public API error codes `maintenance` (503), `workspace_suspended` and `registration_closed` (403). In the app, suspension and maintenance pause cloud sync ("Sync paused" with the operator's message; queued changes are kept and retried), and turning on cloud sync while registration is closed says so.
-- **Invoice status and due-date tracking**: statuses draft / sent / paid / void with `sentAt` / `paidAt` dates and a derived *overdue* (sent and past its due date: local date in the app, UTC in the API). Shared transition rules (`shared/invoice-status.ts`) used by the app and the API. Invoices saved before this release (local and on the server) are drafts. Dashboard: status badges ("N days overdue"), row and invoice-page quick actions (mark sent, mark paid, void, reopen), filter chips with counts and a per-currency totals strip computed locally. New invoices: **Save Invoice** saves a draft, **Save & mark sent** marks it sent.
-- **API / MCP**: invoice `status`, `sentAt`, `paidAt`, derived `isOverdue` / `daysOverdue`; `GET /invoices` filters `status` (incl. virtual `overdue`), `due_before`, `due_after`, `client`; `POST /invoices/:id/mark-sent|mark-paid|void|reopen` (with `If-Match`; 409 `invalid_status_transition`); `GET /invoices/summary` (per currency). MCP: filters on `list_invoices`, new `set_invoice_status` and `get_invoice_summary`. D1 migration `0002_invoice_status.sql`. Local invoice store version 2.
-- **Cloud sync & agents in the app** (opt-in, Settings → Cloud sync & agents): creates an anonymous workspace and uploads local invoices and default settings; local-first sync engine with a persisted offline queue, delta pulls (on start, focus, reconnect and every 15 s), tombstones, revisions with `If-Match`, and a three-way merge on conflicts (server wins per conflicting field; the user is told); header sync status; recovery key to link another browser and "Connect existing workspace"; disconnect this browser; delete the cloud workspace (local copies kept).
-- **Agent approval page** (`/agents/approve?code=…`): consent screen with the agent's name and description as plain text, anti-phishing guidance, per-permission checkboxes to narrow scopes, expiry countdown, approve/deny and clear states for unknown, expired, already decided and rate-limited codes.
-- **Agents page** (`/agents`): connected and revoked agents with permissions and last use, revoke with confirmation, code entry, and copyable connection help (prompt, API base URL, MCP endpoint and client config).
-- Invoices created or edited by agents show a "by / edited by <agent>" badge in the list and provenance on the invoice view.
-- Typed API client (`src/lib/api`) and an in-memory API fake for tests.
-- **Cloudflare hosting**: the app now runs as one Cloudflare Worker with static assets (`wrangler.jsonc`, `@cloudflare/vite-plugin`). SPA not-found handling keeps deep links working; `/api/*` always reaches the Worker. New scripts: `deploy`, `cf-typegen`, `db:migrate:local`, `db:migrate:remote`.
-- **Agent API** (`/api/v1`, Hono on Workers + Cloudflare D1): anonymous workspaces with a one-time workspace token; RFC 8628-style agent registration (user code approval, scope narrowing, deny, expiry, one-time API key), agent listing and revocation; invoice CRUD with soft deletes, `updated_since` delta sync, revisions/ETags and `If-Match` preconditions, atomic invoice-number allocation, defaults from workspace settings, server-computed totals; settings; `createdBy`/`updatedBy` attribution; rate limiting (Workers Rate Limiting + D1 counters); OpenAPI 3.1 at `/api/v1/openapi.json`. See `AGENT_API.md`.
-- **Remote MCP server** at `/api/mcp` (official MCP TypeScript SDK v2, stateless Streamable HTTP, JSON responses) with scope-filtered invoice tools.
-- **Server-side PDFs** (`GET /api/v1/invoices/:id/pdf`) rendered in the Worker by the app's own `InvoicePDF` component.
-- `public/llms.txt` pointing agents to the API.
-- `typecheck` script and a GitHub Actions CI workflow (lint, typecheck, tests, build, `wrangler deploy --dry-run`).
-- Vitest projects: `web` (jsdom), `server` (API against local D1 in workerd), `workerd` (production build in workerd).
-- **Deploy workflow** (`.github/workflows/deploy.yml`): on push to `main` (after the CI checks) and on manual dispatch, applies remote D1 migrations and deploys with `cloudflare/wrangler-action`; skipped until the repository variable `CLOUDFLARE_DEPLOY` is `true`; needs the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (setup in the README).
+### PDF
+- The PDF matches the on-screen preview: same colours (dark by default, light
+  when the app is light), the preview's Noto Sans Mono faces at their real
+  weights (embedded), sizes, spacing and line wrapping.
+- Clean page breaks on long invoices: rows never split, the table header
+  repeats, totals stay together, labels are never orphaned.
+- Non-Latin text: Chinese, Japanese, Korean, Arabic and Hebrew (right-to-left),
+  Thai, Devanagari and emoji through fallback fonts loaded only when needed,
+  with a warning for characters no bundled font covers.
+- `&`, quotes and apostrophes no longer show as HTML entities.
+- Server-side rendering of the same component (`GET /api/v1/invoices/:id/pdf`,
+  MCP `get_invoice_pdf`), with `?theme=light|dark`.
 
-### Changed
-- Saving an existing invoice keeps its original `createdAt` and its sync metadata.
-- The dashboard tab is reflected in the URL (`/?tab=settings`); the "Cloud Sync" teaser left "Coming Soon".
-- The service worker explicitly never caches `/api/*` (NetworkOnly).
-- Agent user-code helpers moved to `shared/user-code.ts` (re-exported from `server/crypto.ts`).
-- PDF fonts are declared once in `src/components/invoice/pdfFonts.ts` (used by the browser and the Worker).
-- Invoice, settings and API types live in `shared/` (re-exported from the old `src/` paths); `Invoice` gained optional server fields (`updatedAt`, `deletedAt`, `revision`, `createdBy`, `updatedBy`).
-- The service worker never serves the SPA shell for `/api/*` navigations.
+### Cloud sync, accounts and the activity log
+- **Cloud sync** (opt-in, Settings → *Cloud sync & agents*): an anonymous
+  workspace with a recovery key; offline-first sync of invoices, clients,
+  templates and settings (persisted queue, delta pulls on start, focus,
+  reconnect and every 15 s, tombstones, revisions with `If-Match`, three-way
+  merge on conflicts with a toast); header sync status; connect another browser
+  with the recovery key; disconnect; delete the cloud workspace (local copies
+  kept). With sync off the app makes no API requests.
+- **Optional user accounts** (WorkOS AuthKit, when the operator enables them):
+  sign up / sign in from Settings and the agent consent screens; claim the
+  browser's anonymous workspace; connect new browsers without a recovery key,
+  with an explicit choice when a browser has other local data (nothing is
+  discarded or merged on the server); an Account page (`/account`) with devices
+  (revoke, last synced), sign out other devices / everywhere, recovery key
+  rotate / create / turn off and account deletion (with or without the
+  workspace). Per-device workspace tokens; account management uses a separate
+  HttpOnly cookie session with CSRF protection. Signed-out browsers explain why.
+- **Activity log** (`/activity`, linked from the header, Agents and Settings):
+  a day-grouped timeline of what your browsers, each agent and the system
+  (recurring schedules) did, with filters by who, kind of action and dates, a
+  History section on each invoice and each agent's latest actions on the Agents
+  page. Entries hold field names, never values; retention 365 days / 10,000
+  entries per workspace by default. "Sent again" now only marks invoices that
+  were emailed before.
+- Suspension and maintenance pause sync ("Sync paused" with the operator's
+  message; queued changes are kept and retried).
 
-### Fixed
-- **PDF matches the invoice preview**: exported and API PDFs now use the preview's colours (dark by default, light when the app is in light mode; shared tokens in `src/components/invoice/invoiceTheme.ts`), its Noto Sans Mono faces at real Medium/SemiBold weights (embedded; no stray Helvetica), its sizes, spacing, dividers, column grid and line wrapping. `GET /api/v1/invoices/:id/pdf` and the MCP `get_invoice_pdf` tool accept an optional `theme` (`light`|`dark`).
-- Text containing `&`, quotes or apostrophes no longer shows HTML entities (e.g. "Me &amp; Co") in the PDF or the preview.
-- **Small screens (320–390 px)**: no page scrolls sideways any more. The dashboard header shows just the logo below 360 px and the tabs drop their icons (and the "Coming Soon" label) below `sm`; totals stack as rows; invoice rows put the name, badges and details full width with the amount and actions on one row, wrapping the details only between number, client and date. Line items in the editor put the description on its own row with labelled Qty and Price below, and the invoice details / From / Bill To / notes fields stack in one column. The invoice preview keeps its A4 layout and is scaled down as a whole to fit narrow screens and columns (CSS transform, unscaled when printing), so it stays a faithful picture of the PDF instead of overlapping columns.
-- **Mobile headers**: the invoice page header no longer overflows at 390 px (or 320 px): below the `lg` breakpoint Download PDF is icon-only and Edit, Duplicate, Print and Delete move into a "More actions" menu. The editor's Download PDF, Duplicate, Save & mark sent and Save Invoice are icon-only below `lg`. All keep accessible names, and long titles truncate.
-- **Theme on direct page loads**: reloading `/create`, `/invoice/:id` or an unknown URL no longer switches back to dark when light was chosen. The stored theme is applied before the first paint by an inline script in `index.html` (`<html class="dark">` stays the default for new visitors) and then by a root `next-themes` provider, so every route, the toaster and the PDF export (which follows the preview) agree. The theme toggle is now also on the invoice editor, the invoice page and the 404 page.
-- **Non-Latin text in PDFs**: characters Noto Sans Mono lacks no longer print as empty boxes. Fallback faces (Noto Sans SC, KR, Arabic, Hebrew, Thai, Devanagari and Noto Emoji, SIL OFL 1.1, in `public/fonts/fallback/`) are fetched and registered only when an invoice contains such characters, in the browser and in the Worker; the preview uses the same faces (via `unicode-range`), so both look alike. Right-to-left text (Arabic, Hebrew) is shaped and ordered. Characters no bundled font covers (e.g. Bengali, Tamil, Georgian, rare Han characters) trigger a warning before the PDF is downloaded. Fonts used once are cached by the service worker for offline export.
-- **PDF page breaks**: on long invoices the totals (or the whole line-item table) no longer jump to the next page when they fit: react-pdf counted each section's bottom margin as space needed ahead. Line items flow row by row (a row never splits), the table header repeats at the top of each continuation page, the totals block stays together, and a "Payment Details"/"Notes" label is never left alone at a page bottom.
-- **Invoice name on the invoice**: the name you give an invoice (e.g. "Brand refresh — Q4") is printed under the invoice number again, identically in the preview and the PDF (nothing when empty). The playful dashboard label for unnamed invoices ("Cosmic Phoenix 42") is no longer stored as the invoice's name: it is derived from the invoice id, and labels stored by earlier versions are recognised by their shape, kept for the dashboard and never printed.
-- **Saving validates**: "Save Invoice", "Save & mark sent" (nothing is marked sent while invalid) and "Download PDF" (which also saves) now checks the same rules the API enforces (`invoiceFormSchema`): field errors are shown, the first invalid field is focused, nothing typed is lost, and fixed fields clear their error as you type. Drafts are still auto-saved unvalidated. Invoices already stored invalid say exactly what to fix (the dashboard's "Not synced" badge names the fields and opens the editor, a notice with an "Edit to fix" link on the invoice page).
+### AI agents, API and MCP
+- **Agent API** (`/api/v1`, Hono on Workers + D1): anonymous workspaces; an
+  RFC 8628-style device flow (user code, scope narrowing, deny, expiry,
+  one-time API key); agent listing and revocation; invoice, client, template
+  and recurring-schedule CRUD with soft deletes, delta sync, revisions/ETags and
+  `If-Match`; atomic invoice numbers; defaults from settings; server-computed
+  totals; status endpoints and a per-currency summary; template instantiation;
+  email sending with idempotency keys; activity reads; rate limiting; OpenAPI
+  3.1 at `/api/v1/openapi.json`; `public/llms.txt`. See `AGENT_API.md`.
+- **Scopes**: `invoices:read|write|delete`, `settings:read`,
+  `clients:read|write`, `templates:read|write`, `activity:read` (own entries
+  only), `invoices:send` (sensitive), `recurring:read|write`. New scopes are
+  never added to existing agents.
+- **Remote MCP server** (`/api/mcp`, official MCP TypeScript SDK v2, stateless
+  Streamable HTTP) with scope-filtered tools for invoices, status, PDFs,
+  clients, templates, recurring schedules, email and the agent's own activity.
+- **OAuth for MCP clients** (MCP authorization spec 2026-07-28): paste the MCP
+  URL into a client, approve on `/agents/authorize`, done. Protected-resource
+  and authorization-server metadata, PKCE S256, resource indicators, `iss` in
+  responses, dynamic client registration and Client ID Metadata Documents,
+  1-hour access tokens (MCP only) and 30-day rotating refresh tokens with reuse
+  detection, revocation.
+- **Agent safety for email**: agents can only email the invoice's client
+  address, only one the user entered themselves, and not while an agent has
+  changed the sender or payment details since the user's last save; cooldown,
+  per-workspace, per-agent and site-wide caps.
+- App UI: consent screens (`/agents/approve`, `/agents/authorize`) that show
+  agent-supplied text as plain text and only narrow permissions; an Agents page
+  with connection help, permissions, last use and revoke; "by / edited by
+  <agent>" badges.
+
+### Operator console (`/operator`, private)
+- First-run wizard unlocked by the `INITIAL_PASSWORD` secret (master key with a
+  one-time recovery key, WorkOS credentials, operator account); afterwards
+  operators sign in with WorkOS AuthKit (allowlist, CSRF-protected cookie
+  sessions with timeouts and revocation).
+- Overview, telemetry per part of the service (REST groups, MCP, sync, PDF,
+  email, OAuth, accounts, recurring), workspaces / agents / accounts (metadata
+  only) with suspend, delete, revoke and disable; runtime settings stored in D1
+  with envelope encryption for secrets (optional hardened `ENCRYPTION_KEY`
+  mode, key rotation and recovery); maintenance mode and registration
+  switches; restart (reload runtime configuration) and redeploy (GitHub Actions
+  `workflow_dispatch`); audit log. Fits phones without sideways scrolling.
+- Scheduled jobs (Cron Triggers): telemetry and session housekeeping, OAuth
+  pruning, account cleanup, activity retention and recurring generation.
+
+### Hosting and tooling
+- **Cloudflare Workers**: one Worker serves the SPA (static assets with SPA
+  fallback) and the API (`wrangler.jsonc`, `@cloudflare/vite-plugin`, D1
+  migrations `0001`–`0010`). Opt-in deploy workflow
+  (`.github/workflows/deploy.yml`) and a CI workflow (lint, typecheck, tests,
+  build, `wrangler deploy --dry-run`). `bun run dev:operator` runs everything
+  locally against the WorkOS emulator.
+- **Dependencies** on current majors: React 19, React Router 8 (replaces
+  `react-router-dom`), Tailwind CSS 4 (CSS-first config, `tw-animate-css`),
+  Vite 8, Vitest 5, TypeScript 6, ESLint 10, Zod 4, date-fns 4, lucide-react 1,
+  Sonner 2 and more; `@vitejs/plugin-react`; text `bun.lock`; Node.js 22.22+.
+- Vitest projects `web` (jsdom), `server` (API against local D1 in workerd) and
+  `workerd` (the production bundle in workerd).
+- No `.env` is needed (`VITE_APP_NAME` defaults to "Midnight Invoice").
+- The service worker never caches `/api/*`; app pages forbid framing.
+
+### UI
+- Small screens (320–390 px): no page scrolls sideways; compact headers with a
+  "More actions" menu; the invoice preview scales as a whole.
+- The header links to Clients, Templates, Recurring, Agents and Activity (one
+  "Pages" menu on phones).
+- The chosen theme is applied before the first paint on every route; the theme
+  toggle is on every page.
 
 ### Removed
-- Vercel configuration (`vercel.json`, `VERCEL` check in the `prepare` script).
-- Unused shadcn/ui components (skeleton, toggle, Radix toast), unused helpers (NavLink, use-mobile) and ~30 unused packages (react-hook-form, recharts, embla-carousel, react-day-picker, input-otp, vaul, unused Radix packages, lovable-tagger, etc.).
-- Committed `.env` and `package-lock.json`.
-
-### Fixed
-- Infinite render loop ("Maximum update depth exceeded") that left the create invoice page blank.
-- All lint errors and warnings.
-- README inaccuracies (form library, PDF library, dev server port, project structure).
+- Vercel configuration; unused shadcn/ui components, helpers and ~30 unused
+  packages; the committed `.env` and `package-lock.json`.
 
 ## [1.1.0] - 2025-12-13
 

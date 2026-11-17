@@ -55,9 +55,9 @@ export function DeploymentsPage() {
   return (
     <>
       <PageTitle title="Deployments" description="What is running, and the two honest equivalents of “restart” and “redeploy” for a Cloudflare Worker." />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3 [&>*]:min-w-0">
         <Card title="Running version">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-sm">
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
             <dt className="text-muted-foreground">Worker version</dt>
             <dd className="truncate text-right font-code text-xs" title={d.version.id ?? ''}>
               {d.version.id ?? 'unavailable (local dev)'}
@@ -78,7 +78,7 @@ export function DeploymentsPage() {
           title="Restart = reload runtime configuration"
           description={`Workers have no long-running process to restart. This bumps the configuration version: every isolate drops its cached settings, keys and suspension list on its next request (within ${d.propagationSeconds} s). Code changes need a redeploy.`}
         >
-          <Button variant="outline" onClick={() => reload.mutate()} disabled={reload.isPending}>
+          <Button variant="outline" onClick={() => reload.mutate()} disabled={reload.isPending} className="h-auto min-h-10 max-w-full whitespace-normal">
             <RefreshCw aria-hidden="true" className={cn(reload.isPending && 'animate-spin')} />
             Reload runtime configuration
           </Button>

@@ -21,13 +21,14 @@ import { StatusFilterChips, TotalsStrip } from '@/components/invoice/status/Stat
 import { useInvoiceStatusView, type StatusFilter } from '@/components/invoice/status/useInvoiceStatus';
 import { NewFromTemplateButton } from '@/components/templates/NewFromTemplateButton';
 import { HeaderNav } from '@/components/HeaderNav';
+import { duplicateInvoiceData } from '@/lib/duplicateInvoice';
 
 type Tab = 'invoices' | 'settings' | 'coming';
 const TABS: readonly Tab[] = ['invoices', 'settings', 'coming'];
 
 const Index = () => {
   const navigate = useNavigate();
-  const { invoices, deleteInvoice, isLoading } = useInvoices();
+  const { invoices, deleteInvoice, isLoading, saveDraft, getNextInvoiceNumber } = useInvoices();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as Tab | null;
   // The tab lives in the URL (?tab=settings) so other screens can link to it.
@@ -69,18 +70,10 @@ const Index = () => {
   };
 
   const handleDuplicateInvoice = (invoice: Invoice) => {
-    // Generate new ID for the duplicated invoice
+    // The copy is opened in the editor as a draft under a new id (same as the invoice page's Duplicate).
     const newId = crypto.randomUUID();
-    
-    // Create a new invoice with copied data
-    const { id, createdAt, invoiceNumber, ...invoiceData } = invoice;
-    const duplicateData = {
-      ...invoiceData,
-      issueDate: new Date().toISOString().split('T')[0], // Set to today
-      dueDate: '', // Clear due date
-    };
-    
-    // Navigate to create page with the new ID
+    saveDraft(newId, duplicateInvoiceData(invoice, getNextInvoiceNumber));
+    toast.success('Invoice duplicated');
     navigate(`/create/${newId}`, { viewTransition: true });
   };
 

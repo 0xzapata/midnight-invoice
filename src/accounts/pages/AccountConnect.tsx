@@ -205,7 +205,7 @@ export default function AccountConnect() {
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 {view.signIn && <SignInButtons returnTo={returnTo} />}
-                <Button variant="ghost" asChild>
+                <Button variant="ghost" asChild className="font-mono">
                   <Link to={returnTo}>
                     <UserRound className="w-4 h-4" aria-hidden="true" />
                     Back

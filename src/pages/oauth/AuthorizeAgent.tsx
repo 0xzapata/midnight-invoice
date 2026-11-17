@@ -137,7 +137,7 @@ function Leaving({ request, target, approved, scopes }: { request: Request; targ
     );
   }
   const continueLink = (
-    <Button variant="outline" asChild>
+    <Button variant="outline" asChild className="font-mono">
       <a href={target.href} rel="noreferrer">
         Continue to {request.redirect.display}
       </a>
