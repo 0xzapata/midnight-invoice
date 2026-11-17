@@ -13,6 +13,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - 💱 Multi-currency support (All currencies)
 - ⚙️ Comprehensive settings management
 - 📋 Duplicate invoices
+- ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip (works offline)
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
 - ☁️ Optional cloud sync (opt-in): an anonymous workspace, offline-first sync across browsers and devices, recovery key to link another device
@@ -170,6 +171,27 @@ To use the same workspace in another browser or device, reveal the
 **recovery key** in Settings → Cloud sync & agents → *Link another browser or
 device* and paste it under *Connect existing workspace* there. Keep it secret
 (it is the workspace's only credential) and never give it to an agent.
+
+### Invoice status
+
+Every invoice has a status: **draft**, **sent**, **paid** or **void**.
+*Overdue* is not stored: an invoice is overdue when it is *sent* and its due
+date is before today (the app uses your local date, the API the UTC date).
+**Save Invoice** saves a new invoice as a draft; **Save & mark sent** saves
+and marks it sent in one click. On the dashboard, the row menu (and the
+buttons on the invoice page) mark invoices sent or paid, void them or reopen
+them; filter chips show All / Draft / Outstanding / Overdue / Paid with
+counts, and the totals strip shows Outstanding, Overdue and Paid this month
+per currency (never added across currencies).
+
+Invoices saved before statuses existed are shown as **drafts**: the app
+cannot know whether they were sent or paid, and calling them "sent" would
+flag every old invoice with a past due date as overdue. Mark them sent or
+paid as needed. Allowed changes: draft → sent | void, sent → paid | void |
+draft, paid → sent (undo payment) | void, void → draft | sent (reopen).
+Agents use the same rules (`/invoices/:id/mark-sent` … and the
+`set_invoice_status` MCP tool) and can ask "what is unpaid?" with
+`GET /invoices/summary` or `get_invoice_summary`.
 
 ### How the API works
 
