@@ -31,7 +31,7 @@ export function TotalsStrip({
   const relevant = summary.currencies.filter((c) => TILES.some((t) => c[t.key].count > 0));
   const shown = relevant.length > 0 ? relevant : summary.currencies.slice(0, 1);
   return (
-    <section aria-label="Totals" className={cn('grid grid-cols-3 border border-border bg-card divide-x divide-border', className)}>
+    <section aria-label="Totals" className={cn('grid grid-cols-1 divide-y divide-border border border-border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0', className)}>
       {TILES.map((tile) => {
         const count = shown.reduce((n, c) => n + c[tile.key].count, 0);
         return (
@@ -49,17 +49,18 @@ export function TotalsStrip({
 function Tile({ label, count, onClick, children }: { label: string; count: number; onClick?: () => void; children: ReactNode }) {
   const body = (
     <>
-      <span className="flex flex-col gap-0.5 text-[11px] uppercase leading-tight tracking-wider text-muted-foreground sm:flex-row sm:items-baseline sm:justify-between sm:gap-2">
+      <span className="flex items-baseline gap-2 text-[11px] uppercase leading-tight tracking-wider text-muted-foreground sm:justify-between">
         <span>{label}</span>{' '}
         <span className="font-mono tabular-nums">
           {count}
           <span className="sr-only"> invoice{count === 1 ? '' : 's'}</span>
         </span>
       </span>
-      <span className="mt-1.5 flex flex-col gap-0.5">{children}</span>
+      <span className="flex min-w-0 flex-col items-end gap-0.5 sm:mt-1.5 sm:items-stretch">{children}</span>
     </>
   );
-  const base = 'flex min-w-0 flex-col p-3 text-left sm:p-4';
+  // Phones: one row per tile (label left, amount right); sm+: three columns.
+  const base = 'flex min-w-0 items-center justify-between gap-3 px-3 py-2.5 text-left sm:flex-col sm:items-stretch sm:justify-start sm:gap-0 sm:p-4';
   return onClick ? (
     <button type="button" onClick={onClick} className={cn(base, 'transition-colors hover:bg-accent/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset')}>
       {body}

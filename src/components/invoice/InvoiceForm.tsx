@@ -185,7 +185,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
       {/* Invoice Details */}
       <div className="space-y-4">
         <h3 className="text-sm font-medium text-foreground">Invoice Details</h3>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <form.Field name="invoiceNumber">
             {(field) => {
               const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
@@ -271,7 +271,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
             </Button>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <form.Field name="fromName">
             {(field) => {
               const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
@@ -321,7 +321,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
             }}
           </form.Field>
           
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <form.Field name="fromAddress">
               {(field) => (
                 <Field>
@@ -351,7 +351,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
           <h3 className="text-sm font-medium text-foreground">Bill To</h3>
           <ClientPicker values={formState} onPick={pickClient} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <form.Field name="toName">
             {(field) => {
               const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid;
@@ -401,7 +401,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
             }}
           </form.Field>
           
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <form.Field name="toAddress">
               {(field) => (
                 <Field>
@@ -446,11 +446,10 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
             {(field) => (
               <>
                 {field.state.value.map((item, index) => (
-                  <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-6 space-y-1">
-                      {index === 0 && (
-                        <span className="text-[10px] text-muted-foreground">Description</span>
-                      )}
+                  <div key={item.id} className="grid grid-cols-12 gap-2 items-center border-b border-border pb-3 last:border-0 last:pb-0 sm:border-0 sm:pb-0">
+                    <div className="col-span-12 space-y-1 sm:col-span-6">
+                      {/* Phones stack each item, so every item shows its labels there; sm+ has one header row. */}
+                      <span className={`block text-[10px] text-muted-foreground ${index === 0 ? '' : 'sm:hidden'}`} aria-hidden="true">Description</span>
                       <form.Field name={`lineItems[${index}].description`}>
                         {(subField) => {
                           const isInvalid = subField.state.meta.isTouched && !subField.state.meta.isValid;
@@ -471,10 +470,8 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
                         }}
                       </form.Field>
                     </div>
-                    <div className="col-span-2 space-y-1">
-                      {index === 0 && (
-                        <span className="text-[10px] text-muted-foreground">Qty</span>
-                      )}
+                    <div className="col-span-4 space-y-1 sm:col-span-2">
+                      <span className={`block text-[10px] text-muted-foreground ${index === 0 ? '' : 'sm:hidden'}`} aria-hidden="true">Qty</span>
                       <form.Field name={`lineItems[${index}].quantity`}>
                         {(subField) => (
                           <Input
@@ -490,10 +487,8 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
                         )}
                       </form.Field>
                     </div>
-                    <div className="col-span-3 space-y-1">
-                      {index === 0 && (
-                        <span className="text-[10px] text-muted-foreground">Price</span>
-                      )}
+                    <div className="col-span-6 space-y-1 sm:col-span-3">
+                      <span className={`block text-[10px] text-muted-foreground ${index === 0 ? '' : 'sm:hidden'}`} aria-hidden="true">Price</span>
                       <form.Field name={`lineItems[${index}].price`}>
                         {(subField) => (
                           <Input
@@ -510,8 +505,8 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
                         )}
                       </form.Field>
                     </div>
-                    <div className="col-span-1 flex items-center justify-end">
-                      {index === 0 && <div className="h-[22px]" />}
+                    <div className="col-span-2 flex items-center justify-end self-end sm:col-span-1 sm:self-auto">
+                      {index === 0 && <div className="hidden h-[22px] sm:block" />}
                       <Button
                         type="button"
                         variant="ghost"
@@ -576,7 +571,7 @@ export function InvoiceForm({ initialData, onFormChange, invoiceNumber, ref }: I
       </div>
 
       {/* Payment & Notes */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <form.Field name="paymentDetails">
           {(field) => (
             <Field>

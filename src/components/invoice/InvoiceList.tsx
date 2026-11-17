@@ -68,16 +68,18 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
         return (
           <div
             key={invoice.id}
-            className="group flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors cursor-pointer"
+            // Phones: name, badges and details full width, then amount + actions on one row.
+            // sm+: icon | details over amount | actions.
+            className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors cursor-pointer sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-4 sm:gap-y-1"
             onClick={() => onView(invoice)}
+            data-testid="invoice-row"
           >
-            <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
-              <div className="w-10 h-10 shrink-0 rounded-md bg-secondary flex items-center justify-center self-start mt-1">
+              <div className="hidden w-10 h-10 shrink-0 rounded-md bg-secondary items-center justify-center self-start mt-1 sm:flex sm:row-span-2">
                 <FileText className="w-5 h-5 text-muted-foreground" />
               </div>
-              <div className="flex min-w-0 flex-col gap-1">
+              <div className="col-span-2 flex min-w-0 flex-col gap-1 sm:col-span-1 sm:col-start-2 sm:row-start-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <p className="font-medium text-foreground">
+                  <p className="min-w-0 break-words font-medium text-foreground">
                     {invoiceListLabel(invoice)}
                   </p>
                   <StatusBadge invoice={invoice} today={today} />
@@ -94,15 +96,17 @@ export function InvoiceList({ invoices, onView, onLoadSession, onDuplicate, onDe
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-mono">{invoice.invoiceNumber}</span> · {invoice.toName || 'No client'} · {format(parseISO(invoice.createdAt), 'MMM dd, yyyy')}
-                </p>
-                <p className="font-mono text-sm font-medium text-primary">
-                  {formatCurrency(withTax, invoice.currency)}
+                {/* Wraps only between the three parts, never inside a date or number. */}
+                <p className="flex min-w-0 flex-wrap gap-x-1.5 text-xs text-muted-foreground">
+                  <span className="font-mono whitespace-nowrap">{invoice.invoiceNumber}</span>
+                  <span className="min-w-0 max-w-full truncate"><span aria-hidden="true">· </span>{invoice.toName || 'No client'}</span>
+                  <span className="whitespace-nowrap"><span aria-hidden="true">· </span>{format(parseISO(invoice.createdAt), 'MMM dd, yyyy')}</span>
                 </p>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+              <p className="min-w-0 truncate font-mono text-sm font-medium text-primary sm:col-start-2 sm:row-start-2">
+                {formatCurrency(withTax, invoice.currency)}
+              </p>
+            <div className="-mr-2 flex shrink-0 items-center justify-end gap-0.5 sm:col-start-3 sm:row-span-2 sm:row-start-1 sm:mr-0 sm:gap-1">
               <StatusActionsMenu invoice={invoice} />
               <Button
                 variant="ghost"

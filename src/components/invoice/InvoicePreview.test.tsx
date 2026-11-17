@@ -206,6 +206,32 @@ describe('InvoicePreview', () => {
     expect(screen.queryByText('Cosmic Phoenix 42')).not.toBeInTheDocument();
   });
 
+  it('shrinks the fixed A4-width card to fit narrow screens instead of reflowing it', () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(297.5);
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(1000);
+    const { container } = render(<InvoicePreview data={createMockInvoiceData()} />);
+    const card = container.querySelector('.invoice-preview') as HTMLElement;
+    // Laid out at exactly the PDF's width, scaled as a whole.
+    expect(card.style.width).toBe('595px');
+    expect(card.style.transform).toBe('scale(0.5)');
+    expect(card).toHaveClass('origin-top-left', 'print:transform-none!');
+    // The wrapper takes the scaled height, so nothing below overlaps.
+    expect((card.parentElement as HTMLElement).style.height).toBe('500px');
+    width.mockRestore();
+    height.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('is not scaled when there is room for the full width', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(595);
+    const { container } = render(<InvoicePreview data={createMockInvoiceData()} />);
+    const card = container.querySelector('.invoice-preview') as HTMLElement;
+    expect(card.style.transform).toBe('');
+    expect((card.parentElement as HTMLElement).style.height).toBe('');
+    width.mockRestore();
+  });
+
   it('renders with different currency', () => {
     const euroData = createMockInvoiceData({
       currency: 'EUR',
