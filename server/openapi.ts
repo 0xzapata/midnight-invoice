@@ -13,6 +13,7 @@ import { emailOpenApiPaths, emailOpenApiSchemas } from './openapiEmail';
 import { activityOpenApiPaths, activityOpenApiSchemas } from './openapiActivity';
 import { recurringOpenApiPaths, recurringOpenApiSchemas } from './recurring/openapi';
 import { DEFAULT_INVOICE_THEME, INVOICE_THEMES } from '@/components/invoice/invoiceTheme';
+import { APP_VERSION } from '../shared/version';
 
 type Json = Record<string, unknown>;
 
@@ -163,7 +164,7 @@ export function buildOpenApiDocument(baseUrl: string) {
     openapi: '3.1.0',
     info: {
       title: 'Midnight Invoice API',
-      version: '1.0.0',
+      version: APP_VERSION,
       description:
         'REST API for Midnight Invoice workspaces. Agents register with POST /agents/register, the user approves the shown code in the app, ' +
         'and the agent exchanges its device_code for an API key at POST /agents/token. A remote MCP endpoint is at POST /api/mcp. See /llms.txt.',

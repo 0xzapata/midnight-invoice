@@ -11,6 +11,8 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { SCOPES, SCOPE_DESCRIPTIONS } from '../shared/api';
 import { buildOpenApiDocument } from './openapi';
 import { groupOf } from './operator/telemetry';
+import { MCP_SERVER_INFO } from './mcp';
+import { APP_VERSION } from '../shared/version';
 import { api, BASE, buildApp, connectAgent, createWorkspace, startD1 } from './test/helpers';
 
 const ROOT = join(__dirname, '..');
@@ -92,6 +94,16 @@ describe('MCP tools are documented', () => {
     expect(documented).toEqual(served);
     // Each row names only known scopes.
     for (const row of rows) for (const scope of codeNames(row[1])) expect(SCOPES as readonly string[], `${row[0]}: ${scope}`).toContain(scope);
+  });
+});
+
+describe('release version', () => {
+  it('package.json, the CHANGELOG, the OpenAPI document and the MCP server agree', () => {
+    const pkg = JSON.parse(read('package.json')) as { version: string };
+    expect(APP_VERSION).toBe(pkg.version);
+    expect(read('CHANGELOG.md')).toContain(`## [${pkg.version}]`);
+    expect((buildOpenApiDocument('https://invoices.example.com') as { info: { version: string } }).info.version).toBe(pkg.version);
+    expect(MCP_SERVER_INFO.version).toBe(pkg.version);
   });
 });
 
