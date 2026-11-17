@@ -11,10 +11,21 @@ All notable changes to this project will be documented in this file.
 - **Environment**: No `.env` file is needed; `VITE_APP_NAME` defaults to "Midnight Invoice". `.env.example` documents both variables.
 
 ### Added
-- `typecheck` script and a GitHub Actions CI workflow (lint, typecheck, tests, build).
-- SPA fallback rewrite in `vercel.json` so deep links work (excludes `/api/*`).
+- **Cloudflare hosting**: the app now runs as one Cloudflare Worker with static assets (`wrangler.jsonc`, `@cloudflare/vite-plugin`). SPA not-found handling keeps deep links working; `/api/*` always reaches the Worker. New scripts: `deploy`, `cf-typegen`, `db:migrate:local`, `db:migrate:remote`.
+- **Agent API** (`/api/v1`, Hono on Workers + Cloudflare D1): anonymous workspaces with a one-time workspace token; RFC 8628-style agent registration (user code approval, scope narrowing, deny, expiry, one-time API key), agent listing and revocation; invoice CRUD with soft deletes, `updated_since` delta sync, revisions/ETags and `If-Match` preconditions, atomic invoice-number allocation, defaults from workspace settings, server-computed totals; settings; `createdBy`/`updatedBy` attribution; rate limiting (Workers Rate Limiting + D1 counters); OpenAPI 3.1 at `/api/v1/openapi.json`. See `AGENT_API.md`.
+- **Remote MCP server** at `/api/mcp` (official MCP TypeScript SDK v2, stateless Streamable HTTP, JSON responses) with scope-filtered invoice tools.
+- **Server-side PDFs** (`GET /api/v1/invoices/:id/pdf`) rendered in the Worker by the app's own `InvoicePDF` component.
+- `public/llms.txt` pointing agents to the API.
+- `typecheck` script and a GitHub Actions CI workflow (lint, typecheck, tests, build, `wrangler deploy --dry-run`).
+- Vitest projects: `web` (jsdom), `server` (API against local D1 in workerd), `workerd` (production build in workerd).
+
+### Changed
+- PDF fonts are declared once in `src/components/invoice/pdfFonts.ts` (used by the browser and the Worker).
+- Invoice, settings and API types live in `shared/` (re-exported from the old `src/` paths); `Invoice` gained optional server fields (`updatedAt`, `deletedAt`, `revision`, `createdBy`, `updatedBy`).
+- The service worker never serves the SPA shell for `/api/*` navigations.
 
 ### Removed
+- Vercel configuration (`vercel.json`, `VERCEL` check in the `prepare` script).
 - Unused shadcn/ui components (skeleton, toggle, Radix toast), unused helpers (NavLink, use-mobile) and ~30 unused packages (react-hook-form, recharts, embla-carousel, react-day-picker, input-otp, vaul, unused Radix packages, lovable-tagger, etc.).
 - Committed `.env` and `package-lock.json`.
 

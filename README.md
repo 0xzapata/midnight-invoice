@@ -15,6 +15,8 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - 📋 Duplicate invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
+- 🤖 Agent API: AI agents can connect to your workspace after you approve them (REST + remote MCP)
+- 🧾 Server-side PDF rendering with the same PDF component as the app
 
 ## Tech Stack
 
@@ -28,7 +30,9 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - **PDF Generation**: @react-pdf/renderer
 - **Notifications**: Sonner
 - **PWA**: vite-plugin-pwa
-- **Testing**: Vitest + React Testing Library
+- **Hosting**: Cloudflare Workers (static assets + API in one Worker) via `@cloudflare/vite-plugin`
+- **API**: Hono on Workers, Cloudflare D1 (SQLite), MCP TypeScript SDK v2 (`@modelcontextprotocol/server`)
+- **Testing**: Vitest + React Testing Library; API and Worker tests run against workerd + local D1
 - **Linting**: ESLint 10 + typescript-eslint
 
 ## Getting Started
@@ -56,7 +60,13 @@ bun install
 bun run dev
 ```
 
-The app will be available at `http://localhost:8080`
+The app will be available at `http://localhost:8080`. `bun run dev` runs the
+SPA, the API Worker and a local D1 database together in workerd (Cloudflare's
+runtime). Before the first run, create the local database schema:
+
+```bash
+bun run db:migrate:local
+```
 
 ### Environment Variables
 
@@ -68,15 +78,82 @@ No `.env` file is required. To override the defaults, copy `.env.example` to
 | `VITE_APP_NAME` | `Midnight Invoice` | Name shown in the header |
 | `VITE_APP_ENV` | `DEVELOPMENT` | `DEVELOPMENT`, `STAGING`, `PREVIEW` or `PRODUCTION`; `DEVELOPMENT` shows the dev banner and favicon |
 
+Worker (API) variables are set in `wrangler.jsonc` under `vars`, and locally in
+`.dev.vars` (see `.dev.vars.example`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_URL` | `""` (request origin) | Public base URL used in agent verification links |
+
 ### Building for Production
 
 ```bash
 # Create production build
 bun run build
 
-# Preview production build
+# Preview the production build in workerd (same as deployed)
 bun run preview
 ```
+
+## Deploying to Cloudflare
+
+The app is one Cloudflare Worker with static assets: the SPA is served from
+`dist/client` (unknown paths fall back to `index.html`, so deep links work),
+and `/api/*` always goes to the Worker (`worker/index.ts`). Configuration lives
+in `wrangler.jsonc`.
+
+One-time setup (needs a Cloudflare account):
+
+```bash
+bunx wrangler login
+# 1. Create the D1 database and copy the printed database_id
+bunx wrangler d1 create midnight-invoice
+# 2. Replace the placeholder "database_id" (all zeros) in wrangler.jsonc with it
+# 3. Create the tables
+bun run db:migrate:remote
+# 4. Optionally set "APP_URL" in wrangler.jsonc to your public URL
+#    (e.g. https://invoices.example.com); otherwise links use the request origin.
+#    The rate-limit "namespace_id"s in wrangler.jsonc can be any integers unique
+#    in your account.
+```
+
+Deploy:
+
+```bash
+bun run deploy          # = bun run build && wrangler deploy
+```
+
+New migrations (`migrations/NNNN_*.sql`) are applied with
+`bun run db:migrate:remote` before deploying code that needs them. After
+changing bindings in `wrangler.jsonc`, regenerate types with
+`bun run cf-typegen`.
+
+Continuous deployment: CI only builds and runs `wrangler deploy --dry-run`
+(no secrets). To deploy on push, either connect the repository in the
+Cloudflare dashboard (Workers & Pages → your Worker → Settings → Builds) with
+build command `bun run build` and deploy command `bunx wrangler deploy`, or add
+a GitHub Actions job using `cloudflare/wrangler-action` with a
+`CLOUDFLARE_API_TOKEN` secret.
+
+## Agent API
+
+AI agents (Claude, ChatGPT, scripts…) can work with your invoices after you
+approve them, via REST (`/api/v1`) or a remote MCP server (`/api/mcp`).
+
+1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
+   it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
+   `settings:read`) and shows you a code like `WDJB-MJHT`.
+2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
+   scopes.
+3. The agent polls `POST /api/v1/agents/token` and receives its API key once.
+   Every change it makes is attributed to it (`createdBy` / `updatedBy`), and
+   you can revoke it at any time.
+
+There are no accounts: the browser creates an anonymous workspace
+(`POST /api/v1/workspaces`) whose token is the user credential. Full contract,
+sync semantics, curl examples and the MCP client configuration:
+[AGENT_API.md](AGENT_API.md); OpenAPI 3.1 at `/api/v1/openapi.json`; a short
+pointer for agents at `/llms.txt`.
 
 ### Testing
 
@@ -98,12 +175,35 @@ bun run lint
 bun run typecheck
 ```
 
-CI (`.github/workflows/ci.yml`) runs install, lint, typecheck, tests and build
-on every push and pull request.
+Tests are split into three Vitest projects: `web` (components, jsdom),
+`server` (the Hono API via `app.request()` against a real local D1 in workerd)
+and `workerd` (builds the app and runs the production bundle in workerd: SPA
+routing, API, MCP and PDF rendering).
+
+CI (`.github/workflows/ci.yml`) runs install, a generated-types check, lint,
+typecheck, tests, build and `wrangler deploy --dry-run` on every push and pull
+request.
 
 ## Project Structure
 
 ```
+worker/
+└── index.ts                 # Cloudflare Worker entry (thin: builds deps, mounts the API)
+server/                      # API (Hono), testable via createApp(deps)
+├── app.ts                   # Routes
+├── auth.ts                  # Bearer auth, scopes, principals
+├── db/repository.ts         # All SQL (D1), scoped by workspace
+├── services/                # Invoice and agent use-cases (shared by REST and MCP)
+├── mcp.ts                   # Remote MCP server (official SDK v2)
+├── openapi.ts               # OpenAPI 3.1 document
+└── pdf/                     # Server-side PDF + Vite plugin for react-pdf in workerd
+shared/                      # Types and helpers used by both the app and the API
+├── api.ts                   # API contract types
+├── types/invoice.ts         # Invoice types (re-exported from src/types)
+├── settings.ts
+└── invoice-totals.ts
+migrations/                  # D1 migrations (wrangler d1 migrations)
+wrangler.jsonc               # Worker, assets, D1 and rate-limit configuration
 src/
 ├── App.tsx                  # Providers and routes
 ├── main.tsx                 # Entry point
@@ -113,7 +213,8 @@ src/
 │   ├── invoice/             # Invoice components
 │   │   ├── InvoiceForm.tsx
 │   │   ├── InvoicePreview.tsx
-│   │   ├── InvoicePDF.tsx   # @react-pdf/renderer document
+│   │   ├── InvoicePDF.tsx   # @react-pdf/renderer document (also rendered by the API)
+│   │   ├── pdfFonts.ts      # PDF font registry shared by browser and Worker
 │   │   └── InvoiceList.tsx
 │   ├── icons/               # Custom icons
 │   ├── ui/                  # shadcn/ui components + CurrencySelector
@@ -147,9 +248,13 @@ src/
 
 | Script | Description |
 |--------|-------------|
-| `bun run dev` | Start development server |
-| `bun run build` | Build for production |
-| `bun run preview` | Preview production build |
+| `bun run dev` | Start the app + API Worker + local D1 (workerd) |
+| `bun run build` | Build the SPA and the Worker |
+| `bun run preview` | Run the production build locally in workerd |
+| `bun run deploy` | Build and `wrangler deploy` |
+| `bun run cf-typegen` | Regenerate `worker-configuration.d.ts` from `wrangler.jsonc` |
+| `bun run db:migrate:local` | Apply D1 migrations to the local database |
+| `bun run db:migrate:remote` | Apply D1 migrations to the Cloudflare database |
 | `bun run lint` | Run ESLint |
 | `bun run typecheck` | Type-check with TypeScript |
 | `bun run test` | Run tests in watch mode |
