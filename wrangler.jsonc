@@ -28,8 +28,7 @@
     {
       "binding": "DB",
       "database_name": "midnight-invoice",
-      // PLACEHOLDER: replace with the id printed by `wrangler d1 create midnight-invoice`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "cae31a41-6172-4467-8d9d-207f6beac1d8",
       "migrations_dir": "migrations"
     }
   ],
