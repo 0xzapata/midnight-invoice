@@ -143,7 +143,13 @@ function authorizeOutcome(location: string, consentPrefix: string): { label: str
 
 export function registerOAuthRoutes(app: Hono<AppEnv>, v1: Hono<AppEnv>, auth: MiddlewareHandler<AppEnv>, deps: AppDeps) {
   const repo = createOAuthRepository(deps.db);
-  const ctxOf = (c: Context): oauth.OAuthCtx => ({ deps, repo, urls: oauthUrls(publicBaseUrl(c, deps.config.appUrl)), clientIp: clientIp(c) });
+  const ctxOf = (c: Context): oauth.OAuthCtx => ({
+    deps,
+    repo,
+    urls: oauthUrls(publicBaseUrl(c, deps.config.appUrl)),
+    clientIp: clientIp(c),
+    activity: { source: 'rest', requestId: c.req.header('cf-ray') ?? crypto.randomUUID(), waitUntil: (p) => runInBackground(c, p) },
+  });
 
   // --- Discovery ---------------------------------------------------------------
   // Outside /api/*, so not behind the operator hook: discovery stays available in maintenance mode.

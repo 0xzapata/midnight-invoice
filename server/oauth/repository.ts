@@ -79,6 +79,12 @@ export interface OAuthTokenLookup {
   workspace_suspended: number;
 }
 
+export interface RevokedGrant {
+  workspace_id: string;
+  agent_id: string;
+  agent_name: string | null;
+}
+
 export interface NewTokens {
   accessHash: string;
   accessExpiresAt: number;
@@ -420,22 +426,27 @@ export function createOAuthRepository(db: D1Database) {
       return !!(await db.prepare('SELECT 1 AS x FROM workspace_suspensions WHERE workspace_id = ?').bind(workspaceId).first());
     },
 
-    /** Revokes the grant created from a code (code reuse = the code leaked). */
-    async revokeGrantOfCode(codeHash: string, now: number): Promise<void> {
-      await db
+    /** Revokes the grant created from a code (code reuse = the code leaked). Returns the grant's agent if this call revoked it. */
+    async revokeGrantOfCode(codeHash: string, now: number): Promise<RevokedGrant | null> {
+      return db
         .prepare(
-          `UPDATE oauth_grants SET revoked_at = COALESCE(revoked_at, ?), revoked_reason = COALESCE(revoked_reason, 'code_reuse')
-            WHERE id = (SELECT grant_id FROM oauth_codes WHERE code_hash = ?)`,
+          `UPDATE oauth_grants SET revoked_at = ?, revoked_reason = 'code_reuse'
+            WHERE id = (SELECT grant_id FROM oauth_codes WHERE code_hash = ?) AND revoked_at IS NULL
+        RETURNING workspace_id, agent_id, (SELECT name FROM agents WHERE agents.id = oauth_grants.agent_id) AS agent_name`,
         )
         .bind(now, codeHash)
-        .run();
+        .first<RevokedGrant>();
     },
 
-    async revokeGrant(grantId: string, now: number, reason: string): Promise<void> {
-      await db
-        .prepare(`UPDATE oauth_grants SET revoked_at = COALESCE(revoked_at, ?), revoked_reason = COALESCE(revoked_reason, ?) WHERE id = ?`)
+    /** Revokes a grant (all its tokens). Returns the grant's agent if this call revoked it (null if it already was). */
+    async revokeGrant(grantId: string, now: number, reason: string): Promise<RevokedGrant | null> {
+      return db
+        .prepare(
+          `UPDATE oauth_grants SET revoked_at = ?, revoked_reason = ? WHERE id = ? AND revoked_at IS NULL
+        RETURNING workspace_id, agent_id, (SELECT name FROM agents WHERE agents.id = oauth_grants.agent_id) AS agent_name`,
+        )
         .bind(now, reason, grantId)
-        .run();
+        .first<RevokedGrant>();
     },
 
     async revokeToken(tokenHash: string, now: number): Promise<void> {

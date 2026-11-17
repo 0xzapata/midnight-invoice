@@ -16,16 +16,36 @@ import { checkMetadataDocumentUrl, fetchMetadataDocument, validateClientMetadata
 import { OAUTH_LIMITS, OAUTH_TTL, oauthTunables, type OAuthUrls } from './config';
 import { OAuthError, oauthErrors } from './errors';
 import type { ConsentUser } from './identity';
+import type { ActivityActor } from '../../shared/activity';
+import { recordActivity, type ActivityInput, type ActivityRequest } from '../services/activity';
 import { PKCE_VALUE, verifyPkce } from './pkce';
 import { describeRedirect, matchRedirectUri } from './redirectUris';
-import type { NewTokens, OAuthClientRow, OAuthRepository, OAuthRequestRow } from './repository';
+import type { NewTokens, OAuthClientRow, OAuthRepository, OAuthRequestRow, RevokedGrant } from './repository';
 
 export interface OAuthCtx {
   deps: AppDeps;
   repo: OAuthRepository;
   urls: OAuthUrls;
   clientIp: string;
+  /** Request context for the workspace activity log (source, request id, waitUntil). */
+  activity?: ActivityRequest;
 }
+
+/**
+ * Workspace activity log entries for OAuth (server/services/activity.ts).
+ * Never tokens, codes, authorization request ids or redirect URIs: only the
+ * client's name, the agent, scopes and which credential was reused.
+ */
+function logActivity(ctx: OAuthCtx, input: ActivityInput & { workspaceId: string; actor: ActivityActor }): Promise<void> {
+  return recordActivity({ deps: ctx.deps, activity: ctx.activity }, input);
+}
+
+/** A stable, non-secret reference to a client for log entries before it has an agent. */
+async function clientRef(clientId: string): Promise<string> {
+  return `oc_${(await sha256Hex(clientId)).slice(0, 16)}`;
+}
+
+const sameScopes = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((s) => b.includes(s));
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -279,8 +299,19 @@ export async function decideRequest(
     if (latest && latest.status === 'pending') throw errors.gone('This request expired; start connecting again from your MCP client');
     throw errors.conflict('This request was already decided', { status: latest?.status });
   };
+  const existing = await ctx.repo.findActiveAgentForClient(user.workspaceId, row.client_id);
+  const entity = existing
+    ? { type: 'agent', id: existing.id, label: existing.name }
+    : { type: 'oauth_client', id: await clientRef(row.client_id), label: row.client.client_name };
   if (decision === 'denied') {
     if (!(await ctx.repo.denyRequest(id, user.workspaceId, t))) return raced();
+    await logActivity(ctx, {
+      workspaceId: user.workspaceId,
+      actor: { type: 'user' },
+      action: 'agent.oauth_denied',
+      entity,
+      changes: { requestedScopes: parseScopes(row.scopes) },
+    });
     return {
       status: 'denied',
       redirectTo: buildRedirect(row.redirect_uri, { error: 'access_denied', error_description: 'The user denied access', state: row.state }, ctx.urls.issuer),
@@ -295,6 +326,13 @@ export async function decideRequest(
   const code = ctx.deps.secrets.generate(OAUTH_TOKEN_PREFIX.code);
   const ok = await ctx.repo.approveRequest({ id, workspaceId: user.workspaceId, scopes, now: t, codeHash: await sha256Hex(code), codeExpiresAt: t + OAUTH_TTL.codeMs });
   if (!ok) return raced();
+  await logActivity(ctx, {
+    workspaceId: user.workspaceId,
+    actor: { type: 'user' },
+    action: 'agent.oauth_authorized',
+    entity,
+    changes: { scopes, requestedScopes: requested },
+  });
   return { status: 'approved', scopes, redirectTo: buildRedirect(row.redirect_uri, { code, state: row.state }, ctx.urls.issuer) };
 }
 
@@ -359,7 +397,7 @@ async function exchangeCode(ctx: OAuthCtx, form: URLSearchParams, client: OAuthC
   if (!row) throw oauthErrors.invalidGrant('Unknown authorization code');
   if (row.used_at !== null) {
     // A second redemption means the code leaked: revoke what the first one issued (OAuth 2.1 §4.1.3).
-    await ctx.repo.revokeGrantOfCode(codeHash, t);
+    await reuseDetected(ctx, await ctx.repo.revokeGrantOfCode(codeHash, t), 'authorization_code');
     throw oauthErrors.invalidGrant('This authorization code was already used; the tokens issued for it are revoked');
   }
   if (row.expires_at <= t) throw oauthErrors.invalidGrant('The authorization code expired');
@@ -387,10 +425,37 @@ async function exchangeCode(ctx: OAuthCtx, form: URLSearchParams, client: OAuthC
   });
   if (!agent) {
     const latest = await ctx.repo.findCode(codeHash);
-    if (latest?.used_at !== null && latest?.used_at !== undefined && latest.grant_id) await ctx.repo.revokeGrantOfCode(codeHash, t);
+    if (latest?.used_at !== null && latest?.used_at !== undefined && latest.grant_id) {
+      await reuseDetected(ctx, await ctx.repo.revokeGrantOfCode(codeHash, t), 'authorization_code');
+    }
     throw oauthErrors.invalidGrant('The authorization code is no longer valid');
   }
+  const actor = { type: 'agent' as const, agentId: agent.id, agentName: agent.name };
+  const agentEntity = { type: 'agent', id: agent.id, label: agent.name };
+  if (!existing) {
+    await logActivity(ctx, { workspaceId: row.workspace_id, actor, action: 'agent.oauth_connected', entity: agentEntity, changes: { scopes } });
+  } else if (!sameScopes(parseScopes(existing.scopes), scopes)) {
+    await logActivity(ctx, {
+      workspaceId: row.workspace_id,
+      actor,
+      action: 'agent.oauth_scopes_changed',
+      entity: agentEntity,
+      changes: { scopes, previousScopes: parseScopes(existing.scopes) },
+    });
+  }
   return response;
+}
+
+/** Security entry when a single-use credential came back and its grant was revoked (only by the call that revoked it). */
+async function reuseDetected(ctx: OAuthCtx, revoked: RevokedGrant | null, credential: 'refresh_token' | 'authorization_code') {
+  if (!revoked) return;
+  await logActivity(ctx, {
+    workspaceId: revoked.workspace_id,
+    actor: { type: 'system' },
+    action: 'agent.oauth_reuse_detected',
+    entity: { type: 'agent', id: revoked.agent_id, label: revoked.agent_name },
+    changes: { credential },
+  });
 }
 
 async function refresh(ctx: OAuthCtx, form: URLSearchParams, client: OAuthClientRow): Promise<TokenResponse> {
@@ -402,7 +467,7 @@ async function refresh(ctx: OAuthCtx, form: URLSearchParams, client: OAuthClient
   const row = await ctx.repo.lookupToken(hash);
   if (!row || row.kind !== 'refresh' || row.client_id !== client.client_id) throw oauthErrors.invalidGrant('Unknown refresh token');
   if (row.used_at !== null) {
-    await ctx.repo.revokeGrant(row.grant_id, t, 'refresh_reuse');
+    await reuseDetected(ctx, await ctx.repo.revokeGrant(row.grant_id, t, 'refresh_reuse'), 'refresh_token');
     throw oauthErrors.invalidGrant('This refresh token was already used; for your safety every token of this authorization is revoked');
   }
   if (row.token_revoked_at !== null || row.grant_revoked_at !== null || row.agent_revoked_at !== null) {
@@ -422,7 +487,7 @@ async function refresh(ctx: OAuthCtx, form: URLSearchParams, client: OAuthClient
     scopes = parsed.scopes;
   }
   if (!(await ctx.repo.markRefreshTokenUsed(hash, t))) {
-    await ctx.repo.revokeGrant(row.grant_id, t, 'refresh_reuse');
+    await reuseDetected(ctx, await ctx.repo.revokeGrant(row.grant_id, t, 'refresh_reuse'), 'refresh_token');
     throw oauthErrors.invalidGrant('This refresh token was already used; for your safety every token of this authorization is revoked');
   }
   const { tokens, response } = await newTokens(ctx, scopes, true, t);

@@ -525,6 +525,11 @@ logged.
 | `agent.revoked` | the user revoked an agent | |
 | `agent.revoked_key_used` | a revoked agent's key was used (401; at most once per agent and hour) | |
 | `sync.bulk_upload` | the browser uploaded its local data when joining a workspace (one entry per upload) | `{counts:{invoices,clients}}` |
+| `agent.oauth_authorized` | the user approved an MCP client on the OAuth consent screen (entity: the existing agent when re-authorising, else `oauth_client` with a stable `oc_…` reference and the client's name) | `{scopes, requestedScopes}` (narrowed when they differ) |
+| `agent.oauth_denied` | the user denied an MCP client | `{requestedScopes}` |
+| `agent.oauth_connected` | an approved MCP client exchanged its code and became an agent (actor = the agent) | `{scopes}` |
+| `agent.oauth_scopes_changed` | a re-authorisation changed an OAuth agent's permissions (actor = the agent) | `{scopes, previousScopes}` |
+| `agent.oauth_reuse_detected` | a rotated refresh token or a used code came back; the grant was revoked (actor = system; once per grant) | `{credential: "refresh_token" \| "authorization_code"}` |
 
 New features add `<entity>.<verb>` codes; clients must accept codes they do
 not know. Entries never contain document bodies, field values, tokens or keys:
@@ -534,7 +539,8 @@ number, client or agent name) taken at the time.
 `GET /api/v1/activity` filters (all optional, combined with AND):
 `actor=user|system|agent:<id>` (who did it), `agent_id=<id>` (by **or about**
 that agent, from the user's approval of its registration to its
-revocation; `agent.registered` carries `changes.registrationId` for that link), `action=` (comma list
+revocation; `agent.registered` carries `changes.registrationId` for that link; for OAuth agents,
+from their connection and re-authorisations), `action=` (comma list
 of codes or prefixes, OR: `invoice.,agent.revoked`), `entity_type=`,
 `entity_id=`, `since=`/`until=` (ISO date-times, inclusive), `limit` (1–200,
 default 50). Results are newest first: `{activity, hasMore, next}`; pass
