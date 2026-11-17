@@ -1,12 +1,13 @@
 /**
  * Names of the synced collections, in dependency order: a collection may
- * only reference collections listed before it (invoices reference clients).
+ * only reference collections listed before it (templates reference clients;
+ * invoices reference clients and, as a plain record, templates).
  * Pulls and "upload everything" run in this order. See AGENTS.md "Adding a
  * synced collection".
  *
  * Kept free of imports so storage migrations can use it.
  */
-export const SYNCED_COLLECTIONS = ['clients', 'invoices'] as const;
+export const SYNCED_COLLECTIONS = ['clients', 'templates', 'invoices'] as const;
 export type CollectionName = (typeof SYNCED_COLLECTIONS)[number];
 
 export const isCollectionName = (v: unknown): v is CollectionName =>

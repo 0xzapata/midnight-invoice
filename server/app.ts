@@ -16,13 +16,16 @@ import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, 
 import { createMcpEndpoint } from './mcp';
 import { installOperator } from './operator';
 import { installAccounts } from './accounts';
+import { setTelemetryDetail } from './operator/hooks';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
+import { registerInvoiceEmailRoutes } from './routes/invoiceEmail';
 import { buildOpenApiDocument } from './openapi';
 import { parsePdfTheme, pdfFilename } from './pdf/render';
 import { LIMITS, listInvoicesQuerySchema, zodDetails } from './schemas';
 import * as agents from './services/agents';
 import * as invoices from './services/invoices';
 import { registerClientRoutes } from './routes/clients';
+import { registerTemplateRoutes } from './routes/templates';
 import { mcpAuth, registerOAuthRoutes } from './oauth/routes';
 import { registerActivityRoutes } from './routes/activity';
 import { noteRejectedAgentKey, parseBulkUploadHeader, type ActivityRequest } from './services/activity';
@@ -61,6 +64,7 @@ export function createApp(deps: AppDeps) {
     requestId: c.req.header('cf-ray') ?? crypto.randomUUID(),
     bulkUploadId: parseBulkUploadHeader(c.req.header('x-midnight-sync')),
     waitUntil: (promise) => runInBackground(c, promise),
+    telemetry: (detail) => setTelemetryDetail(c, detail),
   });
 
   /** Bearer auth for workspace tokens and agent keys. */
@@ -201,6 +205,7 @@ export function createApp(deps: AppDeps) {
   });
   v1.get('/invoices/next-number', auth, async (c) => c.json({ invoiceNumber: await invoices.nextInvoiceNumber(svc(c)) }));
   registerInvoiceStatusRoutes(v1, auth, svc);
+  registerInvoiceEmailRoutes(v1, auth, svc);
   v1.get('/invoices/:id', auth, async (c) => {
     const invoice = await invoices.getInvoice(svc(c), c.req.param('id'));
     withEtag(c, invoice);
@@ -245,6 +250,8 @@ export function createApp(deps: AppDeps) {
   // --- Clients (server/routes/clients.ts) --------------------------------------
   registerClientRoutes(v1, auth, svc);
 
+  // --- Templates (server/routes/templates.ts) ----------------------------------
+  registerTemplateRoutes(v1, auth, svc);
   // --- Activity log (server/routes/activity.ts) --------------------------------
   registerActivityRoutes(v1, auth, svc);
 

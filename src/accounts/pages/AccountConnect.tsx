@@ -28,8 +28,13 @@ const OUTCOME_TOAST: Record<ConnectOutcome, { title: string; description?: strin
 };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const describeCounts = (c: LocalCounts) =>
-  [c.invoices > 0 && plural(c.invoices, 'invoice'), c.clients > 0 && plural(c.clients, 'saved client')].filter(Boolean).join(' and ') || 'no invoices';
+const describeCounts = (c: LocalCounts) => {
+  const items = [c.invoices > 0 && plural(c.invoices, 'invoice'), c.clients > 0 && plural(c.clients, 'saved client'), c.templates > 0 && plural(c.templates, 'template')].filter(
+    Boolean,
+  ) as string[];
+  if (items.length === 0) return 'no invoices';
+  return items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+};
 
 /** The question asked for plans that could otherwise lose or mix data (rules in ../connect.ts). */
 export function ConnectChoice({

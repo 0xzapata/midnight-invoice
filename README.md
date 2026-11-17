@@ -15,6 +15,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - ⚙️ Comprehensive settings management
 - 📋 Duplicate invoices
 - ✅ Invoice status (draft, sent, paid, void) with overdue tracking, quick actions, status filters and a per-currency totals strip (works offline)
+- 🧩 Invoice templates: reusable blueprints (`/templates`) with line items, terms, notes and a default client; placeholders such as `{{month_name}}` and `{{prev_month_name}}` are filled in for each invoice's issue date; "New from template" on the dashboard, "From template" and "Save as template" in the invoice form and on the invoice page; invoices are independent copies
 - 👥 Saved clients: a client list (`/clients`) with default currency, tax rate and payment terms; pick a client on an invoice to fill Bill To, "Save as client" from an invoice, one-click import from existing invoices; invoices keep their own copy, so editing a client never changes past invoices
 - 📱 Responsive layout
 - ⚡ Installable PWA with offline support
@@ -24,6 +25,7 @@ A modern, dark-themed invoice generator built with React 19, TypeScript, and Tai
 - 🤖 AI agents: approve an agent from the app (scopes you can narrow), see what it created or edited, revoke it any time (REST + remote MCP)
 - 🔐 Sign-in for MCP clients (OAuth 2.1): paste the MCP URL into a client that supports the MCP authorization flow, approve it in the app, done; no key to copy
 - 🧾 Server-side PDF rendering with the same PDF component as the app
+- ✉️ Send an invoice by email (with cloud sync): the client gets the PDF attached, a draft is marked sent, and the invoice page shows the email history; agents can send too with the separate `invoices:send` permission (only to the client email you entered). Needs an email provider configured by the site operator (see below)
 
 ## Tech Stack
 
@@ -260,6 +262,42 @@ audit log (never the value of a secret).
   fine-grained token with *Actions: read and write* on this repository only),
   `github.repository`, and optionally the workflow file and ref.
 
+### Email (sending invoices)
+
+Sending invoices by email (`POST /api/v1/invoices/:id/send`, the app's
+**Send by email**, MCP `send_invoice_email`) uses [Resend](https://resend.com).
+Until it is configured, the feature answers `503 email_not_configured`, the
+app explains it, and *Settings → Email* shows "Email: not configured".
+
+1. Create a Resend account and **add and verify a sending domain** (Resend →
+   Domains: add the SPF/DKIM DNS records it shows; a subdomain such as
+   `mail.example.org` keeps your main domain's reputation separate). Add a
+   DMARC record for the domain if you do not have one.
+2. Create an API key with *Sending access*, ideally restricted to that domain.
+3. In `/operator` → **Settings → Email** paste the key into *Resend API key*
+   (stored encrypted; alternatively `bunx wrangler secret put RESEND_API_KEY`)
+   and set *From address* to an address on the verified domain, e.g.
+   `invoices@mail.example.org` (or the `EMAIL_FROM_ADDRESS` var). No redeploy
+   is needed.
+4. Optionally adjust the *From name* (recipients see "<sender> via <From
+   name>"), *Reply-To* (default: the invoice's From email), the attached PDF's
+   theme (default light) and the limits: resend cooldown per invoice (10 min),
+   sends per workspace per hour/day (20/50), per agent per hour/day (5/20) and
+   for the whole site per day (500). *Send invoices by email* turns the feature
+   off without removing the key.
+
+Users never choose the From address: it is always the configured one, with
+the invoice sender's name as display name and their email as Reply-To.
+Agents need the `invoices:send` scope (never granted to existing agents) and
+can only email the invoice's client address when the user entered it
+themselves, and cannot send an invoice whose sender or payment details an
+agent changed until the user has reviewed (saved) it. Every attempt is logged
+per workspace (`email_messages`, no message bodies) and appears in the
+activity log (recipient masked). Bounce/complaint webhooks are not handled yet; watch the
+Resend dashboard. In development, point the Worker at a local fake with
+`RESEND_API_BASE_URL=http://127.0.0.1:<port>` in the environment of
+`bun run dev` (honoured only by the Vite dev server, compiled out of builds).
+
 ### Privacy boundary
 
 The console shows metadata only: workspace ids, timestamps and counts, agent
@@ -392,7 +430,8 @@ on the Agents page marked *OAuth*. See AGENT_API.md, *Connect with OAuth*.
 
 1. The agent calls `POST /api/v1/agents/register` with its name and the scopes
    it wants (`invoices:read`, `invoices:write`, `invoices:delete`,
-   `settings:read`, `clients:read`, `clients:write`, `activity:read`) and shows you a code like
+   `settings:read`, `clients:read`, `clients:write`, `templates:read`,
+   `templates:write`, `activity:read`, `invoices:send`) and shows you a code like
    `WDJB-MJHT`.
 2. You approve it in the app (`/agents/approve?code=…`), optionally with fewer
    scopes.
@@ -406,6 +445,17 @@ id ("invoice Globex for 10 hours": `list_clients` → `create_invoice` with
 terms. `clients:write` lets it add, edit, archive and delete clients.
 `activity:read` lets an agent read its *own* entries of the activity log
 (`get_my_activity`), e.g. to check whether it already sent this month's invoice.
+`invoices:send` (marked as sensitive on the approval screen) lets it email an
+invoice to the client on file on your behalf; it cannot choose another
+recipient, only addresses you entered yourself are allowed, and it has its own
+hourly and daily limits.
+
+With `templates:read` (and `invoices:write`) an agent can create invoices from
+your templates ("send the usual retainer": `list_templates` →
+`create_invoice_from_template`, or `POST /api/v1/templates/:id/instantiate`);
+explicit values win over the template, the template over the client's
+defaults, and those over your settings. The new invoice is a draft.
+`templates:write` lets it add, edit, archive and delete templates.
 
 ### Connecting an agent (as a user)
 

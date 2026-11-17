@@ -50,8 +50,11 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
     expect(allTools.map((t) => t.name).sort()).toEqual([
       'create_client',
       'create_invoice',
+      'create_invoice_from_template',
+      'create_template',
       'delete_client',
       'delete_invoice',
+      'delete_template',
       'get_client',
       'get_invoice',
       'get_invoice_pdf',
@@ -59,11 +62,15 @@ describe.each<Mode>(['legacy', 'modern'])('MCP over Streamable HTTP (%s protocol
       'get_my_activity',
       'get_next_invoice_number',
       'get_settings',
+      'get_template',
       'list_clients',
       'list_invoices',
+      'list_templates',
+      'send_invoice_email',
       'set_invoice_status',
       'update_client',
       'update_invoice',
+      'update_template',
     ]);
     const create = allTools.find((t) => t.name === 'create_invoice')!;
     expect(create.description).toMatch(/Requires scope invoices:write/);

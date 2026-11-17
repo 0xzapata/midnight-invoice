@@ -8,7 +8,7 @@
  *    the browser switches to its own device token, the recovery key keeps working.
  * 3. Account has workspace W, browser already syncs with W → swap to a device token, nothing else.
  * 4. Account has W, browser has nothing local         → connect and pull everything.
- * 5. Account has W, browser has local-only invoices/clients → ASK: upload them into W
+ * 5. Account has W, browser has local-only invoices/clients/templates → ASK: upload them into W
  *    (merged by the sync engine like a recovery-key connect), or cancel (sign out).
  * 6. Account has W, browser syncs with a different workspace V (or V belongs to another
  *    account) → ASK: switch to W and copy this browser's invoices into it, or cancel.
@@ -24,9 +24,11 @@ import { useCloudStore } from '@/stores/useCloudStore';
 import { accountApi, isAccountError } from './api';
 import { useAccountStore } from './useAccountStore';
 
+/** Local entities per synced collection (invoices, clients, templates, … in SYNCED_COLLECTIONS). */
 export interface LocalCounts {
   invoices: number;
   clients: number;
+  templates: number;
 }
 
 export interface LocalSituation {
@@ -44,14 +46,15 @@ export type ConnectPlan =
   | { kind: 'merge-local'; counts: LocalCounts }
   | { kind: 'switch-workspace'; target: 'existing' | 'new'; counts: LocalCounts };
 
-export const hasLocalData = (c: LocalCounts) => c.invoices + c.clients > 0;
+export const hasLocalData = (c: LocalCounts) => c.invoices + c.clients + c.templates > 0;
 
 export function localSituation(): LocalSituation {
   const cloud = useCloudStore.getState();
-  const counts = { invoices: 0, clients: 0 };
+  const counts: LocalCounts = { invoices: 0, clients: 0, templates: 0 };
+  // Every synced collection is uploaded by enqueueAllLocal (referenced collections first,
+  // so a template's or invoice's clientId still points at an uploaded client).
   for (const col of orderedCollections()) {
-    if (col.name === 'invoices') counts.invoices = col.all().length;
-    if (col.name === 'clients') counts.clients = col.all().length;
+    if (col.name in counts) counts[col.name as keyof LocalCounts] = col.all().length;
   }
   return {
     token: cloud.token,

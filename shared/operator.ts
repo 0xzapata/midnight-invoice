@@ -67,6 +67,8 @@ export interface OverviewResponse {
   invoices: StatPair & { byCreator: { user: StatPair; agent: StatPair } };
   /** Saved clients (counts only; never names or contact data). */
   clients: StatPair;
+  /** Invoice templates (counts only; never names or line text). */
+  templates: StatPair;
   agents: { active: number; revoked: number; pendingRegistrations: number };
   api: { last24h: LatencyStats; last7d: LatencyStats };
   requestsHourly: SeriesPoint[];

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InvoiceFormData } from '@/types/invoice';
 import { useInvoiceStore } from '@/stores/useInvoiceStore';
 import { useClientStore } from '@/stores/useClientStore';
+import { useTemplateStore } from '@/stores/useTemplateStore';
+import type { TemplateFormData } from '../../shared/types/template';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useCloudStore } from '@/stores/useCloudStore';
 import { EMPTY_CLOUD_STATE } from '@/lib/storageMigrations';
@@ -19,32 +21,32 @@ vi.mock('sonner', () => ({
 
 const user = { id: 'u1', email: 'alice@example.com', name: null, createdAt: 1 };
 const ws = (id: string) => ({ id, createdAt: '2026-11-17T09:00:00.000Z', recoveryKeyEnabled: true });
-const none = { invoices: 0, clients: 0 };
+const none = { invoices: 0, clients: 0, templates: 0 };
 const situation = (p: Partial<LocalSituation>): LocalSituation => ({ token: null, workspaceId: null, linkedUserId: null, counts: none, ...p });
 
 describe('planConnection (new-device and conflict rules)', () => {
   it('creates or claims when the account has no workspace', () => {
     expect(planConnection({ user, workspace: null }, situation({}))).toEqual({ kind: 'create' });
-    expect(planConnection({ user, workspace: null }, situation({ counts: { invoices: 3, clients: 1 } }))).toEqual({ kind: 'create' });
+    expect(planConnection({ user, workspace: null }, situation({ counts: { invoices: 3, clients: 1, templates: 0 } }))).toEqual({ kind: 'create' });
     expect(planConnection({ user, workspace: null }, situation({ token: 'mi_ws_x', workspaceId: 'V' }))).toEqual({ kind: 'claim' });
     // A device token of another account cannot be claimed: ask before creating a new workspace.
-    expect(planConnection({ user, workspace: null }, situation({ token: 'mi_ws_x', workspaceId: 'V', linkedUserId: 'u2', counts: { invoices: 2, clients: 0 } }))).toEqual({
+    expect(planConnection({ user, workspace: null }, situation({ token: 'mi_ws_x', workspaceId: 'V', linkedUserId: 'u2', counts: { invoices: 2, clients: 0, templates: 0 } }))).toEqual({
       kind: 'switch-workspace',
       target: 'new',
-      counts: { invoices: 2, clients: 0 },
+      counts: { invoices: 2, clients: 0, templates: 0 },
     });
   });
 
   it('joins, rebinds, or asks when the account has a workspace', () => {
     const s = { user, workspace: ws('W') };
     expect(planConnection(s, situation({}))).toEqual({ kind: 'join' });
-    expect(planConnection(s, situation({ counts: { invoices: 2, clients: 0 } }))).toEqual({ kind: 'merge-local', counts: { invoices: 2, clients: 0 } });
-    expect(planConnection(s, situation({ counts: { invoices: 0, clients: 1 } })).kind).toBe('merge-local');
+    expect(planConnection(s, situation({ counts: { invoices: 2, clients: 0, templates: 0 } }))).toEqual({ kind: 'merge-local', counts: { invoices: 2, clients: 0, templates: 0 } });
+    expect(planConnection(s, situation({ counts: { invoices: 0, clients: 1, templates: 0 } })).kind).toBe('merge-local');
     expect(planConnection(s, situation({ token: 'mi_ws_x', workspaceId: 'W' }))).toEqual({ kind: 'rebind' });
-    expect(planConnection(s, situation({ token: 'mi_ws_x', workspaceId: 'V', counts: { invoices: 1, clients: 0 } }))).toEqual({
+    expect(planConnection(s, situation({ token: 'mi_ws_x', workspaceId: 'V', counts: { invoices: 1, clients: 0, templates: 0 } }))).toEqual({
       kind: 'switch-workspace',
       target: 'existing',
-      counts: { invoices: 1, clients: 0 },
+      counts: { invoices: 1, clients: 0, templates: 0 },
     });
   });
 });
@@ -78,6 +80,7 @@ describe('executePlan against the fake API', () => {
     localStorage.clear();
     useInvoiceStore.setState({ invoices: [], drafts: {} });
     useClientStore.setState({ clients: [] });
+    useTemplateStore.setState({ templates: [] });
     useSettingsStore.setState({ settings: { ...DEFAULT_SETTINGS } });
     useCloudStore.setState({ ...EMPTY_CLOUD_STATE, status: 'disabled', lastError: null, lastSyncedAt: null });
     useAccountStore.setState({ linked: null });
@@ -116,7 +119,7 @@ describe('executePlan against the fake API', () => {
     useInvoiceStore.getState().saveInvoice(form({ invoiceNumber: 'INV-0042' }), '00000000-0000-4000-8000-000000000042');
     accounts.signIn('alice@example.com', { ...fake.state.workspace, recoveryKeyEnabled: false });
     const plan = planConnection({ user: accounts.acc.user!, workspace: accounts.acc.workspace }, localSituation());
-    expect(plan).toEqual({ kind: 'merge-local', counts: { invoices: 1, clients: 0 } });
+    expect(plan).toEqual({ kind: 'merge-local', counts: { invoices: 1, clients: 0, templates: 0 } });
     expect(await executePlan({ user: accounts.acc.user! }, plan)).toBe('merged');
     await whenIdle();
     expect(fake.server.all().map((i) => i.invoiceNumber)).toContain('INV-0042');
@@ -134,6 +137,53 @@ describe('executePlan against the fake API', () => {
     expect(useCloudStore.getState().workspace?.id).toBe('ws-1');
     expect(fake.server.all().map((i) => i.invoiceNumber)).toContain('INV-0100');
     expect(useInvoiceStore.getState().invoices.map((i) => i.invoiceNumber)).toEqual(['INV-0100']);
+  });
+
+  const template = (clientId: string): TemplateFormData =>
+    ({
+      name: 'Monthly retainer',
+      description: '',
+      clientId,
+      lineItems: [{ id: 'li-1', description: 'Retainer', quantity: 1, price: 900 }],
+      taxRate: 0,
+      currency: 'EUR',
+      notes: '',
+      paymentDetails: '',
+      paymentTermsDays: 14,
+      invoiceNamePattern: '',
+    }) as unknown as TemplateFormData;
+
+  it('counts templates as local data and uploads them with their client reference (merge-local)', async () => {
+    const client = useClientStore.getState().saveClient({ name: 'Globex', email: 'ap@globex.example', address: '' });
+    const t = useTemplateStore.getState().saveTemplate(template(client.id));
+    // Templates alone are enough to ask before uploading.
+    useClientStore.setState({ clients: [] });
+    expect(planConnection({ user, workspace: ws('W') }, localSituation())).toEqual({ kind: 'merge-local', counts: { invoices: 0, clients: 0, templates: 1 } });
+    useClientStore.setState({ clients: [client] });
+    accounts.signIn('alice@example.com', { ...fake.state.workspace, recoveryKeyEnabled: false });
+    const plan = planConnection({ user: accounts.acc.user!, workspace: accounts.acc.workspace }, localSituation());
+    expect(plan).toEqual({ kind: 'merge-local', counts: { invoices: 0, clients: 1, templates: 1 } });
+    await executePlan({ user: accounts.acc.user! }, plan);
+    await whenIdle();
+    const uploaded = fake.server.allTemplates().find((x) => x.id === t.id)!;
+    expect(uploaded).toMatchObject({ name: 'Monthly retainer', clientId: client.id });
+    expect(fake.server.getClient(client.id)).toBeDefined();
+    // The client went up before the template that references it.
+    const order = fake.requests.filter((r) => r.method === 'PUT').map((r) => r.path);
+    expect(order.indexOf(`/clients/${client.id}`)).toBeLessThan(order.indexOf(`/templates/${t.id}`));
+  });
+
+  it('switch-workspace copies templates too', async () => {
+    useCloudStore.setState({ ...EMPTY_CLOUD_STATE, workspace: { id: 'ws-other', createdAt: '2026-11-01T00:00:00.000Z' }, token: FAKE_TOKEN, status: 'idle' });
+    const client = useClientStore.getState().saveClient({ name: 'Initech', email: 'ap@initech.example', address: '' });
+    const t = useTemplateStore.getState().saveTemplate(template(client.id));
+    accounts.signIn('alice@example.com', { ...fake.state.workspace, recoveryKeyEnabled: false });
+    const plan = planConnection({ user: accounts.acc.user!, workspace: accounts.acc.workspace }, localSituation());
+    expect(plan).toMatchObject({ kind: 'switch-workspace', counts: { templates: 1, clients: 1 } });
+    expect(await executePlan({ user: accounts.acc.user! }, plan)).toBe('switched');
+    await whenIdle();
+    expect(fake.server.allTemplates().find((x) => x.id === t.id)).toMatchObject({ clientId: client.id });
+    expect(useTemplateStore.getState().templates.map((x) => x.id)).toEqual([t.id]);
   });
 
   it('sign out revokes the device server-side and leaves the workspace, keeping local invoices', async () => {

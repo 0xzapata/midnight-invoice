@@ -20,7 +20,7 @@ import type { StoredInvoiceData } from '../db/repository';
 import { ApiError, errors } from '../errors';
 import { parseInvoiceId, raceOutcome, toApiInvoice, today, type RevisionPrecondition, type ServiceContext } from './invoices';
 import { invalidTransition } from './statusFields';
-import { activityWriteIf, invoiceChangedInput } from './activity';
+import { activityWriteIf, invoiceChangedInput, type ActivityInput } from './activity';
 
 export type StatusChange = { action: StatusAction } | { status: InvoiceStatus };
 
@@ -34,7 +34,13 @@ export async function changeInvoiceStatus(
   ctx: ServiceContext,
   rawId: string,
   change: StatusChange,
-  opts: { paidAt?: string; sentAt?: string; ifMatch?: RevisionPrecondition },
+  opts: {
+    paidAt?: string;
+    sentAt?: string;
+    ifMatch?: RevisionPrecondition;
+    /** Records this entry instead of `invoice.status_changed` (e.g. one `invoice.emailed` entry for send + status change). */
+    activity?: ActivityInput;
+  },
 ): Promise<{ invoice: ApiInvoice; changed: boolean }> {
   requireScope(ctx.principal, 'invoices:write');
   const id = parseInvoiceId(rawId);
@@ -80,7 +86,7 @@ export async function changeInvoiceStatus(
       numberValue: invoiceNumberValue(existing.invoice_number),
       actor: actorOf(ctx.principal),
       expectedRevision: existing.revision,
-    }, activityWriteIf(ctx, invoiceChangedInput(id, { ...current, ...label }, { ...data, ...label })));
+    }, activityWriteIf(ctx, opts.activity ?? invoiceChangedInput(id, { ...current, ...label }, { ...data, ...label })));
     if (row) return { invoice: toApiInvoice(row, todayDate), changed: true };
     if (typeof opts.ifMatch === 'number') return raceOutcome(ctx, id);
   }

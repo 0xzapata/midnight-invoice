@@ -78,6 +78,7 @@ export const invoiceCollection: SyncCollection<Invoice, ApiInvoice, InvoiceConte
   withContent: (server, merged, local) => {
     const next: Invoice = { ...fromApiInvoice(server), ...merged, invoiceName: merged.invoiceName || local.invoiceName };
     if (!next.clientId) delete next.clientId;
+    if (!next.templateId) delete next.templateId;
     return next;
   },
   withoutServerState,

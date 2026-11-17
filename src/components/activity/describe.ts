@@ -33,6 +33,20 @@ const CLIENT_FIELDS: Record<string, string> = {
   archivedAt: 'archived',
 };
 
+const TEMPLATE_FIELDS: Record<string, string> = {
+  name: 'name',
+  description: 'description',
+  clientId: 'default client',
+  lineItems: 'line items',
+  taxRate: 'tax rate',
+  currency: 'currency',
+  notes: 'notes',
+  paymentDetails: 'payment details',
+  paymentTermsDays: 'payment terms',
+  invoiceNamePattern: 'invoice name',
+  archivedAt: 'archived',
+};
+
 const SETTINGS_FIELDS: Record<string, string> = {
   fromName: 'your name',
   fromEmail: 'your email',
@@ -49,7 +63,7 @@ const INVOICE_FIELDS: Record<string, string> = { ...FIELD_LABELS, sentAt: 'sent 
 const humanize = (field: string) => field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
 
 export function fieldLabel(entityType: string | undefined, field: string): string {
-  const map = entityType === 'client' ? CLIENT_FIELDS : entityType === 'settings' ? SETTINGS_FIELDS : INVOICE_FIELDS;
+  const map = entityType === 'client' ? CLIENT_FIELDS : entityType === 'template' ? TEMPLATE_FIELDS : entityType === 'settings' ? SETTINGS_FIELDS : INVOICE_FIELDS;
   return map[field] ?? humanize(field);
 }
 
@@ -72,6 +86,21 @@ function statusPhrase(to: string): SentencePart[] {
   return ['marked ', { target: true }, ` as ${STATUS_LABELS[to as keyof typeof STATUS_LABELS]?.toLowerCase() ?? to}`];
 }
 
+/** Why an email was not sent (codes from the send endpoint). */
+const EMAIL_REASONS: Record<string, string> = {
+  provider_auth_failed: 'The server’s email account rejected its API key',
+  provider_rejected: 'The email provider refused the message',
+  provider_rate_limited: 'The email provider was busy',
+  provider_unavailable: 'The email provider had a problem',
+  provider_unreachable: 'The email provider could not be reached',
+  attachment_too_large: 'The PDF was too large',
+  pdf_render_failed: 'The PDF could not be generated',
+  agent_recipient_override: 'Agents can only email the client address on the invoice',
+  agent_cc_not_allowed: 'Agents can only copy your own email',
+  address_not_confirmed_by_user: 'You have not entered or confirmed this address yourself',
+  invoice_needs_review: 'An agent changed the sender or payment details; review and save the invoice first',
+};
+
 export function describeEntry(entry: ActivityEntry): DescribedEntry {
   const actor = actorName(entry);
   const c = entry.changes ?? {};
@@ -86,6 +115,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
   switch (entry.action) {
     case 'invoice.created':
       parts = c.status ? ['created ', { target: true }, ` as ${c.status.to}`] : ['created ', { target: true }];
+      if (c.template) parts.push(` from the template “${c.template.label ?? 'a template'}”`);
       break;
     case 'invoice.updated':
       parts = ['edited ', { target: true }];
@@ -99,6 +129,22 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       break;
     case 'invoice.pdf_downloaded':
       parts = ['downloaded the PDF of ', { target: true }];
+      break;
+    case 'invoice.emailed': {
+      const e = c.email;
+      parts = ['emailed ', { target: true }, e?.to ? ` to ${e.to}` : ' to the client'];
+      if (e?.resend) details.push('Sent again');
+      if (c.status?.to === 'sent') details.push('Marked as sent');
+      if (e?.cc) details.push(`Copy to ${plural(e.cc, 'more recipient')}`);
+      break;
+    }
+    case 'invoice.email_failed':
+      parts = ['could not email ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
+      if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
+      break;
+    case 'invoice.email_blocked':
+      parts = ['was stopped from emailing ', { target: true }, c.email?.to ? ` to ${c.email.to}` : ''];
+      if (c.email?.code) details.push(EMAIL_REASONS[c.email.code] ?? c.email.code);
       break;
     case 'client.created':
       parts = ['added the client ', { target: true }];
@@ -115,6 +161,16 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
     case 'client.deleted':
       parts = ['deleted the client ', { target: true }];
       break;
+    case 'template.created':
+    case 'template.updated':
+    case 'template.archived':
+    case 'template.unarchived':
+    case 'template.deleted': {
+      const verb = { created: 'added', updated: 'edited', archived: 'archived', unarchived: 'restored', deleted: 'deleted' }[entry.action.slice('template.'.length) as 'created'];
+      const what = entry.action === 'template.unarchived' ? 'archived template' : 'template';
+      parts = targetLabel ? [`${verb} the ${what} `, { target: true }] : [`${verb} an ${what === 'template' ? 'invoice template' : what}`];
+      break;
+    }
     case 'settings.updated':
       parts = ['changed the default settings'];
       targetLabel = null;
@@ -171,7 +227,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       const counts = c.counts ?? {};
       const items = Object.entries(counts)
         .filter(([, n]) => n > 0)
-        .map(([k, n]) => plural(n, k === 'invoices' ? 'invoice' : k === 'clients' ? 'client' : k.replace(/s$/, '')));
+        .map(([k, n]) => plural(n, k === 'invoices' ? 'invoice' : k === 'clients' ? 'client' : k === 'templates' ? 'template' : k.replace(/s$/, '')));
       parts = [`uploaded ${items.length ? listJoin(items) : 'local data'} to the cloud workspace`];
       targetLabel = null;
       break;
@@ -222,7 +278,7 @@ export function describeEntry(entry: ActivityEntry): DescribedEntry {
       parts = entry.entity ? [`${entry.action} on `, { target: true }] : [entry.action];
   }
   if (parts.some((p) => typeof p !== 'string') && !targetLabel) {
-    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : entry.entity?.type === 'device' ? 'a device' : 'an item';
+    targetLabel = entry.entity?.type === 'invoice' ? 'an invoice' : entry.entity?.type === 'client' ? 'a client' : entry.entity?.type === 'template' ? 'a template' : entry.entity?.type === 'agent' || entry.entity?.type === 'agent_registration' ? 'an agent' : entry.entity?.type === 'oauth_client' ? 'an app' : entry.entity?.type === 'device' ? 'a device' : 'an item';
   }
   if (c.theme && entry.action === 'invoice.pdf_downloaded') details.push(`${c.theme === 'light' ? 'Light' : 'Dark'} theme`);
   return { actor, parts, targetLabel, details };

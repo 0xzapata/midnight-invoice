@@ -165,6 +165,7 @@ describe('operator console: dashboard', () => {
     workspaces: { total: 12, recent: 3, active7d: 5, suspended: 1 },
     invoices: { total: 40, recent: 7, byCreator: { user: { total: 30, recent: 5 }, agent: { total: 10, recent: 2 } } },
     clients: { total: 9, recent: 2 },
+    templates: { total: 4, recent: 1 },
     agents: { active: 4, revoked: 1, pendingRegistrations: 2 },
     api: {
       last24h: { requests: 1234, errors: 2, errorRate: 0.0016, p50Ms: 12, p95Ms: 80 },
@@ -257,6 +258,28 @@ describe('operator console: dashboard', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Disable' }));
     await waitFor(() => expect(api.calls.find((c) => c.path === '/accounts/acc-1/disable')).toMatchObject({ method: 'POST', body: { reason: 'abuse' } }));
     expect(api.calls.find((c) => c.path === '/accounts/acc-1/disable')!.headers['x-csrf-token']).toBeTruthy();
+  });
+
+  it('shows "Email: not configured" above the Email settings until the key and From address are set', async () => {
+    const email = (apiKeySet: boolean, fromAddress: string) => ({
+      json: {
+        configVersion: 3,
+        propagationSeconds: 5,
+        encryptionLocked: false,
+        settings: [
+          { key: 'email.enabled', group: 'Email', label: 'Send invoices by email', description: 'd', type: 'boolean', secret: false, value: true, defaultValue: true, source: 'default', updatedAt: null, updatedBy: null },
+          { key: 'resend.apiKey', group: 'Email', label: 'Resend API key', description: 'd', type: 'secret', secret: true, isSet: apiKeySet, last4: null, source: apiKeySet ? 'environment' : 'default', updatedAt: null, updatedBy: null },
+          { key: 'email.fromAddress', group: 'Email', label: 'From address', description: 'd', type: 'string', secret: false, value: fromAddress, defaultValue: '', source: 'default', updatedAt: null, updatedBy: null },
+        ],
+      },
+    });
+    vi.stubGlobal('fetch', fakeOperatorApi({ ...routes, 'GET /settings': () => email(false, '') }).fetchMock);
+    const { unmount } = renderConsole('/operator/settings');
+    expect(await screen.findByText('Email: not configured — set the Resend API key and the From address (on a domain verified with Resend)')).toBeInTheDocument();
+    unmount();
+    vi.stubGlobal('fetch', fakeOperatorApi({ ...routes, 'GET /settings': () => email(true, 'invoices@mail.example.org') }).fetchMock);
+    renderConsole('/operator/settings');
+    expect(await screen.findByText('Email: configured')).toBeInTheDocument();
   });
 
   it('suspends a workspace from Users and states the privacy boundary', async () => {

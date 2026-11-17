@@ -25,19 +25,22 @@ function policyError(status: number, code: string, message: string, headers?: Re
 const MCP_PEEK_LIMIT = 64 * 1024;
 
 const DETAIL = /^[a-z][a-z0-9_]{0,39}$/;
-const details = new WeakMap<Request, { label?: string; errorCode?: string }>();
+const details = new WeakMap<Request, { label?: string; errorCode?: string; status?: number }>();
 
 /**
  * Lets a route refine its telemetry sample: a fixed `label` appended to the
  * metric name (e.g. an OAuth grant type) and a fixed `errorCode` for errors it
  * answers itself instead of throwing. Only short lowercase identifiers are
  * kept, so ids, names and other request data can never end up in telemetry.
+ * `status` (4xx/5xx) counts a failure the transport answers with 2xx — an MCP
+ * tool error — with the status class it has over REST.
  */
-export function setTelemetryDetail(c: Context, detail: { label?: string; errorCode?: string }): void {
+export function setTelemetryDetail(c: Context, detail: { label?: string; errorCode?: string; status?: number }): void {
   const prev = details.get(c.req.raw) ?? {};
   details.set(c.req.raw, {
     label: detail.label && DETAIL.test(detail.label) ? detail.label : prev.label,
     errorCode: detail.errorCode && DETAIL.test(detail.errorCode) ? detail.errorCode : prev.errorCode,
+    status: detail.status && Number.isInteger(detail.status) && detail.status >= 400 && detail.status <= 599 ? detail.status : prev.status,
   });
 }
 
@@ -88,7 +91,7 @@ function restMetricName(c: Context): string {
     // keep "(unmatched)"
   }
   const short = template.replace(/^\/api\/v1/, '').replace(/^\/api\/operator/, '').replace(/^\/api\/account/, '') || '/';
-  const sync = c.req.method === 'GET' && (template === '/api/v1/invoices' || template === '/api/v1/clients') && c.req.query('include_deleted') === 'true';
+  const sync = c.req.method === 'GET' && (template === '/api/v1/invoices' || template === '/api/v1/clients' || template === '/api/v1/templates') && c.req.query('include_deleted') === 'true';
   return `${c.req.method} ${short}${sync ? ' (sync)' : ''}`;
 }
 
@@ -128,9 +131,10 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
     if (service === 'operator') c.res.headers.set('x-robots-tag', 'noindex, nofollow');
     try {
       if (!deps.settings.get('telemetry.enabled')) return;
-      const status = c.res.status;
-      const err = blocked ?? (c.error instanceof ApiError ? c.error : null);
       const detail = details.get(c.req.raw);
+      // A failure the route answers with 2xx (an MCP tool error) is recorded with the status it has over REST.
+      const status = detail?.status && c.res.status < 400 ? detail.status : c.res.status;
+      const err = blocked ?? (c.error instanceof ApiError ? c.error : null);
       const base = service === 'mcp' ? (mcpName ? await mcpName : c.req.method) : restMetricName(c);
       const name = detail?.label ? `${base} (${detail.label})` : base;
       telemetry.record({
