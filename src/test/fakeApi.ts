@@ -9,6 +9,7 @@ import { vi } from 'vitest';
 import type { Actor } from '@/types/invoice';
 import type { AgentSummary, ApiInvoice, InvoiceInput, Scope } from '../../shared/api';
 import { DEFAULT_SETTINGS, type DefaultSettings } from '../../shared/settings';
+import { daysOverdue, isOverdue, normalizeStatusFields, utcToday } from '../../shared/invoice-status';
 
 export interface RecordedRequest {
   method: string;
@@ -48,7 +49,13 @@ export function createFakeApi() {
     const subtotal = lineItems.reduce((s, li) => s + li.quantity * li.price, 0);
     const taxRate = input.taxRate ?? state.settings.settings.taxRate;
     const at = tick();
+    const status = normalizeStatusFields(input.status === undefined && existing ? existing : input, at.slice(0, 10));
+    const dueDate = input.dueDate ?? '';
+    const today = utcToday(new Date(at));
     return {
+      ...status,
+      isOverdue: isOverdue({ ...status, dueDate }, today),
+      daysOverdue: daysOverdue({ ...status, dueDate }, today),
       version: 1,
       id,
       invoiceNumber: input.invoiceNumber ?? existing?.invoiceNumber ?? `INV-${String(invoices.size + 1).padStart(4, '0')}`,

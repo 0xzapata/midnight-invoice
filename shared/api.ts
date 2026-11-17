@@ -4,6 +4,7 @@
  */
 import type { Actor, Invoice } from './types/invoice';
 import type { DefaultSettings } from './settings';
+import type { InvoiceStatus, InvoiceSummary } from './invoice-status';
 
 export const API_BASE_PATH = '/api/v1';
 export const MCP_PATH = '/api/mcp';
@@ -52,7 +53,9 @@ export type ApiErrorCode =
   | 'slow_down'
   | 'access_denied'
   | 'expired_token'
-  | 'invalid_grant';
+  | 'invalid_grant'
+  // Invoice status change not allowed from the current status (HTTP 409)
+  | 'invalid_status_transition';
 
 export interface ApiErrorBody {
   error: {
@@ -195,6 +198,32 @@ export interface ApiInvoice extends Invoice {
   subtotal: number;
   taxAmount: number;
   total: number;
+  /** Stored status; invoices saved before statuses existed read as `draft`. */
+  status: InvoiceStatus;
+  sentAt: string | null;
+  paidAt: string | null;
+  /** Derived: status `sent` and dueDate before today (UTC). Never stored. */
+  isOverdue: boolean;
+  /** Derived: whole days past dueDate (0 unless overdue). */
+  daysOverdue: number;
+}
+
+/** `status` filter values of GET /invoices: the stored statuses plus the virtual `overdue`. */
+export type InvoiceStatusFilter = InvoiceStatus | 'overdue';
+
+/** GET /api/v1/invoices/summary (amounts grouped by currency, never summed across currencies). */
+export type InvoiceSummaryResponse = InvoiceSummary;
+
+/** POST /api/v1/invoices/:id/mark-paid (optional body) */
+export interface MarkPaidRequest {
+  /** Payment date, YYYY-MM-DD. Defaults to today (UTC). */
+  paidAt?: string;
+}
+
+/** POST /api/v1/invoices/:id/mark-sent (optional body) */
+export interface MarkSentRequest {
+  /** Date sent, YYYY-MM-DD. Defaults to the existing sentAt, else today (UTC). */
+  sentAt?: string;
 }
 
 /** GET /api/v1/invoices */
@@ -243,6 +272,14 @@ export interface InvoiceInput {
   notes?: string;
   paymentDetails?: string;
   currency?: string;
+  /**
+   * Status (default `draft` on create; omitted on PUT/PATCH = unchanged).
+   * PATCH enforces the transition rules; PUT (full replace, used by sync) accepts any status.
+   * sentAt/paidAt (YYYY-MM-DD) default to today when the status needs them.
+   */
+  status?: InvoiceStatus;
+  sentAt?: string | null;
+  paidAt?: string | null;
   /** PUT only: preserved when the PUT creates the invoice (browser sync). */
   createdAt?: string;
 }

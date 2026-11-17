@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Download, Save, ArrowLeft, Copy, Settings } from 'lucide-react';
+import { Download, Save, ArrowLeft, Copy, Settings, Send } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
 import { Button } from '@/components/ui/button';
 import { InvoiceForm } from '@/components/invoice/InvoiceForm';
@@ -11,6 +11,9 @@ import { useInvoices } from '@/hooks/useInvoices';
 import { useSettingsStore, hasConfiguredSettings } from '@/stores/useSettingsStore';
 import { InvoiceFormData } from '@/types/invoice';
 import { toast } from 'sonner';
+import { StatusBadge } from '@/components/invoice/status/StatusBadge';
+import { useToday } from '@/components/invoice/status/useInvoiceStatus';
+import { statusOf } from '../../shared/invoice-status';
 
 export default function CreateInvoice() {
   const navigate = useNavigate();
@@ -89,12 +92,18 @@ export default function CreateInvoice() {
     saveDraft(invoiceId, data);
   }, [saveDraft, invoiceId]);
 
-  const isEditing = !!getInvoice(invoiceId);
+  const savedInvoice = getInvoice(invoiceId);
+  const isEditing = !!savedInvoice;
+  const today = useToday();
+  // "Save & mark sent" is offered while the invoice is new or still a draft.
+  const canSaveAsSent = statusOf(savedInvoice) === 'draft';
 
-  const handleSave = () => {
-    saveInvoice(formData, invoiceId);
+  const handleSave = (options?: { status?: 'sent' }) => {
+    saveInvoice(formData, invoiceId, options);
     clearDraft(invoiceId);
-    toast.success('Invoice saved successfully');
+    toast.success(
+      options?.status === 'sent' ? 'Invoice saved and marked as sent' : canSaveAsSent ? 'Invoice saved as draft' : 'Invoice saved successfully',
+    );
     navigate('/', { viewTransition: true });
   };
 
@@ -153,6 +162,7 @@ export default function CreateInvoice() {
             <h1 className="text-sm font-medium text-foreground">
               {isEditing ? 'Edit Invoice' : 'Create Invoice'}
             </h1>
+            {savedInvoice && <StatusBadge invoice={savedInvoice} today={today} className="hidden sm:inline-flex" />}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleDownload}>
@@ -163,7 +173,13 @@ export default function CreateInvoice() {
               <Copy className="w-4 h-4 mr-2" />
               Duplicate
             </Button>
-            <Button size="sm" onClick={handleSave}>
+            {canSaveAsSent && (
+              <Button variant="outline" size="sm" onClick={() => handleSave({ status: 'sent' })} title="Save and mark as sent">
+                <Send className="w-4 h-4 sm:mr-2" aria-hidden="true" />
+                <span className="sr-only sm:not-sr-only">Save &amp; mark sent</span>
+              </Button>
+            )}
+            <Button size="sm" onClick={() => handleSave()} title={canSaveAsSent ? 'Save as draft' : undefined}>
               <Save className="w-4 h-4 mr-2" />
               Save Invoice
             </Button>

@@ -51,7 +51,7 @@ describe('invoice CRUD', () => {
       currency: 'USD',
       revision: 1,
       deletedAt: null,
-      version: 1,
+      version: 2,
       subtotal: 100.09,
       taxAmount: 10.01,
       total: 110.1,
@@ -151,7 +151,7 @@ describe('invoice CRUD', () => {
       paymentDetails: '',
       currency: 'USD',
       createdAt: '2026-10-01T08:00:00.000Z',
-      version: 1,
+      version: 2,
     };
     const created = await client.put(`/api/v1/invoices/${id}`, local, token);
     expect(created.status).toBe(201);

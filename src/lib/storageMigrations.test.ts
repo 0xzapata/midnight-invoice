@@ -11,7 +11,7 @@ import {
 describe('storageMigrations', () => {
     describe('version constants', () => {
         it('exports current invoice version', () => {
-            expect(CURRENT_INVOICE_VERSION).toBe(1);
+            expect(CURRENT_INVOICE_VERSION).toBe(2);
         });
 
         it('exports current settings version', () => {
@@ -20,7 +20,7 @@ describe('storageMigrations', () => {
     });
 
     describe('migrateInvoiceStore', () => {
-        it('migrates from version 0 (unversioned) to version 1', () => {
+        it('migrates from version 0 (unversioned) to the current version', () => {
             const oldState: InvoicePersistedState = {
                 invoices: [
                     {
@@ -48,7 +48,8 @@ describe('storageMigrations', () => {
             const result = migrateInvoiceStore(oldState, 0);
 
             expect(result.invoices).toHaveLength(1);
-            expect(result.invoices[0].version).toBe(1);
+            expect(result.invoices[0].version).toBe(CURRENT_INVOICE_VERSION);
+            expect(result.invoices[0].status).toBe('draft');
             expect(result.invoices[0].id).toBe('test-1');
             expect(result.invoices[0].invoiceNumber).toBe('INV-0001');
         });
@@ -82,7 +83,10 @@ describe('storageMigrations', () => {
             const currentState: InvoicePersistedState = {
                 invoices: [
                     {
-                        version: 1,
+                        version: 2,
+                        status: 'sent',
+                        sentAt: '2024-01-02',
+                        paidAt: null,
                         id: 'test-1',
                         invoiceNumber: 'INV-0001',
                         invoiceName: 'Test',
@@ -104,7 +108,7 @@ describe('storageMigrations', () => {
                 drafts: {},
             };
 
-            const result = migrateInvoiceStore(currentState, 1);
+            const result = migrateInvoiceStore(currentState, CURRENT_INVOICE_VERSION);
 
             expect(result).toEqual(currentState);
         });
@@ -153,8 +157,51 @@ describe('storageMigrations', () => {
             const result = migrateInvoiceStore(oldState, 0);
 
             expect(result.invoices).toHaveLength(2);
-            expect(result.invoices[0].version).toBe(1);
-            expect(result.invoices[1].version).toBe(1);
+            expect(result.invoices[0].version).toBe(CURRENT_INVOICE_VERSION);
+            expect(result.invoices[1].version).toBe(CURRENT_INVOICE_VERSION);
+        });
+
+        describe('version 1 -> 2 (invoice status)', () => {
+            const v1Invoice = {
+                version: 1,
+                id: 'old-1',
+                invoiceNumber: 'INV-0001',
+                invoiceName: 'Website',
+                issueDate: '2024-01-01',
+                dueDate: '2024-01-31',
+                fromName: 'Ada',
+                fromAddress: '',
+                fromEmail: '',
+                toName: 'Globex',
+                toAddress: '',
+                toEmail: '',
+                lineItems: [{ id: 'l1', description: 'Design', quantity: 1, price: 100 }],
+                taxRate: 0,
+                notes: '',
+                paymentDetails: '',
+                currency: 'EUR',
+                createdAt: '2024-01-01T00:00:00.000Z',
+                revision: 3,
+                updatedAt: '2024-01-01T00:00:00.000Z',
+            };
+
+            it('treats invoices saved before statuses existed as drafts (never as overdue)', () => {
+                const result = migrateInvoiceStore({ invoices: [v1Invoice], drafts: { x: { invoiceNumber: 'INV-0009' } } }, 1);
+                expect(result.invoices[0]).toEqual({ ...v1Invoice, version: 2, status: 'draft', sentAt: null, paidAt: null });
+                expect(result.drafts).toEqual({ x: { invoiceNumber: 'INV-0009' } });
+            });
+
+            it('keeps a status that already came from the server, normalising its dates', () => {
+                const fromServer = { ...v1Invoice, status: 'paid', paidAt: '2024-02-03' } as unknown as typeof v1Invoice;
+                const result = migrateInvoiceStore({ invoices: [fromServer], drafts: {} }, 1);
+                expect(result.invoices[0]).toMatchObject({ status: 'paid', paidAt: '2024-02-03', sentAt: '2024-02-03', version: 2, revision: 3 });
+            });
+
+            it('replaces an unknown status with draft and tolerates a missing invoices array', () => {
+                const odd = { ...v1Invoice, status: 'archived' } as unknown as typeof v1Invoice;
+                expect(migrateInvoiceStore({ invoices: [odd], drafts: {} }, 1).invoices[0].status).toBe('draft');
+                expect(migrateInvoiceStore({ drafts: {} } as unknown as InvoicePersistedState, 1).invoices).toEqual([]);
+            });
         });
     });
 
