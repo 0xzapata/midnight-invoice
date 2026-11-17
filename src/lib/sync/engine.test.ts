@@ -120,7 +120,7 @@ describe('enabling', () => {
     save(ID.a, { invoiceNumber: 'INV-0001', notes: 'edited later' });
     await syncNow();
     await whenIdle();
-    const last = fake.requests.filter((r) => r.method === 'PUT' && r.path === `/invoices/${ID.a}`).at(-1)!;
+    const last = fake.requests.filter((r) => r.method === 'PUT' && r.path === `/invoices/${ID.a}`).pop()!;
     expect(last.body).toMatchObject({ notes: 'edited later' });
     expect(last.headers['x-midnight-sync']).toBeUndefined();
   });

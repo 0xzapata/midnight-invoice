@@ -87,6 +87,20 @@ describe('Agents page', () => {
     expect(screen.getByText('Revoked agents (1)')).toBeInTheDocument();
   });
 
+  it('shows each agent’s latest actions and links to its activity and the activity log', async () => {
+    fake.server.addActivity({ action: 'agent.registered', actor: { type: 'agent', agentId: 'agent-1', agentName: 'Claude Desktop' }, entity: { type: 'agent', id: 'agent-1', label: 'Claude Desktop' } });
+    fake.server.addActivity({ action: 'invoice.status_changed', actor: { type: 'agent', agentId: 'agent-1', agentName: 'Claude Desktop' }, entity: { type: 'invoice', id: 'i1', label: 'INV-0007' }, changes: { status: { from: 'sent', to: 'paid' } } });
+    connect();
+    renderPage();
+    const preview = await screen.findByRole('list', { name: 'Latest activity of Claude Desktop' });
+    const lines = within(preview).getAllByRole('listitem');
+    expect(lines[0]).toHaveTextContent(/^Claude Desktop marked INV-0007 as paid · /);
+    expect(lines[1]).toHaveTextContent('Claude Desktop connected and received its API key');
+    expect(screen.getByRole('link', { name: 'View activity of Claude Desktop' })).toHaveAttribute('href', '/activity?agent=agent-1');
+    expect(screen.getByRole('link', { name: 'Activity log' })).toHaveAttribute('href', '/activity');
+    expect(fake.requests.some((r) => r.path === '/agents/agent-1/activity' && r.query.get('limit') === '3')).toBe(true);
+  });
+
   it('revokes an agent after confirmation and refreshes the list', async () => {
     connect();
     const user = userEvent.setup();
