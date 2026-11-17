@@ -56,11 +56,12 @@ describe('migrateCloudStore', () => {
       {
         workspace: { id: 'ws', createdAt: 'c' },
         token,
-        cursors: { invoices: 'a', clients: 'b', templates: 'c', bad: 1 },
+        cursors: { invoices: 'a', clients: 'b', templates: 'c', recurring: 'd', bad: 1 },
         queue: [
           { opId: 'x', type: 'upsert', collection: 'clients', entityId: 'c1', seq: 0, attempts: 0, notBefore: 0 },
           { opId: 'y', type: 'delete', collection: 'invoices', entityId: 'i1', label: 'INV-0001', baseRevision: 2 },
-          { opId: 'z', type: 'upsert', collection: 'templates', entityId: 't1' }, // from a newer version
+          { opId: 't', type: 'upsert', collection: 'templates', entityId: 't1' },
+          { opId: 'z', type: 'upsert', collection: 'recurring', entityId: 'r1' }, // from a newer version
           { opId: 'w', type: 'upsert', collection: 'clients' }, // no id
         ],
         bases: { 'clients:c1': { name: 'Globex' } },
@@ -68,8 +69,8 @@ describe('migrateCloudStore', () => {
       },
       2,
     );
-    expect(result.cursors).toEqual({ invoices: 'a', clients: 'b' });
-    expect(result.queue.map((op) => op.opId)).toEqual(['x', 'y']);
+    expect(result.cursors).toEqual({ invoices: 'a', clients: 'b', templates: 'c' });
+    expect(result.queue.map((op) => op.opId)).toEqual(['x', 'y', 't']);
     expect(result.queue[1]).toMatchObject({ collection: 'invoices', entityId: 'i1', label: 'INV-0001', baseRevision: 2 });
     expect(result.bases).toEqual({ 'clients:c1': { name: 'Globex' } });
     expect(result.syncErrors).toEqual({ 'clients:c2': 'Client name is required (name).' });

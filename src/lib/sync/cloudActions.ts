@@ -20,8 +20,9 @@ export class InvalidRecoveryKeyError extends Error {
 
 /**
  * Turns cloud sync on: creates an anonymous workspace, then uploads the
- * default settings, every saved client and every local invoice (clients
- * first, since invoices may reference them; drafts stay local).
+ * default settings, every saved client, template and local invoice (in
+ * SYNCED_COLLECTIONS order: clients first, since templates and invoices may
+ * reference them; drafts stay local).
  */
 export async function enableCloudSync(): Promise<void> {
   const { workspace, token } = await api.createWorkspace();
@@ -60,7 +61,7 @@ export async function disconnectThisBrowser(): Promise<void> {
 }
 
 /**
- * Deletes the workspace on the server (all cloud invoices, clients, settings
+ * Deletes the workspace on the server (all cloud invoices, clients, templates, settings
  * and agent connections) and disconnects this browser. Local copies are kept.
  */
 export async function deleteCloudWorkspace(): Promise<void> {

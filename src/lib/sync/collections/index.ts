@@ -7,9 +7,11 @@ import type { SyncCollection } from '../collection';
 import { SYNCED_COLLECTIONS, type CollectionName } from '../collectionNames';
 import { clientCollection } from './clients';
 import { invoiceCollection } from './invoices';
+import { templateCollection } from './templates';
 
 export const COLLECTIONS: Record<CollectionName, SyncCollection> = {
   clients: clientCollection as unknown as SyncCollection,
+  templates: templateCollection as unknown as SyncCollection,
   invoices: invoiceCollection as unknown as SyncCollection,
 };
 
