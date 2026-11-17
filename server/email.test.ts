@@ -3,7 +3,7 @@
  * and the MCP tool, against a real local D1 with the provider (Resend) faked
  * at the fetch boundary. No network.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { Scope } from '../shared/api';
 import { createApp } from './app';
@@ -14,6 +14,7 @@ import { INVOICE_PALETTES } from '@/components/invoice/invoiceTheme';
 import { composeInvoiceEmail, isDeliverableEmail } from '../shared/email-template';
 import { buildOperatorApp, completeSetup, fakeWorkos, routeFetch } from './test/operator';
 import { groupOf } from './operator/telemetry';
+import { telemetryOf } from './operator';
 
 let d1: Awaited<ReturnType<typeof startD1>>;
 beforeAll(async () => {
@@ -526,5 +527,134 @@ describe('operator console', () => {
     expect(t.groups.find((g: { group: string }) => g.group === 'Email')).toMatchObject({ requests: 2 });
     expect(groupOf('rest|GET /invoices/:id/emails').group).toBe('Email');
     expect(groupOf('mcp|tool send_invoice_email').group).toBe('Email');
+  });
+});
+
+describe('activity log', () => {
+  const activityOf = async (s: Awaited<ReturnType<typeof setup>>, id: string) =>
+    (await s.client.get(`/api/v1/activity?entity_id=${id}`, s.ws.token)).json.activity as {
+      action: string;
+      actor: { type: string; agentName?: string };
+      changes: { email?: { to: string; cc?: number; resend?: boolean; code?: string }; status?: { from: string; to: string } } | null;
+      tool: string | null;
+    }[];
+
+  it('records one invoice.emailed entry (status change folded in), resends, failures, with a masked recipient', async () => {
+    const s = await setup({ settings: { 'email.cooldownMinutes': 0 } });
+    const inv = await s.invoice();
+    expect((await s.send(inv.id, { ccMe: true })).status).toBe(200);
+    expect((await s.send(inv.id)).status).toBe(200);
+    s.resend.state.respond = () => Response.json({ statusCode: 422, name: 'invalid_attachment', message: 'bad' }, { status: 422 });
+    expect((await s.send(inv.id)).status).toBe(502);
+    await vi.waitFor(async () => expect((await activityOf(s, inv.id)).filter((e) => e.action.startsWith('invoice.email'))).toHaveLength(3));
+    const entries = await activityOf(s, inv.id);
+    expect(entries.map((e) => e.action)).toEqual(['invoice.email_failed', 'invoice.emailed', 'invoice.emailed', 'invoice.created']);
+    expect(entries.some((e) => e.action === 'invoice.status_changed')).toBe(false);
+    const [failed, resent, first] = entries;
+    expect(first.changes).toEqual({ email: { to: 'b•••@acme-client.io', cc: 1, resend: false }, status: { from: 'draft', to: 'sent' } });
+    expect(resent.changes).toEqual({ email: { to: 'b•••@acme-client.io', cc: 0, resend: true } });
+    expect(failed.changes).toEqual({ email: { to: 'b•••@acme-client.io', cc: 0, resend: true, code: 'provider_rejected' } });
+    expect(JSON.stringify(entries)).not.toContain(CLIENT);
+  });
+
+  it('records blocked agent attempts once per hour', async () => {
+    const s = await setup();
+    const inv = await s.invoice();
+    const { api_key } = await connectAgent(s.client, s.ws.token, ['invoices:send']);
+    for (let i = 0; i < 3; i++) expect((await s.send(inv.id, { to: 'attacker@evil-mail.io' }, api_key)).status).toBe(403);
+    await vi.waitFor(async () => expect((await activityOf(s, inv.id)).filter((e) => e.action === 'invoice.email_blocked')).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 200));
+    const blocked = (await activityOf(s, inv.id)).filter((e) => e.action === 'invoice.email_blocked');
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]).toMatchObject({ actor: { type: 'agent', agentName: 'Test Agent' }, changes: { email: { to: 'a•••@evil-mail.io', code: 'agent_recipient_override' } } });
+  });
+});
+
+describe('address confirmation follows who wrote the address (field level)', () => {
+  it('an agent editing another field keeps the user’s address; an agent-written address needs a user save', async () => {
+    const s = await setup({ settings: { 'email.cooldownMinutes': 0 } });
+    const { api_key } = await connectAgent(s.client, s.ws.token, ['invoices:write', 'invoices:send', 'clients:read', 'clients:write']);
+    // User invoice, then an agent edits an unrelated field: still sendable by the agent.
+    const inv = await s.invoice();
+    expect((await s.client.patch(`/api/v1/invoices/${inv.id}`, { notes: 'Thanks!' }, api_key)).status).toBe(200);
+    expect((await s.send(inv.id, {}, api_key)).status).toBe(200);
+
+    // User client; the agent edits its notes, then bills it: the user's address stays confirmed.
+    const client = (await s.client.post('/api/v1/clients', { name: 'Globex', email: 'ap@globex-corp.io' }, s.ws.token)).json.client;
+    expect((await s.client.patch(`/api/v1/clients/${client.id}`, { notes: 'VIP' }, api_key)).status).toBe(200);
+    const billed = await s.invoice({ clientId: client.id, toEmail: undefined, toName: undefined }, api_key);
+    expect((await s.send(billed.id, {}, api_key)).status).toBe(200);
+
+    // The agent changes the client's email and bills it: not confirmed…
+    expect((await s.client.patch(`/api/v1/clients/${client.id}`, { email: 'new-ap@globex-corp.io' }, api_key)).status).toBe(200);
+    const billed2 = await s.invoice({ clientId: client.id, toEmail: undefined, toName: undefined }, api_key);
+    const refused = await s.send(billed2.id, {}, api_key);
+    expect(refused.json.error.details.reason).toBe('address_not_confirmed_by_user');
+    // …until the user saves the client (any field) after the agent's change.
+    await s.client.patch(`/api/v1/clients/${client.id}`, { notes: 'VIP, checked' }, s.ws.token);
+    expect((await s.send(billed2.id, {}, api_key)).status).toBe(200);
+
+    // Same for an invoice the agent re-addressed: a user save of the invoice confirms it.
+    const inv2 = await s.invoice();
+    await s.client.patch(`/api/v1/invoices/${inv2.id}`, { toEmail: 'other@third-party.io' }, api_key);
+    expect((await s.send(inv2.id, {}, api_key)).json.error.details.reason).toBe('address_not_confirmed_by_user');
+    await s.client.patch(`/api/v1/invoices/${inv2.id}`, { notes: 'Reviewed' }, s.ws.token);
+    expect((await s.send(inv2.id, {}, api_key)).status).toBe(200);
+  });
+});
+
+describe('agent-changed sender details need a user review', () => {
+  it('refuses an agent send when an agent set sender details that differ from the defaults, until the user saves the invoice', async () => {
+    const s = await setup({ settings: { 'email.cooldownMinutes': 0 } });
+    const { api_key } = await connectAgent(s.client, s.ws.token, ['invoices:write', 'invoices:send']);
+
+    // Agent-created invoice with the workspace defaults: fine.
+    const plain = await s.invoice({}, api_key);
+    await s.client.post('/api/v1/clients', { name: 'Acme', email: CLIENT }, s.ws.token);
+    expect((await s.send(plain.id, {}, api_key)).status).toBe(200);
+
+    // The agent changes the payment details of the user's invoice.
+    const inv = await s.invoice();
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { paymentDetails: 'IBAN XX00 ATTACKER' }, api_key);
+    const refused = await s.send(inv.id, {}, api_key);
+    expect(refused.status).toBe(403);
+    expect(refused.json.error).toMatchObject({ code: 'invoice_needs_review', details: { fields: ['paymentDetails'] } });
+    expect(refused.json.error.message).toMatch(/Test Agent/);
+    expect(s.resend.calls).toHaveLength(1);
+    // After a user save, a later unrelated agent edit does not flag it again.
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { notes: 'Reviewed' }, s.ws.token);
+    await s.client.patch(`/api/v1/invoices/${inv.id}`, { dueDate: '2027-01-15' }, api_key);
+    expect((await s.send(inv.id, {}, api_key)).status).toBe(200);
+
+    // An agent-created invoice with its own fromEmail / fromName.
+    const own = await s.invoice({ fromEmail: 'billing@lookalike-studio.io', fromName: 'Midnight Studio Billing' }, api_key);
+    const r = await s.send(own.id, {}, api_key);
+    expect(r.json.error).toMatchObject({ code: 'invoice_needs_review', details: { fields: ['fromName', 'fromEmail'] } });
+    // The user is never blocked by it.
+    expect((await s.send(own.id)).status).toBe(200);
+  });
+});
+
+describe('telemetry', () => {
+  it('counts email failures over MCP (HTTP 200 tool errors) like REST failures', async () => {
+    await d1.db.batch(['telemetry_rollups', 'telemetry_errors'].map((t) => d1.db.prepare(`DELETE FROM ${t}`)));
+    const s = await setup();
+    const inv = await s.invoice();
+    const { api_key } = await connectAgent(s.client, s.ws.token, ['invoices:send']);
+    s.resend.state.respond = () => Response.json({ statusCode: 500, name: 'application_error', message: 'boom' }, { status: 500 });
+    const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+      fetch: (input, init) => Promise.resolve(s.app.fetch(new Request(input, init))),
+      requestInit: { headers: { authorization: `Bearer ${api_key}` } },
+    });
+    const mcp = new Client({ name: 'telemetry-test', version: '1.0.0' });
+    await mcp.connect(transport);
+    expect((await mcp.callTool({ name: 'send_invoice_email', arguments: { id: inv.id } })).isError).toBe(true);
+    expect((await mcp.callTool({ name: 'send_invoice_email', arguments: { id: inv.id, cc_me: false, subject: 'x\ny' } })).isError).toBe(true);
+    await mcp.close();
+    await telemetryOf(s.app)!.flush();
+    const row = await d1.db
+      .prepare(`SELECT SUM(count) AS count, SUM(errors) AS errors, SUM(client_errors) AS client_errors FROM telemetry_rollups WHERE granularity = 'm' AND metric = 'mcp|tool send_invoice_email'`)
+      .first<{ count: number; errors: number; client_errors: number }>();
+    expect(row).toEqual({ count: 2, errors: 1, client_errors: 1 });
   });
 });

@@ -15,6 +15,7 @@ import { ApiError, errors } from './errors';
 import { clientIp, enforceRateLimit, publicBaseUrl, readJson, readJsonRequired, runInBackground } from './http';
 import { createMcpEndpoint } from './mcp';
 import { installOperator } from './operator';
+import { setTelemetryOutcome } from './operator/telemetry';
 import { registerInvoiceStatusRoutes } from './routes/invoiceStatus';
 import { registerInvoiceEmailRoutes } from './routes/invoiceEmail';
 import { buildOpenApiDocument } from './openapi';
@@ -58,6 +59,7 @@ export function createApp(deps: AppDeps) {
     requestId: c.req.header('cf-ray') ?? crypto.randomUUID(),
     bulkUploadId: parseBulkUploadHeader(c.req.header('x-midnight-sync')),
     waitUntil: (promise) => runInBackground(c, promise),
+    telemetry: (outcome) => setTelemetryOutcome(c.req.raw, outcome),
   });
 
   /** Bearer auth for workspace tokens and agent keys. */

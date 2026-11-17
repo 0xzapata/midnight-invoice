@@ -39,3 +39,87 @@ CREATE TABLE email_counters (
   PRIMARY KEY (scope, window_start)
 );
 CREATE INDEX email_counters_window ON email_counters (window_start);
+
+-- Addresses the workspace owner entered themselves. Agents may only email an
+-- invoice's toEmail when it is listed here (or was emailed before). Kept by
+-- triggers on every write by the workspace token (browser sync, REST, MCP), so
+-- a later agent edit of another field never "un-confirms" an address, an
+-- agent writing a new address never confirms it, and a user save of the
+-- record (re)confirms whatever address it holds.
+CREATE TABLE email_confirmed_recipients (
+  workspace_id  TEXT NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+  address       TEXT NOT NULL,              -- lower-case, trimmed
+  confirmed_at  TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, address)
+);
+
+CREATE TRIGGER email_confirm_invoice_insert AFTER INSERT ON invoices
+WHEN json_extract(NEW.updated_by, '$.type') = 'user' AND trim(coalesce(json_extract(NEW.data, '$.toEmail'), '')) <> ''
+BEGIN
+  INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at)
+  VALUES (NEW.workspace_id, lower(trim(json_extract(NEW.data, '$.toEmail'))), NEW.updated_at);
+END;
+
+CREATE TRIGGER email_confirm_invoice_update AFTER UPDATE ON invoices
+WHEN json_extract(NEW.updated_by, '$.type') = 'user' AND NEW.deleted_at IS NULL AND trim(coalesce(json_extract(NEW.data, '$.toEmail'), '')) <> ''
+BEGIN
+  INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at)
+  VALUES (NEW.workspace_id, lower(trim(json_extract(NEW.data, '$.toEmail'))), NEW.updated_at);
+END;
+
+CREATE TRIGGER email_confirm_client_insert AFTER INSERT ON clients
+WHEN json_extract(NEW.updated_by, '$.type') = 'user' AND trim(NEW.email) <> ''
+BEGIN
+  INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at)
+  VALUES (NEW.workspace_id, lower(trim(NEW.email)), NEW.updated_at);
+END;
+
+CREATE TRIGGER email_confirm_client_update AFTER UPDATE ON clients
+WHEN json_extract(NEW.updated_by, '$.type') = 'user' AND NEW.deleted_at IS NULL AND trim(NEW.email) <> ''
+BEGIN
+  INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at)
+  VALUES (NEW.workspace_id, lower(trim(NEW.email)), NEW.updated_at);
+END;
+
+-- Existing data: addresses on records the user saved last.
+INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at)
+  SELECT workspace_id, lower(trim(json_extract(data, '$.toEmail'))), updated_at FROM invoices
+  WHERE deleted_at IS NULL AND json_extract(updated_by, '$.type') = 'user' AND trim(coalesce(json_extract(data, '$.toEmail'), '')) <> '';
+INSERT OR IGNORE INTO email_confirmed_recipients (workspace_id, address, confirmed_at)
+  SELECT workspace_id, lower(trim(email)), updated_at FROM clients
+  WHERE deleted_at IS NULL AND json_extract(updated_by, '$.type') = 'user' AND trim(email) <> '';
+
+-- Invoices whose sender details (fromName, fromEmail, paymentDetails) an agent
+-- wrote and the user has not saved since. An agent cannot email such an
+-- invoice unless those fields equal the workspace defaults (settings, which
+-- agents cannot change): it must ask the user to review it in the app.
+CREATE TABLE invoice_sender_review (
+  workspace_id  TEXT NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+  invoice_id    TEXT NOT NULL,
+  agent_name    TEXT,
+  flagged_at    TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, invoice_id)
+);
+
+CREATE TRIGGER invoice_review_agent_insert AFTER INSERT ON invoices
+WHEN json_extract(NEW.updated_by, '$.type') = 'agent'
+BEGIN
+  INSERT OR REPLACE INTO invoice_sender_review (workspace_id, invoice_id, agent_name, flagged_at)
+  VALUES (NEW.workspace_id, NEW.id, json_extract(NEW.updated_by, '$.agentName'), NEW.updated_at);
+END;
+
+CREATE TRIGGER invoice_review_agent_update AFTER UPDATE ON invoices
+WHEN json_extract(NEW.updated_by, '$.type') = 'agent' AND (
+  coalesce(json_extract(NEW.data, '$.paymentDetails'), '') IS NOT coalesce(json_extract(OLD.data, '$.paymentDetails'), '')
+  OR coalesce(json_extract(NEW.data, '$.fromEmail'), '') IS NOT coalesce(json_extract(OLD.data, '$.fromEmail'), '')
+  OR coalesce(json_extract(NEW.data, '$.fromName'), '') IS NOT coalesce(json_extract(OLD.data, '$.fromName'), ''))
+BEGIN
+  INSERT OR REPLACE INTO invoice_sender_review (workspace_id, invoice_id, agent_name, flagged_at)
+  VALUES (NEW.workspace_id, NEW.id, json_extract(NEW.updated_by, '$.agentName'), NEW.updated_at);
+END;
+
+CREATE TRIGGER invoice_review_user_update AFTER UPDATE ON invoices
+WHEN json_extract(NEW.updated_by, '$.type') = 'user'
+BEGIN
+  DELETE FROM invoice_sender_review WHERE workspace_id = NEW.workspace_id AND invoice_id = NEW.id;
+END;

@@ -85,6 +85,17 @@ export function isDeliverableEmail(value: string): boolean {
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 /**
+ * For the activity log: keeps the domain (useful: which client) and the first
+ * character of the mailbox, hides the rest: `billing@acme.io` → `b•••@acme.io`.
+ */
+export function maskEmail(value: string): string {
+  const v = value.trim().toLowerCase();
+  const at = v.lastIndexOf('@');
+  if (at <= 0) return '•••';
+  return `${v[0]}•••${v.slice(at)}`.slice(0, 120);
+}
+
+/**
  * RFC 5322 display name + address. The name is quoted with `"` and `\`
  * escaped; header-unsafe characters must be rejected before calling this.
  */

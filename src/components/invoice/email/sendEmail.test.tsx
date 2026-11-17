@@ -12,6 +12,8 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { EMPTY_CLOUD_STATE } from '@/lib/storageMigrations';
 import { resetSyncEngineForTests, whenIdle } from '@/lib/sync/engine';
 import { SCOPE_INFO } from '@/components/agents/scopes';
+import { describeEntry, sentenceOf } from '@/components/activity/describe';
+import type { ActivityEntry } from '../../../../shared/activity';
 import { createFakeApi, FAKE_TOKEN, type FakeApi } from '@/test/fakeApi';
 import type { Invoice } from '@/types/invoice';
 
@@ -128,6 +130,10 @@ describe('Send by email', () => {
     // The history appears under the status bar.
     expect(await screen.findByText(/^Sent to/)).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Email history' })).toHaveTextContent('billing@acme-client.io');
+    // The invoice History (activity log) shows the email inline, status change folded in.
+    const history = await screen.findByRole('region', { name: 'History' });
+    await waitFor(() => expect(history).toHaveTextContent(/emailed\s*INV-0042\s*to b•••@acme-client\.io/));
+    expect(history).toHaveTextContent('Marked as sent');
   });
 
   it('sends a custom subject/message and a changed recipient only when edited', async () => {
@@ -213,5 +219,25 @@ describe('invoices:send on consent screens', () => {
   it('is described plainly and marked sensitive', () => {
     expect(SCOPE_INFO['invoices:send']).toMatchObject({ sensitive: true, sensitiveLabel: 'Sends email' });
     expect(SCOPE_INFO['invoices:send'].allows).toMatch(/can email invoices to your clients on your behalf/i);
+  });
+});
+
+describe('email activity sentences', () => {
+  const entry = (action: ActivityEntry['action'], changes: ActivityEntry['changes'], actor: ActivityEntry['actor'] = { type: 'user' }): ActivityEntry => ({
+    id: 'act_1', time: '2026-11-17T10:00:00.000Z', actor, action, entity: { type: 'invoice', id: 'i1', label: 'INV-0007' }, changes, source: 'rest', tool: null, requestId: null,
+  });
+  const agent = { type: 'agent' as const, agentId: 'a1', agentName: 'Billing Bot' };
+
+  it('describes sends, resends, failures and blocked agent attempts', () => {
+    const first = entry('invoice.emailed', { email: { to: 'b•••@acme.io', cc: 1, resend: false }, status: { from: 'draft', to: 'sent' } });
+    expect(sentenceOf(first)).toBe('You emailed INV-0007 to b•••@acme.io');
+    expect(describeEntry(first).details).toEqual(['Marked as sent', 'Copy to 1 more recipient']);
+    expect(describeEntry(entry('invoice.emailed', { email: { to: 'b•••@acme.io', resend: true } })).details).toEqual(['Sent again']);
+    const failed = entry('invoice.email_failed', { email: { to: 'b•••@acme.io', code: 'provider_rejected' } }, agent);
+    expect(sentenceOf(failed)).toBe('Billing Bot could not email INV-0007 to b•••@acme.io');
+    expect(describeEntry(failed).details).toEqual(['The email provider refused the message']);
+    const blocked = entry('invoice.email_blocked', { email: { to: 'a•••@evil.io', code: 'invoice_needs_review' } }, agent);
+    expect(sentenceOf(blocked)).toBe('Billing Bot was stopped from emailing INV-0007 to a•••@evil.io');
+    expect(describeEntry(blocked).details[0]).toMatch(/review and save the invoice/);
   });
 });

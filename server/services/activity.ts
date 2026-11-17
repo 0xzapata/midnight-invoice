@@ -18,6 +18,7 @@
  * status transition, scopes, counts and a short label (invoice number,
  * client name, agent name).
  */
+import type { TelemetryOutcomeCode } from '../operator/telemetry';
 import { z } from 'zod';
 import {
   ACTIVITY_PAGE,
@@ -55,6 +56,8 @@ export interface ActivityRequest {
   bulkUploadId?: string;
   /** Keeps background work alive after the response (ExecutionContext.waitUntil). */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /** Reports a failure that the transport answers with 200 (MCP tool errors) to request telemetry. */
+  telemetry?: (outcome: { status: number; code: TelemetryOutcomeCode }) => void;
 }
 
 /** What recording needs. `ServiceContext` (services/invoices.ts) satisfies it. */

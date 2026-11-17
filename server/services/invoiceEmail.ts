@@ -29,6 +29,7 @@ import {
   hasBodyUnsafeChars,
   hasHeaderUnsafeChars,
   isDeliverableEmail,
+  maskEmail,
   normalizeEmail,
   senderDisplayName,
 } from '../../shared/email-template';
@@ -42,6 +43,7 @@ import { EmailProviderError } from '../email/sender';
 import { ApiError, errors } from '../errors';
 import { pdfFilename, renderInvoicePdf } from '../pdf/render';
 import { zodDetails } from '../schemas';
+import { recordActivity, type ActivityInput } from './activity';
 import { changeInvoiceStatus } from './invoiceStatus';
 import { parseInvoiceId, today, toApiInvoice, type ServiceContext } from './invoices';
 
@@ -91,6 +93,50 @@ export function toApiEmail(row: EmailMessageRow): InvoiceEmail {
 }
 
 const recipientNotAllowed = (message: string, details: Record<string, unknown>) => new ApiError(403, 'recipient_not_allowed', message, details);
+
+/**
+ * An agent's refused send is worth the user's attention: one
+ * `invoice.email_blocked` entry per agent, invoice and reason per hour.
+ */
+function noteBlocked(ctx: ServiceContext, invoice: ApiInvoice, to: string, code: string): void {
+  if (ctx.principal.type !== 'agent') return;
+  const hour = Math.floor(ctx.deps.clock().getTime() / 3_600_000);
+  void recordActivity(ctx, {
+    action: 'invoice.email_blocked',
+    entity: { type: 'invoice', id: invoice.id, label: invoice.invoiceNumber },
+    changes: { email: { to: maskEmail(to), code } },
+    dedupe: { key: `email-blocked:${ctx.principal.agentId}:${invoice.id}:${code}:${hour}`, mode: 'ignore' },
+  });
+}
+
+/** Sender fields an agent could change to redirect a payment or replies; checked by `requireSenderReview`. */
+const SENDER_FIELDS = ['fromName', 'fromEmail', 'paymentDetails'] as const;
+
+/**
+ * Fraud guard for agents: an invoice whose sender details (name, email,
+ * payment details) an agent wrote, and that the user has not saved since, is
+ * only sent if those details equal the workspace defaults (settings, which
+ * agents cannot change). Otherwise the user must review it in the app first.
+ */
+async function requireSenderReview(
+  ctx: ServiceContext,
+  invoice: ApiInvoice,
+  settings: { fromName: string; fromEmail: string; paymentDetails: string } | null,
+  emails: ReturnType<typeof createEmailRepository>,
+): Promise<void> {
+  if (ctx.principal.type !== 'agent') return;
+  const flag = await emails.senderReviewFlag(ctx.principal.workspaceId, invoice.id);
+  if (!flag) return;
+  const differing = SENDER_FIELDS.filter((f) => (invoice[f] ?? '').trim() !== (settings?.[f] ?? '').trim());
+  if (differing.length === 0) return;
+  noteBlocked(ctx, invoice, invoice.toEmail, 'invoice_needs_review');
+  throw new ApiError(
+    403,
+    'invoice_needs_review',
+    `An agent${flag.agent_name ? ` (${flag.agent_name})` : ''} set this invoice’s sender details (${differing.join(', ')}) and the user has not reviewed them. Ask the user to open the invoice in the app and save it, or to send it themselves.`,
+    { fields: differing },
+  );
+}
 const invalidAddress = (path: string, value: string) =>
   errors.validation([{ path, message: `"${value.slice(0, 80)}" is not a deliverable email address` }], 'Invalid recipient');
 
@@ -166,13 +212,16 @@ async function resolveRecipients(
 
   if (principal.type === 'agent') {
     if (normalizeEmail(to) !== normalizeEmail(invoiceTo)) {
+      noteBlocked(ctx, invoice, to, 'agent_recipient_override');
       throw recipientNotAllowed('Agents can only email an invoice to the client email on the invoice (toEmail).', { reason: 'agent_recipient_override' });
     }
     const own = normalizeEmail(workspaceFromEmail);
     if (cc.some((address) => normalizeEmail(address) !== own)) {
+      noteBlocked(ctx, invoice, cc.find((address) => normalizeEmail(address) !== own) ?? to, 'agent_cc_not_allowed');
       throw recipientNotAllowed('Agents can only copy (cc) the workspace’s own email from the default settings.', { reason: 'agent_cc_not_allowed' });
     }
     if (!(await emails.isUserEnteredAddress(principal.workspaceId, normalizeEmail(to)))) {
+      noteBlocked(ctx, invoice, to, 'address_not_confirmed_by_user');
       throw recipientNotAllowed(
         'This client email was not entered by the user. Ask the user to confirm it in the app (save the client or edit the invoice), or to send this invoice themselves.',
         { reason: 'address_not_confirmed_by_user' },
@@ -190,11 +239,14 @@ async function loadSendableInvoice(ctx: ServiceContext, id: string): Promise<Api
 }
 
 /** Marks a draft as sent through the shared transition rules (invoices:send implies this one transition). */
-async function markDraftSent(ctx: ServiceContext, invoice: ApiInvoice): Promise<{ invoice: ApiInvoice; changed: boolean }> {
+async function markDraftSent(ctx: ServiceContext, invoice: ApiInvoice, activity: ActivityInput): Promise<{ invoice: ApiInvoice; changed: boolean }> {
   if (statusOf(invoice) !== 'draft') return { invoice, changed: false };
   const elevated: ServiceContext = { ...ctx, principal: { ...ctx.principal, scopes: [...ctx.principal.scopes, 'invoices:write'] } };
   try {
-    return await changeInvoiceStatus(elevated, invoice.id, { action: 'mark_sent' }, {});
+    // One activity entry for the send and the status change (recorded atomically with the status write).
+    return await changeInvoiceStatus(elevated, invoice.id, { action: 'mark_sent' }, {
+      activity: { ...activity, changes: { ...activity.changes, status: { from: 'draft', to: 'sent' } } },
+    });
   } catch (error) {
     // The email went out; a concurrent status change must not turn that into an error.
     ctx.deps.logError?.('Could not mark the emailed invoice as sent', error);
@@ -202,11 +254,36 @@ async function markDraftSent(ctx: ServiceContext, invoice: ApiInvoice): Promise<
   }
 }
 
+const TELEMETRY_CODES: Record<string, 'email_send_failed' | 'email_not_configured' | 'rate_limited' | 'recipient_not_allowed' | 'invoice_needs_review'> = {
+  email_send_failed: 'email_send_failed',
+  email_not_configured: 'email_not_configured',
+  rate_limited: 'rate_limited',
+  recipient_not_allowed: 'recipient_not_allowed',
+  invoice_needs_review: 'invoice_needs_review',
+};
+
 export async function sendInvoiceEmail(
   ctx: ServiceContext,
   rawId: string,
   body: unknown,
   opts: { idempotencyKey?: string | null } = {},
+): Promise<SendInvoiceEmailResponse> {
+  try {
+    return await send(ctx, rawId, body, opts);
+  } catch (error) {
+    // Over MCP a failure is a tool result with HTTP 200: report it so operator telemetry counts it like REST does.
+    if (error instanceof ApiError && ctx.activity?.source === 'mcp') {
+      ctx.activity.telemetry?.({ status: error.status, code: TELEMETRY_CODES[error.code] ?? 'client_error' });
+    }
+    throw error;
+  }
+}
+
+async function send(
+  ctx: ServiceContext,
+  rawId: string,
+  body: unknown,
+  opts: { idempotencyKey?: string | null },
 ): Promise<SendInvoiceEmailResponse> {
   const { principal, deps } = ctx;
   requireScope(principal, 'invoices:send');
@@ -232,8 +309,10 @@ export async function sendInvoiceEmail(
   if (hasHeaderUnsafeChars(invoice.fromName)) {
     throw errors.validation([{ path: 'fromName', message: 'The invoice’s sender name contains line breaks or control characters; edit the invoice first.' }]);
   }
-  const workspaceFromEmail = (await ctx.repo.getSettings(principal.workspaceId))?.settings.fromEmail ?? '';
+  const workspaceSettings = (await ctx.repo.getSettings(principal.workspaceId))?.settings ?? null;
+  const workspaceFromEmail = workspaceSettings?.fromEmail ?? '';
   const { to, cc } = await resolveRecipients(ctx, invoice, req, workspaceFromEmail, emails);
+  await requireSenderReview(ctx, invoice, workspaceSettings, emails);
   const theme = req.theme ?? config.pdfTheme;
   const filename = pdfFilename(invoice.invoiceNumber);
   const composed = composeInvoiceEmail(invoice, { subject: req.subject, message: req.message, attachmentName: filename });
@@ -313,9 +392,12 @@ export async function sendInvoiceEmail(
     }
   }
 
+  const resend = statusOf(invoice) !== 'draft' || (await emails.lastDeliveredAt(principal.workspaceId, id, messageId)) !== null;
+  const entity = { type: 'invoice', id, label: invoice.invoiceNumber };
   const fail = async (code: string, message: string, status: number, retryable: boolean): Promise<never> => {
     const at = deps.clock().toISOString();
     await emails.markFailed(principal.workspaceId, messageId, code, message, at);
+    void recordActivity(ctx, { action: 'invoice.email_failed', entity, changes: { email: { to: maskEmail(to), cc: cc.length, resend, code } } });
     const row = await emails.get(principal.workspaceId, messageId);
     throw new ApiError(status, 'email_send_failed', message, { reason: code, retryable, email: row ? toApiEmail(row) : null });
   };
@@ -355,7 +437,9 @@ export async function sendInvoiceEmail(
     return fail('provider_unavailable', 'Sending failed unexpectedly. Nothing is known to have been delivered.', 502, true);
   }
 
-  const { invoice: finalInvoice, changed } = await markDraftSent(ctx, invoice);
+  const emailed: ActivityInput = { action: 'invoice.emailed', entity, changes: { email: { to: maskEmail(to), cc: cc.length, resend } } };
+  const { invoice: finalInvoice, changed } = await markDraftSent(ctx, invoice, emailed);
+  if (!changed) void recordActivity(ctx, emailed);
   if (changed) await emails.markStatusChanged(principal.workspaceId, messageId);
   const row = (await emails.get(principal.workspaceId, messageId))!;
   return { email: toApiEmail(row), invoice: finalInvoice, statusChanged: changed, replayed: false };

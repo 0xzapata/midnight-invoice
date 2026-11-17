@@ -218,6 +218,7 @@ function SendForm({ invoice, onDone }: { invoice: Invoice; onDone: () => void })
       applyServerInvoices([result.invoice]);
       void syncNow();
       void queryClient.invalidateQueries({ queryKey: invoiceEmailsKey(invoice.id) });
+      void queryClient.invalidateQueries({ queryKey: ['activity'] });
       toast.success(`${invoice.invoiceNumber} sent to ${result.email.to}`, {
         description: result.statusChanged ? 'The invoice is now marked as sent.' : undefined,
       });

@@ -13,7 +13,7 @@ import { sha256Hex } from '../crypto';
 import type { AppDeps } from '../deps';
 import { ApiError } from '../errors';
 import { runInBackground } from '../http';
-import type { TelemetryCollector } from './telemetry';
+import { telemetryOutcomeOf, type TelemetryCollector } from './telemetry';
 
 type HookEnv = { Variables: { principal?: { workspaceId: string } } };
 
@@ -109,8 +109,10 @@ export function createOperatorHook(deps: AppDeps, telemetry: TelemetryCollector)
     if (service === 'operator') c.res.headers.set('x-robots-tag', 'noindex, nofollow');
     try {
       if (!deps.settings.get('telemetry.enabled')) return;
-      const status = c.res.status;
-      const err = blocked ?? (c.error instanceof ApiError ? c.error : null);
+      // A failure reported as a 200 (MCP tool error) is recorded with the status it has over REST.
+      const outcome = c.res.status < 400 ? telemetryOutcomeOf(c.req.raw) : undefined;
+      const status = outcome?.status ?? c.res.status;
+      const err = blocked ?? (c.error instanceof ApiError ? c.error : outcome ? { code: outcome.code } : null);
       const name = service === 'mcp' ? (mcpName ? await mcpName : c.req.method) : restMetricName(c);
       telemetry.record({
         metric: `${service}|${name}`,

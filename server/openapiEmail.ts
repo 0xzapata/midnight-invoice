@@ -101,7 +101,7 @@ export const emailOpenApiPaths: Record<string, Json> = {
         200: { description: 'Sent (or replayed)', headers: { ETag: { schema: str(), description: 'Quoted invoice revision' } }, content: jsonContent(ref('SendInvoiceEmailResponse')) },
         400: err('Invalid request or undeliverable address (validation_failed)'),
         401: err('Missing or invalid bearer token'),
-        403: err('insufficient_scope, or recipient_not_allowed (agent recipient rules)'),
+        403: err('insufficient_scope, recipient_not_allowed (agent recipient rules) or invoice_needs_review (agent-changed sender details not reviewed by the user)'),
         404: err('Invoice not found'),
         409: err('Void invoice (invalid_status_transition) or idempotency_conflict'),
         410: err('Invoice was deleted'),

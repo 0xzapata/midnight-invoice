@@ -152,30 +152,34 @@ export function createEmailRepository(db: D1Database) {
     },
 
     /**
-     * True when the workspace owner has entered this address themselves: it is
-     * the email of a saved client last written by the user, or the toEmail of
-     * an invoice last written by the user (browser sync uses the workspace
-     * token, so everything typed in the app counts), or an address this
-     * workspace has already emailed (every earlier send passed this check or
-     * was made by the user), so an agent's own later edits of a confirmed
-     * invoice (e.g. the status change of the send itself) do not revoke it.
+     * True when the workspace owner entered this address themselves: it is in
+     * `email_confirmed_recipients` (kept by triggers on every write made with
+     * the workspace token — the app's sync, REST or MCP — to an invoice's
+     * toEmail or a client's email), or this workspace has already emailed it
+     * (every earlier send was made by the user or passed this check).
+     * Field-level by construction: an agent editing another field of a record
+     * never revokes a confirmation, an agent writing an address never creates
+     * one, and a user save of the record (re)confirms what it holds.
      */
     async isUserEnteredAddress(workspaceId: string, email: string): Promise<boolean> {
       const row = await db
         .prepare(
-          `SELECT 1 AS ok FROM clients
-             WHERE workspace_id = ? AND deleted_at IS NULL AND lower(email) = ? AND json_extract(updated_by, '$.type') = 'user'
+          `SELECT 1 AS ok FROM email_confirmed_recipients WHERE workspace_id = ? AND address = ?
            UNION ALL
-           SELECT 1 AS ok FROM invoices
-             WHERE workspace_id = ? AND deleted_at IS NULL AND lower(json_extract(data, '$.toEmail')) = ? AND json_extract(updated_by, '$.type') = 'user'
-           UNION ALL
-           SELECT 1 AS ok FROM email_messages
-             WHERE workspace_id = ? AND status = 'sent' AND lower(to_address) = ?
+           SELECT 1 AS ok FROM email_messages WHERE workspace_id = ? AND status = 'sent' AND lower(to_address) = ?
            LIMIT 1`,
         )
-        .bind(workspaceId, email, workspaceId, email, workspaceId, email)
+        .bind(workspaceId, email, workspaceId, email)
         .first<{ ok: number }>();
       return !!row;
+    },
+
+    /** Set when an agent created the invoice or changed its sender details and the user has not saved it since (triggers, migration 0007). */
+    async senderReviewFlag(workspaceId: string, invoiceId: string): Promise<{ agent_name: string | null; flagged_at: string } | null> {
+      return db
+        .prepare('SELECT agent_name, flagged_at FROM invoice_sender_review WHERE workspace_id = ? AND invoice_id = ?')
+        .bind(workspaceId, invoiceId)
+        .first<{ agent_name: string | null; flagged_at: string }>();
     },
 
     /**

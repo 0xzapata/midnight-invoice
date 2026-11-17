@@ -16,7 +16,11 @@ const when = (iso: string) => {
   }
 };
 
-/** "Sent to x on …" and failures with the reason and a retry, under the status bar (cloud sync only). */
+/**
+ * The latest email of this invoice under the status bar ("Sent to x on …", or
+ * a failure with the reason and a retry). The full trail, including blocked
+ * agent attempts, is in the invoice's History (activity log). Cloud sync only.
+ */
 export function EmailHistory({ invoice, onRetry }: { invoice: Invoice; onRetry: () => void }) {
   const readiness = useEmailReadiness(invoice);
   // Uploading/not-synced invoices may still have a history on the server; only a browser without sync has none to show.
@@ -31,13 +35,15 @@ function HistoryList({ invoice, onRetry }: { invoice: Invoice; onRetry: () => vo
   const latestIsFailure = emails[0].status === 'failed';
   return (
     <section aria-label="Email history" className="mx-auto mb-6 w-full max-w-[595px] border border-border bg-card p-3 text-xs print:hidden">
-      <h2 className="mb-2 font-medium text-foreground">Email history</h2>
+      <h2 className="mb-2 font-medium text-foreground">Last email</h2>
       <ul className="space-y-1.5">
-        {emails.slice(0, 5).map((email) => (
-          <EmailRow key={email.id} email={email} />
-        ))}
+        <EmailRow email={emails[0]} />
       </ul>
-      {emails.length > 5 && <p className="mt-1.5 text-muted-foreground">and {emails.length - 5} earlier</p>}
+      {emails.length > 1 && (
+        <p className="mt-1.5 text-muted-foreground">
+          Emailed {emails.filter((e) => e.status === 'sent').length} time{emails.filter((e) => e.status === 'sent').length === 1 ? '' : 's'} in total; every attempt is in the History below.
+        </p>
+      )}
       {latestIsFailure && (
         <Button size="sm" variant="outline" className="mt-3" onClick={onRetry}>
           <RotateCcw className="h-4 w-4" aria-hidden="true" />

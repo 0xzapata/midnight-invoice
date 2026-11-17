@@ -59,7 +59,7 @@ export function registerEmailTools(tool: ToolRegistrar, ctx: ServiceContext) {
       description:
         'Email an invoice, with its PDF attached, to the client email on file (the invoice’s toEmail) — a real email to a real person, sent on the user’s behalf. ' +
         'Before calling, confirm with the user: show the invoice number, the recipient address and the total, and wait for an explicit yes. Never send unprompted or in bulk. ' +
-        'You cannot choose another recipient; the address must be one the user entered in the app. A draft is marked as sent; sending a sent or paid invoice again is a resend (status unchanged). ' +
+        'You cannot choose another recipient; the address must be one the user entered in the app. If an agent changed the invoice’s sender or payment details, the user must review (save) it in the app first (403 invoice_needs_review). A draft is marked as sent; sending a sent or paid invoice again is a resend (status unchanged). ' +
         'Void invoices cannot be sent. Limits: a cooldown per invoice and hourly/daily caps (429 with retryAfterSeconds).',
       inputSchema: input,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
