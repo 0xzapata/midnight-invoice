@@ -214,6 +214,9 @@ Page breaks (row-by-row line items, repeated table header, totals kept together,
 - Follow the existing dark mode aesthetic.
 - Use `lucide-react` for icons.
 
+## Agent skills
+`.claude/skills/` holds task playbooks, loaded on demand: `midnight-invoice-feature` (checklist of every surface a feature touches and the tests that enforce it), `midnight-invoice-deploy` (deploy, first-time operator setup, production troubleshooting), and two portable ones, `orchestrate-feature-branches` (parallel subagents, one worktree branch each, gated merge) and `cloudflare-workers-go-live` (first deploy of a Worker, Wrangler sign-in from a remote session). Update the matching skill when a deploy step, a production limit or a cross-cutting rule changes.
+
 ## Contribution Guidelines
 - Release version: `package.json` `version`, `shared/version.ts` (`APP_VERSION`, served by MCP and OpenAPI) and a `CHANGELOG.md` heading must agree (`server/docs-consistency.test.ts`).
 - `VITE_APP_ENV` defaults to `DEVELOPMENT` only under the dev server; builds default to `PRODUCTION` (`src/env.ts`).
