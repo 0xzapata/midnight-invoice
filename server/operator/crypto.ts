@@ -12,20 +12,24 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 /**
- * PBKDF2-SHA-256 iterations for new wraps of the KEK derived from INITIAL_PASSWORD (security fix L4: was
- * 100,000). Measured in local workerd: ~93 ms of CPU vs ~16 ms for 100k. Derived once per isolate and cached
- * (only when an encrypted setting is first needed); the iteration count is stored with the wrap, so wraps made
- * with fewer iterations still unlock and are re-wrapped with this count on unlock.
+ * Most PBKDF2 iterations Cloudflare Workers accept in one `deriveBits` call. Production refuses more
+ * ("iteration counts above 100000 are not supported"); local workerd does not, so tests cannot catch it.
  */
-export const KEK_PBKDF2_ITERATIONS = 600_000;
+export const MAX_PBKDF2_ITERATIONS = 100_000;
+/**
+ * PBKDF2-SHA-256 iterations for new wraps of the KEK derived from INITIAL_PASSWORD: the platform maximum
+ * (~16 ms of CPU in local workerd). Derived once per isolate and cached (only when an encrypted setting is
+ * first needed); the count is stored with the wrap. The strength comes from MIN_INITIAL_PASSWORD_LENGTH.
+ */
+export const KEK_PBKDF2_ITERATIONS = MAX_PBKDF2_ITERATIONS;
 /** Iterations of wraps made before the count was stored per wrap (and the default of migration 0004). */
 export const LEGACY_KEK_PBKDF2_ITERATIONS = 100_000;
 /** INITIAL_PASSWORD shorter than this disables the operator console (security fix L4). */
 export const MIN_INITIAL_PASSWORD_LENGTH = 24;
 
 export const MASTER_KEY_PREFIX = 'mi_mk_';
-/** PBKDF2-SHA-256 iterations when the operator chooses a passphrase as master key (~90 ms, only in the wizard/recovery). */
-export const PASSPHRASE_PBKDF2_ITERATIONS = 600_000;
+/** PBKDF2-SHA-256 iterations when the operator chooses a passphrase as master key (platform maximum; only in the wizard/recovery). */
+export const PASSPHRASE_PBKDF2_ITERATIONS = MAX_PBKDF2_ITERATIONS;
 
 export function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
@@ -83,6 +87,7 @@ export async function hkdf(input: Uint8Array, salt: Uint8Array, info: string, by
 }
 
 export async function pbkdf2(secret: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+  if (iterations > MAX_PBKDF2_ITERATIONS) throw new Error(`PBKDF2 iteration count ${iterations} exceeds the Workers limit of ${MAX_PBKDF2_ITERATIONS}`);
   const k = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations }, k, 256);
   return new Uint8Array(bits);

@@ -11,7 +11,7 @@ import {
   routeFetch,
   signIn,
 } from '../test/operator';
-import { aesGcmDecrypt, aesGcmEncrypt, decodeMasterKey, encodeMasterKey, importAesKey, keyCheckValue, KEK_PBKDF2_ITERATIONS, LEGACY_KEK_PBKDF2_ITERATIONS, pbkdf2, randomBytes, toBase64Url, DecryptionError } from './crypto';
+import { aesGcmDecrypt, aesGcmEncrypt, decodeMasterKey, encodeMasterKey, importAesKey, keyCheckValue, KEK_PBKDF2_ITERATIONS, MAX_PBKDF2_ITERATIONS, PASSPHRASE_PBKDF2_ITERATIONS, pbkdf2, randomBytes, toBase64Url, DecryptionError } from './crypto';
 import { createOperatorDb } from './db';
 import { createKeystore, settingAad } from './keystore';
 
@@ -82,27 +82,15 @@ describe('envelope encryption of settings', () => {
     expect(settingAad('a', 1, 1)).not.toBe(settingAad('b', 1, 1));
   });
 
-  it('wraps with 600k PBKDF2 iterations; a legacy 100k wrap still unlocks and is upgraded on unlock (security fix L4)', async () => {
+  it('never asks for more PBKDF2 iterations than Cloudflare Workers accept (production rejects > 100,000)', async () => {
     const { app } = appWith();
-    const { browser: b, recoveryKey } = await completeSetup(app, workos, OWNER);
-    await b.put('/api/operator/settings/github.token', { value: GITHUB_TOKEN });
+    await completeSetup(app, workos, OWNER);
+    expect(MAX_PBKDF2_ITERATIONS).toBe(100_000);
+    expect(KEK_PBKDF2_ITERATIONS).toBeLessThanOrEqual(MAX_PBKDF2_ITERATIONS);
+    expect(PASSPHRASE_PBKDF2_ITERATIONS).toBeLessThanOrEqual(MAX_PBKDF2_ITERATIONS);
     expect((await state())!.kek_iterations).toBe(KEK_PBKDF2_ITERATIONS);
-    expect(KEK_PBKDF2_ITERATIONS).toBe(600_000);
-    // An install wrapped before the change: the same master key, sealed under a 100k-iteration KEK.
-    const mk = decodeMasterKey(recoveryKey)!;
-    const salt = randomBytes(16);
-    const legacy = await aesGcmEncrypt(await importAesKey(await pbkdf2(INITIAL_PASSWORD, salt, LEGACY_KEK_PBKDF2_ITERATIONS)), mk, 'mi/mk-wrap/v1');
-    const legacySalt = toBase64Url(salt);
-    await d1.db.prepare('UPDATE operator_state SET mk_wrapped = ?, kek_salt = ?, kek_iterations = ? WHERE id = 1').bind(legacy, legacySalt, LEGACY_KEK_PBKDF2_ITERATIONS).run();
-    // A fresh isolate unlocks with the stored count and re-wraps with the current one.
-    const ks = createKeystore(createOperatorDb(d1.db), { initialPassword: INITIAL_PASSWORD }, () => new Date());
-    await expect(ks.decrypt((await settingRow('github.token')) as never)).resolves.toBe(GITHUB_TOKEN);
-    const after = (await state())!;
-    expect(after.kek_iterations).toBe(KEK_PBKDF2_ITERATIONS);
-    expect(after.kek_salt).not.toBe(legacySalt);
-    expect((await d1.db.prepare("SELECT COUNT(*) AS n FROM operator_audit WHERE action = 'encryption.kdf_upgraded'").first<{ n: number }>())!.n).toBe(1);
-    const again = createKeystore(createOperatorDb(d1.db), { initialPassword: INITIAL_PASSWORD }, () => new Date());
-    await expect(again.decrypt((await settingRow('github.token')) as never)).resolves.toBe(GITHUB_TOKEN);
+    // Local workerd would accept this; the guard makes tests fail the way production does.
+    await expect(pbkdf2(INITIAL_PASSWORD, randomBytes(16), MAX_PBKDF2_ITERATIONS + 1)).rejects.toThrow(/exceeds the Workers limit/);
   });
 
   it('fails closed (no data returned) when a stored secret was tampered with', async () => {

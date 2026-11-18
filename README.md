@@ -285,9 +285,8 @@ keys) are envelope-encrypted with Web Crypto:
   (random 96-bit IV per write, AAD binds setting key + version + DEK version);
 - **default mode**: the master key is stored in D1 wrapped (AES-256-GCM) under a
   KEK = PBKDF2-SHA-256(`INITIAL_PASSWORD` (24+ characters), random salt,
-  600,000 iterations; ~93 ms in local workerd, derived once per isolate and only
-  for console and account requests; wraps made with 100,000 iterations by
-  earlier builds are re-wrapped on unlock);
+  100,000 iterations, the most Cloudflare Workers accept; ~16 ms in local
+  workerd, derived once per isolate and only for console and account requests);
 - **hardened mode** (optional, *Operators & security*): set the recovery key as
   a second Worker secret, `bunx wrangler secret put ENCRYPTION_KEY`, redeploy,
   and click *Enable hardened mode*. The server verifies it against the stored
@@ -577,8 +576,8 @@ Known limitations and caveats:
   repository (workerd + local D1, `workos dev`, fetch-level fakes).
 - **Workers Free plan CPU limit** (10 ms per request): server-side PDF
   rendering (PDF downloads by agents, emails with the attached PDF) and the
-  PBKDF2 key derivation of the operator console and accounts (600,000
-  iterations, ~93 ms in local workerd, once per isolate) exceed it; use the
+  PBKDF2 key derivation of the operator console and accounts (100,000
+  iterations, ~16 ms in local workerd, once per isolate) exceed it; use the
   Paid plan.
 - **Rate limits are approximate**: Workers Rate Limiting is per Cloudflare
   location and eventually consistent; user-code lookups and email caps are

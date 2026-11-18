@@ -2,7 +2,7 @@
  * Envelope encryption for secret settings.
  *
  *   master key MK (256-bit; random, or PBKDF2 from an operator passphrase)
- *     ├─ "wrapped" mode: sealed in D1 under KEK = PBKDF2-SHA-256(INITIAL_PASSWORD, kek_salt, 600k; older wraps 100k, upgraded on unlock)
+ *     ├─ "wrapped" mode: sealed in D1 under KEK = PBKDF2-SHA-256(INITIAL_PASSWORD, kek_salt, 100k, the Workers maximum)
  *     └─ "env" mode (hardened): only in the ENCRYPTION_KEY Worker secret; D1 holds no copy
  *   MK seals the DEK (AES-256-GCM), the DEK seals every secret value
  *   (AES-256-GCM, random 96-bit IV, AAD = setting key + row version + DEK version).

@@ -200,8 +200,8 @@ Fixes from an independent security review (regression tests in
 - **Suspended workspaces** (L3): account routes that change the workspace
   (delete, recovery key, connect, claim) refuse while it is suspended.
 - **Operator secret** (L4): `INITIAL_PASSWORD` must have at least 24
-  characters (else the console stays off); the KEK uses 600,000 PBKDF2
-  iterations (existing wraps are upgraded on unlock).
+  characters (else the console stays off); the KEK uses 100,000 PBKDF2
+  iterations, the most Cloudflare Workers accept in one call.
 - **Lockout** (L5): attempt counters are atomic; the global bootstrap /
   recovery lock is replaced by a growing delay, so nobody can lock the
   operator out (per-IP lockout unchanged).

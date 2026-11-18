@@ -96,7 +96,7 @@ function EncryptionStep({ step }: { step: SetupStep }) {
         {(
           [
             ['generate', 'Generate a random 256-bit key', 'Recommended. You will get a recovery key to store offline.'],
-            ['passphrase', 'Derive it from my passphrase', 'PBKDF2-SHA-256, 600,000 iterations. At least 20 characters, mixed classes, or 32+.'],
+            ['passphrase', 'Derive it from my passphrase', 'PBKDF2-SHA-256, 100,000 iterations. At least 20 characters, mixed classes, or 32+.'],
           ] as const
         ).map(([value, title, hint]) => (
           <label key={value} className={cn('flex cursor-pointer items-start gap-3 border p-3', mode === value ? 'border-primary bg-primary/5' : 'border-border')}>
